@@ -1,0 +1,14 @@
+[tool.poetry]
+name = "River_AI"
+version = "1.0.0"
+description = "Telegram bot 'ИИ для Репетитора' with distributed architecture"
+authors = ["Maxim Ruchyov <...>"]
+ 
+[tool.poetry.dependencies]
+python = ">=3.10,<3.12"
+aiogram = "^3.0.0"
+aio-pika = "^9.0.0"
+redis = "^4.5.0"         # Библиотека redis с поддержкой asyncio (для RedisStorage)
+python-dotenv = "^1.0.0" # Для загрузки .env
+loguru = "^0.6.0"
+sentry-sdk = "^1.23.0"   # Sentry SDK с поддержкой Loguru

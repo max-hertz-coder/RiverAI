@@ -1,0 +1,17 @@
+FROM python:3.10-slim
+
+# Install any system dependencies if needed (none required for bot aside from Python itself)
+WORKDIR /app
+
+# Copy requirements and install
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy bot application code
+COPY bot_app/ bot_app/
+
+# Set environment variables for Python (if needed, e.g. to buffer outputs)
+ENV PYTHONUNBUFFERED=1
+
+# Run the bot application
+CMD ["python", "-u", "bot_app/main.py"]

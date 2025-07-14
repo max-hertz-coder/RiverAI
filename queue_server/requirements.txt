@@ -1,0 +1,5 @@
+aio-pika
+aiormq
+pydantic
+python-dotenv
+redis
