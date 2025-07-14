@@ -159,3 +159,4 @@ async def set_plan(user_id: int, plan: str, new_limit: int = None):
             await conn.execute("UPDATE users SET plan=$1, usage_limit=$2 WHERE telegram_id=$3", plan, new_limit, user_id)
         else:
             await conn.execute("UPDATE users SET plan=$1 WHERE telegram_id=$2", plan, user_id)
+

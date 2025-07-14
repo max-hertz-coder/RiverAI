@@ -1,47 +1,80 @@
 import asyncio
 import json
+import logging
+import aio_pika
+
+logger = logging.getLogger(__name__)
+
 
 class Scheduler:
+    """
+    Scheduler: принимает задачи от бота, кладёт их во внутреннюю очередь,
+    распределяет их воркерам и перенаправляет обратно результаты.
+    """
+
     def __init__(self, broker):
         self.broker = broker
-        self.pending_tasks = asyncio.Queue()  # очередь задач в памяти
-        self.results = {}  # по task_id -> результат
+        self.pending_tasks: asyncio.Queue = asyncio.Queue()
 
     async def run(self):
-        # Запускаем параллельно обработку задач и результатов
+        """
+        Запускает приём задач, их рассылку воркерам и пересылку результатов боту.
+        """
         await asyncio.gather(
-            self.process_incoming_tasks(),
-            self.process_results()
+            self._consume_tasks_loop(),
+            self._dispatch_loop(),
+            self._process_results_loop(),
         )
 
-    async def process_incoming_tasks(self):
-        # Получаем задачи из RabbitMQ и ставим в локальную очередь
+    async def _consume_tasks_loop(self):
+        """
+        Слушает очередь задач от бота и кладёт каждую задачу во внутреннюю очередь.
+        """
         async def on_task(message: aio_pika.IncomingMessage):
             async with message.process():
-                body = message.body
-                task = json.loads(body.decode())
-                task_id = task.get("task_id")
-                print(f"Task received: {task_id}")
-                await self.pending_tasks.put(task)
+                try:
+                    payload = message.body.decode()
+                    task = json.loads(payload)
+                    task_id = task.get("task_id", "<no-id>")
+                    logger.info(f"[Scheduler] Received task id={task_id} type={task.get('type')}")
+                    await self.pending_tasks.put(task)
+                except Exception as e:
+                    logger.error(f"[Scheduler] Error parsing incoming task: {e}")
+
+        # broker.consume_tasks настраивает подписку на RabbitMQ-очередь задач
         await self.broker.consume_tasks(on_task)
 
-    async def process_results(self):
-        # Получаем результаты из RabbitMQ
-        async def on_result(message: aio_pika.IncomingMessage):
-            async with message.process():
-                body = message.body
-                result = json.loads(body.decode())
-                task_id = result.get("task_id")
-                print(f"Result received for task: {task_id}")
-                self.results[task_id] = result
-        await self.broker.consume_results(on_result)
-
-    async def dispatch_task_to_worker(self):
-        # Берём задачу из очереди и отправляем воркеру
+    async def _dispatch_loop(self):
+        """
+        Берёт задачу из внутренней очереди и отправляет её воркерам.
+        """
         while True:
             task = await self.pending_tasks.get()
-            # Здесь логика выбора воркера (по нагрузке, случайно, по типу задачи и т.д.)
-            # В нашем RabbitMQ - просто отправляем задачу обратно в очередь (или другой exchange)
-            await self.broker.publish_task(json.dumps(task).encode())
-            print(f"Task dispatched: {task.get('task_id')}")
-            await asyncio.sleep(0)  # пропуск управления
+            try:
+                body = json.dumps(task).encode()
+                await self.broker.publish_task(body)
+                logger.info(f"[Scheduler] Dispatched task id={task.get('task_id')} type={task.get('type')}")
+            except Exception as e:
+                logger.error(f"[Scheduler] Failed to dispatch task {task.get('task_id')}: {e}")
+            finally:
+                self.pending_tasks.task_done()
+
+    async def _process_results_loop(self):
+        """
+        Слушает очередь результатов от воркеров и пересылает их боту.
+        """
+        async def on_result(message: aio_pika.IncomingMessage):
+            async with message.process():
+                try:
+                    payload = message.body  # уже байты JSON
+                    result = json.loads(payload.decode())
+                    task_id = result.get("task_id", "<no-id>")
+                    logger.info(f"[Scheduler] Received result for task id={task_id}")
+                    # Пересылаем результат в очередь бота
+                    await self.broker.publish_result(payload)
+                    logger.info(f"[Scheduler] Forwarded result id={task_id} to bot")
+                except Exception as e:
+                    logger.error(f"[Scheduler] Error processing result: {e}")
+
+        # broker.consume_results настраивает подписку на очередь результатов воркеров
+        await self.broker.consume_results(on_result)

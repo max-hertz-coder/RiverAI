@@ -50,14 +50,14 @@ async def process_plan_description(message: Message, state: FSMContext):
         "description": description
     }
     # Use aio_pika channel stored in config (set up in main)
-    from bot_app import rabbit_channel  # ensure rabbit_channel is globally available from main
+    from bot_app import rabbit_channel  # use global channel from main
     import json
     await rabbit_channel.default_exchange.publish(
-        message= aio_pika.Message(body=json.dumps(task).encode('utf-8')),
+        aio_pika.Message(body=json.dumps(task).encode('utf-8')),
         routing_key=config.RABBITMQ_TASK_QUEUE
     )
     await message.answer("🕔 Генерируется учебный план, пожалуйста подождите...")
-    # Clear state (we will handle response via result consumer, not via FSM)
+    # Clear state (result will be handled by result consumer)
     await state.clear()
 
 # Handle "Generate Tasks" button
@@ -105,10 +105,10 @@ async def process_homework_file(message: Message, state: FSMContext):
     data = await state.get_data()
     student_id = data.get("student_id")
     user_id = message.from_user.id
-    # Download the file
+    # Download the file from Telegram
     file = await message.document.download(destination=None)
-    file_bytes = await message.document.read()  # get file content in memory
-    # Try to extract text if possible (assuming text-based file)
+    file_bytes = await message.document.read()  # file content in memory
+    # Try to extract text if possible (assuming a text-based file)
     solution_text = None
     try:
         solution_text = file_bytes.decode('utf-8')
@@ -131,7 +131,7 @@ async def process_homework_file(message: Message, state: FSMContext):
     await message.reply("🕔 Выполняется проверка домашнего задания, пожалуйста подождите...")
     await state.clear()
 
-# Refinement flows (Correct/Refine buttons)
+# Refinement flows for "Correct/Refine" buttons after results
 @router.callback_query(F.data.startswith("refine_plan:"))
 async def cb_refine_plan(callback: CallbackQuery, state: FSMContext):
     student_id = int(callback.data.split(":")[1])
@@ -145,12 +145,12 @@ async def process_plan_refinement(message: Message, state: FSMContext):
     data = await state.get_data()
     student_id = data.get("student_id")
     user_id = message.from_user.id
-    # We will treat refinement as a new generate_plan request, possibly appending feedback to original description
+    # Treat refinement as a new generate_plan request (possibly could combine with previous description)
     task = {
         "type": "generate_plan",
         "user_id": user_id,
         "student_id": student_id,
-        "description": feedback  # use feedback as new prompt (in a real scenario, combine with previous context)
+        "description": feedback
     }
     from bot_app import rabbit_channel
     import json, aio_pika
@@ -207,7 +207,7 @@ async def process_check_refinement(message: Message, state: FSMContext):
         "user_id": user_id,
         "student_id": student_id,
         "filename": "",  # no new file, just text feedback
-        "solution_text": feedback  # treat user's feedback as additional text to check
+        "solution_text": feedback
     }
     from bot_app import rabbit_channel
     import json, aio_pika

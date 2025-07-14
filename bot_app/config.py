@@ -1,50 +1,43 @@
 import os
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
 load_dotenv()
 
-# Telegram Bot API token
-BOT_TOKEN: str = os.getenv("BOT_TOKEN")
+# Database (PostgreSQL)
+DB_HOST = os.getenv("POSTGRES_HOST", "db")
+DB_PORT = os.getenv("POSTGRES_PORT", "5432")
+DB_NAME = os.getenv("POSTGRES_DB", "tutorbot_db")
+DB_USER = os.getenv("POSTGRES_USER", "tutorbot")
+DB_PASSWORD = os.getenv("POSTGRES_PASSWORD", "tutorbot")
 
-# PostgreSQL database credentials
-DB_HOST: str = os.getenv("POSTGRES_HOST", "db")
-DB_PORT: str = os.getenv("POSTGRES_PORT", "5432")
-DB_NAME: str = os.getenv("POSTGRES_DB", "tutorbot_db")
-DB_USER: str = os.getenv("POSTGRES_USER", "tutorbot")
-DB_PASSWORD: str = os.getenv("POSTGRES_PASSWORD", "tutorbot")
+# RabbitMQ
+RABBITMQ_HOST = os.getenv("RABBITMQ_HOST", "rabbitmq")
+RABBITMQ_PORT = int(os.getenv("RABBITMQ_PORT", "5672"))
+RABBITMQ_USER = os.getenv("RABBITMQ_USER", "guest")
+RABBITMQ_PASS = os.getenv("RABBITMQ_PASS", "guest")
+TASK_QUEUE = os.getenv("RABBITMQ_TASK_QUEUE", "task_queue")
+RESULT_QUEUE = os.getenv("RABBITMQ_RESULT_QUEUE", "result_queue")
 
-# Redis connection settings
-REDIS_HOST: str = os.getenv("REDIS_HOST", "redis")
-REDIS_PORT: int = int(os.getenv("REDIS_PORT", "6379"))
-REDIS_DB_FSM: int = int(os.getenv("REDIS_DB_FSM", "0"))    # DB index for FSM/state
-REDIS_DB_CACHE: int = int(os.getenv("REDIS_DB_CACHE", "1"))  # DB index for caching (if used)
+# Redis (for caching/chat context)
+REDIS_HOST = os.getenv("REDIS_HOST", "redis")
+REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+REDIS_DB = int(os.getenv("REDIS_DB_CACHE", "1"))  # use DB index 1 for context
 
-# RabbitMQ connection settings
-RABBITMQ_HOST: str = os.getenv("RABBITMQ_HOST", "rabbitmq")
-RABBITMQ_PORT: int = int(os.getenv("RABBITMQ_PORT", "5672"))
-RABBITMQ_USER: str = os.getenv("RABBITMQ_USER", "guest")
-RABBITMQ_PASS: str = os.getenv("RABBITMQ_PASS", "guest")
-RABBITMQ_TASK_QUEUE: str = os.getenv("RABBITMQ_TASK_QUEUE", "task_queue")
-RABBITMQ_RESULT_QUEUE: str = os.getenv("RABBITMQ_RESULT_QUEUE", "result_queue")
-
-# Encryption key for sensitive data (should be 16, 24, or 32 bytes for AES)
-# Expect key provided as hex or plain string of appropriate length
+# Encryption key (same as bot's key for decrypting DB fields)
 _key_str = os.getenv("ENCRYPTION_KEY")
 if not _key_str:
-    raise RuntimeError("ENCRYPTION_KEY not set in environment")
-try:
-    # If given as 64-char hex string, convert to bytes
-    if all(c in "0123456789abcdefABCDEF" for c in _key_str) and len(_key_str) == 64:
-        ENCRYPTION_KEY: bytes = bytes.fromhex(_key_str)
-    else:
-        # Use UTF-8 bytes directly (if length is 16/24/32 bytes when encoded)
-        key_bytes = _key_str.encode('utf-8')
-        if len(key_bytes) not in (16, 24, 32):
-            raise ValueError("ENCRYPTION_KEY must be 16, 24, or 32 bytes long")
-        ENCRYPTION_KEY: bytes = key_bytes
-except Exception as e:
-    raise RuntimeError(f"Invalid ENCRYPTION_KEY: {e}")
+    raise RuntimeError("ENCRYPTION_KEY not set for worker")
+if all(c in "0123456789abcdefABCDEF" for c in _key_str) and len(_key_str) == 64:
+    ENCRYPTION_KEY = bytes.fromhex(_key_str)
+else:
+    key_bytes = _key_str.encode('utf-8')
+    if len(key_bytes) not in (16, 24, 32):
+        raise RuntimeError("Invalid ENCRYPTION_KEY length")
+    ENCRYPTION_KEY = key_bytes
 
-# Other configuration
-# e.g., Webhook settings (if used), but we'll use polling by default
+# OpenAI API keys (one or multiple, comma-separated)
+_openai_keys = os.getenv("OPENAI_API_KEYS") or os.getenv("OPENAI_API_KEY")
+if _openai_keys:
+    OPENAI_API_KEYS = [k.strip() for k in _openai_keys.split(",") if k.strip()]
+else:
+    OPENAI_API_KEYS = []

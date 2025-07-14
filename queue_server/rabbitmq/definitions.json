@@ -1,0 +1,47 @@
+{
+    "rabbit_version": "3.11.14",
+    "users": [
+      {
+        "name": "riverai_user",
+        "password_hash": "<REPLACE_WITH_YOUR_HASHED_PASSWORD>",
+        "hashing_algorithm": "rabbit_password_hashing_sha256",
+        "tags": ""
+      }
+    ],
+    "vhosts": [
+      {
+        "name": "/riverai"
+      }
+    ],
+    "permissions": [
+      {
+        "user": "riverai_user",
+        "vhost": "/riverai",
+        "configure": ".*",
+        "write": ".*",
+        "read": ".*"
+      }
+    ],
+    "queues": [
+      {
+        "name": "task_queue",
+        "vhost": "/riverai",
+        "durable": true,
+        "auto_delete": false,
+        "arguments": {}
+      },
+      {
+        "name": "result_queue",
+        "vhost": "/riverai",
+        "durable": true,
+        "auto_delete": false,
+        "arguments": {}
+      }
+    ],
+    "exchanges": [],
+    "bindings": [],
+    "parameters": [],
+    "policies": [],
+    "topic_permissions": []
+  }
+  

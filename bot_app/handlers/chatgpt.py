@@ -30,8 +30,7 @@ async def handle_gpt_dialog_message(message: Message, state: FSMContext, bot: Bo
         await state.clear()
         data = await state.get_data()
         student_id = data.get("student_id")
-        # Clear conversation context in worker's Redis via sending a reset command or simply dropping it on our side
-        # We'll send a special task to worker to clear context if needed.
+        # Clear conversation context on worker (send special task to worker to clear chat history)
         task = {
             "type": "end_chat",
             "user_id": message.from_user.id,
@@ -60,5 +59,5 @@ async def handle_gpt_dialog_message(message: Message, state: FSMContext, bot: Bo
             aio_pika.Message(body=json.dumps(task).encode('utf-8')),
             routing_key="task_queue"
         )
-        # Optionally, show typing action or acknowledgment
+        # Acknowledge message sent
         await message.answer("💭 (сообщение отправлено ИИ, ожидайте ответ)...")

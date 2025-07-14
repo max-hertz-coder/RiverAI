@@ -2,8 +2,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 def chat_menu_kb(student_id: int, lang: str = "RU"):
     """
-    Inline keyboard for a student's chat context menu:
-    Generate Plan, Generate Tasks, Check Homework, Chat with GPT, Back.
+    Inline keyboard for a student's menu of actions: generate plan, generate tasks, check homework, chat with GPT, back.
     """
     kb = InlineKeyboardBuilder()
     if lang.upper() == "EN":
@@ -22,7 +21,7 @@ def chat_menu_kb(student_id: int, lang: str = "RU"):
     return kb.as_markup()
 
 def result_plan_kb(student_id: int, lang: str = "RU"):
-    """Inline keyboard after generating a plan: Correct, Save to Y.Disk, Back."""
+    """Keyboard after generating a plan: refine or save, back to menu."""
     kb = InlineKeyboardBuilder()
     if lang.upper() == "EN":
         kb.button(text="✏️ Refine", callback_data=f"refine_plan:{student_id}")
@@ -36,7 +35,7 @@ def result_plan_kb(student_id: int, lang: str = "RU"):
     return kb.as_markup()
 
 def result_tasks_kb(student_id: int, lang: str = "RU"):
-    """Inline keyboard after generating tasks: Correct, Send to chat, Save PDF, Back."""
+    """Keyboard after generating tasks: refine, send to chat, save PDF, back."""
     kb = InlineKeyboardBuilder()
     if lang.upper() == "EN":
         kb.button(text="✏️ Refine", callback_data=f"refine_tasks:{student_id}")
@@ -52,7 +51,7 @@ def result_tasks_kb(student_id: int, lang: str = "RU"):
     return kb.as_markup()
 
 def result_check_kb(student_id: int, lang: str = "RU"):
-    """Inline keyboard after homework check: Correct, Save report, Back."""
+    """Keyboard after homework check: refine, save report, back."""
     kb = InlineKeyboardBuilder()
     if lang.upper() == "EN":
         kb.button(text="✏️ Refine Check", callback_data=f"refine_check:{student_id}")
@@ -66,7 +65,7 @@ def result_check_kb(student_id: int, lang: str = "RU"):
     return kb.as_markup()
 
 def chat_gpt_back_kb(lang: str = "RU"):
-    """Inline keyboard with just a Back button for GPT chat context (attached to each GPT answer)."""
+    """Keyboard with a Back button for GPT chat context."""
     text = "← Back" if lang.upper() == "EN" else "← Назад"
     kb = InlineKeyboardBuilder()
     kb.button(text=text, callback_data="back:chat")

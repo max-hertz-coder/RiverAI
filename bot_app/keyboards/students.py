@@ -2,19 +2,18 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 def students_list_kb(students: list, lang: str = "RU"):
     """
-    Build an inline keyboard for the list of students.
-    Each student name is a button to open that student's action menu.
+    Build an inline keyboard listing all students.
+    Each student's name is a button that opens that student's action menu.
     Includes 'Add new' and 'Back'.
     """
     kb = InlineKeyboardBuilder()
-    # Create a button for each student (label = name, callback_data = student:<id>)
     for s in students:
-        name = s["name"] or "Без имени" if lang.upper() == "RU" else s["name"] or "No Name"
+        name = s["name"] or ("Без имени" if lang.upper() == "RU" else "No Name")
         kb.button(text=name, callback_data=f"student:{s['id']}")
     # "Add new" button
     add_text = "➕ Добавить нового" if lang.upper() == "RU" else "➕ Add new"
     kb.button(text=add_text, callback_data="add_student")
-    # Back button
+    # Back button to main menu
     back_text = "← Назад" if lang.upper() == "RU" else "← Back"
     kb.button(text=back_text, callback_data="back:main")
     kb.adjust(1)

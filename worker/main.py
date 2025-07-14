@@ -5,14 +5,14 @@ import json
 import aio_pika
 
 from worker import config, db, redis_cache
-from worker.consumers import task_consumer
+from worker.consumers import task_consumer  # (Assuming a consumer module that processes tasks)
 
 async def main():
     logging.basicConfig(level=logging.INFO)
-    # Initialize DB and Redis
+    # Initialize DB and Redis connections
     await db.init_db_pool()
     await redis_cache.init_redis()
-    # Connect to RabbitMQ
+    # Connect to RabbitMQ and open channel
     connection = await aio_pika.connect_robust(
         host=config.RABBITMQ_HOST,
         port=config.RABBITMQ_PORT,
@@ -20,22 +20,21 @@ async def main():
         password=config.RABBITMQ_PASS
     )
     channel = await connection.channel()
-    # Declare queues
+    # Declare task queue (durable)
     task_queue = await channel.declare_queue(config.TASK_QUEUE, durable=True)
-    result_exchange = await channel.declare_exchange("", aio_pika.ExchangeType.DIRECT)  # default exchange for direct publish
-    # Consume tasks
+    # Start consuming tasks
     async for msg in task_queue:
         async with msg.process():
             try:
-                task_data = msg.body.decode('utf-8')
+                task_data = json.loads(msg.body.decode('utf-8'))
             except Exception as e:
                 logging.error(f"Failed to decode task message: {e}")
                 continue
             result = await task_consumer.process_task_message(task_data)
             if result:
-                # Publish result message to result_queue
+                # Publish result to result queue
                 try:
-                    await result_exchange.publish(
+                    await channel.default_exchange.publish(
                         aio_pika.Message(body=json.dumps(result).encode('utf-8')),
                         routing_key=config.RESULT_QUEUE
                     )
