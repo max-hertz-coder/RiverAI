@@ -10,21 +10,21 @@ jobs:
     strategy:
       matrix:
         include:
+          - name: очередь
+            host: 185.200.176.96      # очередь
+            secret_key: SSH_KEY_QUEUE
           - name: основной
-            host: 185.200.176.96
+            host: 185.200.176.99      # основной
             secret_key: SSH_KEY_BASED
           - name: резервный
-            host: 185.200.176.97
+            host: 185.200.176.97      # резервный
             secret_key: SSH_KEY_RESERVE
-          - name: очередь
-            host: 185.200.176.98
-            secret_key: SSH_KEY_QUEUE
           - name: воркер1-2
-            host: 185.200.176.99
-            secret_key: SSH_KEY_WORKER1
+            host: 185.200.176.95      # воркеры 1 и 2
+            secret_key: SSH_KEY_WORKER
           - name: воркер3-4
-            host: 185.200.176.100
-            secret_key: SSH_KEY_WORKER2
+            host: 185.200.176.98      # воркеры 3 и 4
+            secret_key: SSH_KEY_WORKER
 
     steps:
       - name: Checkout
@@ -33,10 +33,10 @@ jobs:
       - name: Deploy to ${{ matrix.name }}
         uses: appleboy/ssh-action@v0.1.8
         with:
-          host:      ${{ matrix.host }}
-          username:  root
-          key:       ${{ secrets[matrix.secret_key] }}
-          use_insecure_known_hosts: true
+          host:     ${{ matrix.host }}
+          username: root
+          key:      ${{ secrets[ matrix.secret_key ] }}
+          insecure: true                     # <-- вот это вместо use_insecure_known_hosts
           script: |
             cd /opt/ii-tutor-bot
             git pull origin main
