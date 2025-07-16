@@ -1,7 +1,8 @@
-name: Авто-деплой на сервера
+name: Авто-деплой на все сервера
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
 
 jobs:
   deploy:
@@ -10,35 +11,43 @@ jobs:
     strategy:
       matrix:
         include:
-          - name: основной
-            host: ${{ secrets.HOST_BASED }}
-            key:  ${{ secrets.SSH_KEY_BASED }}
-          - name: резервный
-            host: ${{ secrets.HOST_RESERVE }}
-            key:  ${{ secrets.SSH_KEY_RESERVE }}
           - name: очередь
-            host: ${{ secrets.HOST_QUEUE }}
-            key:  ${{ secrets.SSH_KEY_QUEUE }}
-          - name: воркер1-2
-            host: ${{ secrets.HOST_WORKER1 }}
-            key:  ${{ secrets.SSH_KEY_WORKER }}
-          - name: воркер3-4
-            host: ${{ secrets.HOST_WORKER2 }}
-            key:  ${{ secrets.SSH_KEY_WORKER }}
+            host:      ${{ secrets.HOST_QUEUE }}
+            secret_key: SSH_KEY_QUEUE
+          - name: основной
+            host:      ${{ secrets.HOST_BASED }}
+            secret_key: SSH_KEY_BASED
+          - name: резервный
+            host:      ${{ secrets.HOST_RESERVE }}
+            secret_key: SSH_KEY_RESERVE
+          - name: воркер1
+            host:      ${{ secrets.HOST_WORKER1 }}
+            secret_key: SSH_KEY_WORKER
+          - name: воркер2
+            host:      ${{ secrets.HOST_WORKER2 }}
+            secret_key: SSH_KEY_WORKER
 
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-    - name: Deploy to ${{ matrix.name }}
-      uses: appleboy/ssh-action@v0.1.8
-      with:
-        host:                    ${{ matrix.host }}
-        username:                root
-        key:                     ${{ matrix.key }}
-        # отключаем жёсткую проверку known_hosts:
-        use_insecure_known_hosts: true
-        script: |
-          cd /opt/ii-tutor-bot
-          git pull origin main
-          docker-compose up -d --build
+      - name: Добавить хост в known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ matrix.host }} >> ~/.ssh/known_hosts
+
+      - name: Запустить setup-скрипт на ${{ matrix.name }}
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host:     ${{ matrix.host }}
+          username: root
+          key:      ${{ secrets[matrix.secret_key] }}
+          # если нужно отключить проверку known_hosts, раскомментируйте:
+          # args: -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
+          script: |
+            mkdir -p /opt/deploy
+            cat << 'EOF' > /opt/deploy/setup_queue.sh
+            $(sed 's/^/            /' scripts/setup_queue.sh)
+            EOF
+            chmod +x /opt/deploy/setup_queue.sh
+            /opt/deploy/setup_queue.sh

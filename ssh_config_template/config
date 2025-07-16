@@ -1,0 +1,4 @@
+Host github.com
+  User git
+  IdentityFile ~/.ssh/github-<role>   # заменить <role> на queue, worker или based
+  IdentitiesOnly yes
