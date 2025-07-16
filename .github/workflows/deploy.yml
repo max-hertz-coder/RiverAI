@@ -1,7 +1,8 @@
 name: авто-деплой на сервера
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
 
 jobs:
   deploy:
@@ -11,27 +12,31 @@ jobs:
       matrix:
         include:
           - name: очередь
-            host: 185.200.176.96
+            host:       185.200.176.96
             secret_key: SSH_KEY_QUEUE
+            compose_dir: queue
           - name: основной
-            host: 185.200.176.99
+            host:       185.200.176.99
             secret_key: SSH_KEY_BASED
+            compose_dir: .
           - name: резервный
-            host: 185.200.176.97
+            host:       185.200.176.97
             secret_key: SSH_KEY_RESERVE
-          - name: воркер1-2
-            host: 185.200.176.95
+            compose_dir: .
+          - name: воркер1
+            host:       185.200.176.95
             secret_key: SSH_KEY_WORKER
-          - name: воркер3-4
-            host: 185.200.176.98
+            compose_dir: .
+          - name: воркер2
+            host:       185.200.176.98
             secret_key: SSH_KEY_WORKER
+            compose_dir: .
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Вариант A: автоматически добавляем known_hosts
-      - name: Add ${{ matrix.name }} to known_hosts
+      - name: Add host to known_hosts
         run: |
           mkdir -p ~/.ssh
           ssh-keyscan -H ${{ matrix.host }} >> ~/.ssh/known_hosts
@@ -39,12 +44,23 @@ jobs:
       - name: Deploy to ${{ matrix.name }}
         uses: appleboy/ssh-action@v1.2.2
         with:
-          host:     ${{ matrix.host }}
-          username: root
-          key:      ${{ secrets[ matrix.secret_key ] }}
-          # вариант B вместо ssh-keyscan:
-          # args: -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
+          host:      ${{ matrix.host }}
+          username:  root
+          key:       ${{ secrets[matrix.secret_key] }}
+          args:      -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
           script: |
-            cd /opt/ii-tutor-bot
+            # клонируем репо, если ещё не было
+            if [ ! -d /opt/RiverAI/.git ]; then
+              git clone git@github.com:max-hertz-coder/RiverAI.git /opt/RiverAI
+            fi
+
+            cd /opt/RiverAI
+
+            # обновляем код
             git pull origin main
+
+            # переходим в нужную папку с docker-compose
+            cd "${{ matrix.compose_dir }}"
+
+            # поднимаем контейнеры
             docker-compose up -d --build
