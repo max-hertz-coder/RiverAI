@@ -1,66 +1,72 @@
-name: авто-деплой на сервера
+name: Автодеплой на сервера
+
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
     strategy:
       matrix:
         include:
           - name: очередь
-            host:       185.200.176.96
+            host: 185.200.176.96
             secret_key: SSH_KEY_QUEUE
-            compose_dir: queue
+            role: queue
           - name: основной
-            host:       185.200.176.99
+            host: 185.200.176.99
             secret_key: SSH_KEY_BASED
-            compose_dir: .
+            role: app
           - name: резервный
-            host:       185.200.176.97
+            host: 185.200.176.97
             secret_key: SSH_KEY_RESERVE
-            compose_dir: .
+            role: app
           - name: воркер1
-            host:       185.200.176.95
+            host: 185.200.176.95
             secret_key: SSH_KEY_WORKER
-            compose_dir: .
+            role: app
           - name: воркер2
-            host:       185.200.176.98
+            host: 185.200.176.98
             secret_key: SSH_KEY_WORKER
-            compose_dir: .
+            role: app
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Add host to known_hosts
+      - name: Add GitHub to known_hosts
         run: |
           mkdir -p ~/.ssh
-          ssh-keyscan -H ${{ matrix.host }} >> ~/.ssh/known_hosts
+          ssh-keyscan -H github.com >> ~/.ssh/known_hosts
 
       - name: Deploy to ${{ matrix.name }}
         uses: appleboy/ssh-action@v1.2.2
         with:
-          host:      ${{ matrix.host }}
-          username:  root
-          key:       ${{ secrets[matrix.secret_key] }}
-          args:      -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
+          host: ${{ matrix.host }}
+          username: root
+          key: ${{ secrets[matrix.secret_key] }}
           script: |
-            # клонируем репо, если ещё не было
+            # 1. Клонирование репозитория (если не было) или обновление кода
             if [ ! -d /opt/RiverAI/.git ]; then
               git clone git@github.com:max-hertz-coder/RiverAI.git /opt/RiverAI
             fi
-
             cd /opt/RiverAI
+            # В случае локальных изменений или новых файлов: сбросим незамеченные файлы чтобы pull не прерывался
+            git pull origin main || { git fetch origin main && git reset --hard origin/main && git clean -fd; }
 
-            # обновляем код
-            git pull origin main
+            # 2. Логирование в файл /opt/RiverAI/deploy.log
+            mkdir -p /opt/RiverAI  # на случай, если каталог ещё не существует
+            exec > >(tee -a /opt/RiverAI/deploy.log) 2>&1
+            echo "$(date +'%F %T') — Начало деплоя на сервере ${{ matrix.name }}"
 
-            # переходим в нужную папку с docker-compose
-            cd "${{ matrix.compose_dir }}"
+            # 3. Переход в нужную папку с docker-compose 
+            if [ "${{ matrix.role }}" = "queue" ]; then
+              # для сервера очереди используем compose-файл из каталога queue
+              cd queue
+            fi
 
-            # поднимаем контейнеры
-            docker-compose up -d --build
+            # 4. Запуск/обновление контейнеров
+            docker compose up -d --build --remove-orphans
+
+            echo "$(date +'%F %T') — Деплой успешно завершён на сервере ${{ matrix.name }}"
