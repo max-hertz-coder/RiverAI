@@ -10,7 +10,7 @@ import aio_pika
 
 from bot_app import config
 from bot_app.keyboards.chat_menu import chat_menu_kb
-import bot_app.main as main_module  # <— импортируем модуль, а не переменную
+import bot_app.main as main_module  # модуль, где хранятся rabbit_channel
 
 router = Router()
 
@@ -36,34 +36,59 @@ async def handle_gpt_dialog_message(message: Message, state: FSMContext):
     user_id    = message.from_user.id
     user_text  = message.text.strip()
 
-    # Если выходим из чата
+    # Функция-обёртка для публикации в очередь
+    async def publish_task(task: dict) -> bool:
+        channel = main_module.rabbit_channel
+        # если канал ещё не инициализирован — пробуем пересоздать
+        if channel is None:
+            try:
+                conn = await aio_pika.connect_robust(
+                    host=config.RABBITMQ_HOST,
+                    port=config.RABBITMQ_PORT,
+                    login=config.RABBITMQ_USER,
+                    password=config.RABBITMQ_PASS,
+                )
+                channel = await conn.channel()
+                main_module.rabbit_channel = channel
+            except Exception:
+                return False
+        # публикуем задачу
+        try:
+            await channel.default_exchange.publish(
+                aio_pika.Message(body=json.dumps(task).encode("utf-8")),
+                routing_key=config.RABBITMQ_TASK_QUEUE,
+            )
+            return True
+        except Exception:
+            return False
+
+    # Если пользователь выходит из чата
     if user_text.lower() in ("/exit", "/back"):
         task = {
             "type":       "end_chat",
             "user_id":    user_id,
             "student_id": student_id,
         }
-        # обращаемся к main_module.rabbit_channel (уже инициализированному в on_startup)
-        await main_module.rabbit_channel.default_exchange.publish(
-            aio_pika.Message(body=json.dumps(task).encode("utf-8")),
-            routing_key=config.RABBITMQ_TASK_QUEUE,
-        )
+        ok = await publish_task(task)
         await state.clear()
-        await message.answer(
-            "🔚 Чат с GPT завершён.",
-            reply_markup=chat_menu_kb(student_id, lang="RU"),
-        )
+        if ok:
+            await message.answer(
+                "🔚 Чат с GPT завершён.",
+                reply_markup=chat_menu_kb(student_id, lang="RU"),
+            )
+        else:
+            await message.answer("⚠️ Очередь недоступна. Попробуйте позже.")
+        return
 
-    else:
-        # обычный запрос к GPT
-        task = {
-            "type":       "chat_gpt",
-            "user_id":    user_id,
-            "student_id": student_id,
-            "message":    user_text,
-        }
-        await main_module.rabbit_channel.default_exchange.publish(
-            aio_pika.Message(body=json.dumps(task).encode("utf-8")),
-            routing_key=config.RABBITMQ_TASK_QUEUE,
-        )
+    # Иначе — обычный запрос в GPT
+    task = {
+        "type":       "chat_gpt",
+        "user_id":    user_id,
+        "student_id": student_id,
+        "message":    user_text,
+    }
+    ok = await publish_task(task)
+    if ok:
         await message.answer("💭 Сообщение отправлено ИИ, ожидайте ответ...")
+    else:
+        await message.answer("⚠️ Не удалось отправить задачу в очередь. Попробуйте позже.")
