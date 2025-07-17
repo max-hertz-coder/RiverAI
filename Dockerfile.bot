@@ -1,24 +1,21 @@
 FROM python:3.10-slim
 
-# 1) Установить системные сборочные инструменты и dev-библиотеки
+# 1) Системные библиотеки для сборки пакетов
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-    build-essential \
-    gcc \
-    libpq-dev \
+      build-essential gcc libpq-dev \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# 2) Копируем и апгрейдим pip
+# 2) Копируем и обновляем pip
 COPY requirements.txt .
 RUN pip install --upgrade pip setuptools wheel
 
-# 3) Устанавливаем Python-библиотеки
+# 3) Ставим Python-зависимости
 RUN pip install --no-cache-dir -r requirements.txt
 
 # 4) Копируем код бота
-COPY bot_app ./bot_app
+COPY bot_app/ ./bot_app/
 
-# 5) Стартовый команд
 CMD ["python", "-u", "-m", "bot_app.main"]
