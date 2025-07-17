@@ -5,8 +5,10 @@ from bot_app.keyboards.main_menu import main_menu_kb
 
 router = Router()
 
-@router.message(commands=["start"])
-async def cmd_start(message: Message, bot: Bot):
+from aiogram.filters import Command
+
+@router.message(Command("start"))
+async def cmd_start(message: Message):
     """Handle the /start command: greet user and show main menu."""
     user_id = message.from_user.id
     # We assume AuthMiddleware already created the user in DB if not exists.
