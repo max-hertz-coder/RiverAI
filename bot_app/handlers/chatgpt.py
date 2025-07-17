@@ -1,19 +1,20 @@
 # bot_app/handlers/chatgpt.py
 
+import json
+import logging
+
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, Message
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 
-import json
 import aio_pika
 
 from bot_app import config
 from bot_app.keyboards.chat_menu import chat_menu_kb
-import bot_app.main as main_module  # модуль, где хранятся rabbit_channel
+import bot_app.main as main_module  # чтобы всегда брать main_module.rabbit_channel
 
 router = Router()
-
 
 class ChatGPTDialog(StatesGroup):
     active = State()
@@ -31,15 +32,20 @@ async def cb_chat_gpt(callback: CallbackQuery, state: FSMContext):
 
 @router.message(ChatGPTDialog.active)
 async def handle_gpt_dialog_message(message: Message, state: FSMContext):
-    data = await state.get_data()
+    data       = await state.get_data()
     student_id = data.get("student_id")
     user_id    = message.from_user.id
     user_text  = message.text.strip()
 
-    # Функция-обёртка для публикации в очередь
     async def publish_task(task: dict) -> bool:
+        """
+        Пытаемся опубликовать задачу в RabbitMQ.
+        Если канал не инициализирован — пробуем подключиться заново.
+        Логируем любые ошибки и возвращаем False при неудаче.
+        """
         channel = main_module.rabbit_channel
-        # если канал ещё не инициализирован — пробуем пересоздать
+
+        # Если первого подключения не было — пробуем создать заново
         if channel is None:
             try:
                 conn = await aio_pika.connect_robust(
@@ -50,16 +56,18 @@ async def handle_gpt_dialog_message(message: Message, state: FSMContext):
                 )
                 channel = await conn.channel()
                 main_module.rabbit_channel = channel
-            except Exception:
+            except Exception as e:
+                logging.exception("❌ Не удалось (re)connect к RabbitMQ:")
                 return False
-        # публикуем задачу
+
         try:
             await channel.default_exchange.publish(
                 aio_pika.Message(body=json.dumps(task).encode("utf-8")),
                 routing_key=config.RABBITMQ_TASK_QUEUE,
             )
             return True
-        except Exception:
+        except Exception as e:
+            logging.exception("❌ Ошибка при публикации задачи в очередь:")
             return False
 
     # Если пользователь выходит из чата
@@ -71,6 +79,7 @@ async def handle_gpt_dialog_message(message: Message, state: FSMContext):
         }
         ok = await publish_task(task)
         await state.clear()
+
         if ok:
             await message.answer(
                 "🔚 Чат с GPT завершён.",
@@ -80,7 +89,7 @@ async def handle_gpt_dialog_message(message: Message, state: FSMContext):
             await message.answer("⚠️ Очередь недоступна. Попробуйте позже.")
         return
 
-    # Иначе — обычный запрос в GPT
+    # Иначе — обычный GPT-запрос
     task = {
         "type":       "chat_gpt",
         "user_id":    user_id,
