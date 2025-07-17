@@ -3,18 +3,20 @@ version: '3.9'
 services:
   redis:
     image: redis:7-alpine
+    ports:
+      - "6379:6379"       # <-- публикуем порт
     restart: unless-stopped
     networks:
       - internal
 
   rabbitmq:
     image: rabbitmq:3-management
-    restart: unless-stopped
     ports:
-      - "15672:15672"    # UI
+      - "15672:15672"
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS}
+    restart: unless-stopped
     networks:
       - internal
 
