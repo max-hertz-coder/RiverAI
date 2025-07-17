@@ -9,60 +9,68 @@ from aiogram.fsm.storage.redis import RedisStorage
 from aiogram.types import BotCommand
 
 import aio_pika
-import asyncpg
-import redis.asyncio as redis
 
-from bot_app import config, database
+from bot_app import config
+from bot_app.database import db
 from bot_app.middlewares.auth import AuthMiddleware
 from bot_app.handlers import start, students, generation, chatgpt, subscription, settings
-from bot_app.keyboards.chat_menu import chat_gpt_back_kb, chat_menu_kb, result_plan_kb, result_tasks_kb, result_check_kb
+from bot_app.keyboards.chat_menu import (
+    chat_gpt_back_kb,
+    chat_menu_kb,
+    result_plan_kb,
+    result_tasks_kb,
+    result_check_kb,
+)
 
-# Global RabbitMQ channel for publishing tasks (will be set in on_startup)
+# Глобальный канал RabbitMQ
 rabbit_channel: aio_pika.Channel = None
 
 async def on_startup(bot: Bot, dp: Dispatcher):
-    """Setup resources (DB, Redis, RabbitMQ), commands, and background consumer on startup."""
-    # Initialize database connection pool
-    dsn = f"postgresql://{config.DB_USER}:{config.DB_PASSWORD}@{config.DB_HOST}:{config.DB_PORT}/{config.DB_NAME}"
-    await database.db.init_db_pool(dsn)
+    logging.info("Запуск бота и инициализация ресурсов...")
+    # 1) Инициализируем пул PostgreSQL
+    dsn = (
+        f"postgresql://{config.DB_USER}:{config.DB_PASSWORD}"
+        f"@{config.DB_HOST}:{config.DB_PORT}/{config.DB_NAME}"
+    )
+    await db.init_db_pool(dsn)
 
-    # Configure Telegram bot menu commands
+    # 2) Регистрируем команды для нижнего меню Telegram
     await bot.set_my_commands([
-        BotCommand(command="show_students", description="👤 Ученики"),
-        BotCommand(command="add_student", description="➕ Добавить ученика"),
-        BotCommand(command="settings", description="⚙️ Настройки"),
-        BotCommand(command="subscription", description="💳 Оплата"),
+        BotCommand("show_students", "👤 Ученики"),
+        BotCommand("add_student",   "➕ Добавить ученика"),
+        BotCommand("settings",      "⚙️ Настройки"),
+        BotCommand("subscription",  "💳 Оплата"),
     ])
 
-    # Initialize RabbitMQ connection and channel
+    # 3) Подключаемся к RabbitMQ
     connection = await aio_pika.connect_robust(
         host=config.RABBITMQ_HOST,
         port=config.RABBITMQ_PORT,
         login=config.RABBITMQ_USER,
-        password=config.RABBITMQ_PASS
+        password=config.RABBITMQ_PASS,
     )
     global rabbit_channel
     rabbit_channel = await connection.channel()
 
-    # Declare task and result queues
-    await rabbit_channel.declare_queue(config.RABBITMQ_TASK_QUEUE, durable=True)
+    # 4) Декларируем очереди
+    await rabbit_channel.declare_queue(config.RABBITMQ_TASK_QUEUE,   durable=True)
     result_queue = await rabbit_channel.declare_queue(config.RABBITMQ_RESULT_QUEUE, durable=True)
 
-    # Start consuming results in background
+    # 5) Стартуем прослушку результатов
     await result_queue.consume(lambda msg: asyncio.create_task(process_result(msg, bot)))
 
 async def on_shutdown(bot: Bot, dp: Dispatcher):
-    # Close DB pool if exists
-    if database.db._pool:
-        await database.db._pool.close()
+    logging.info("Останавливаем бота, закрываем пулы...")
+    if db._pool:
+        await db._pool.close()
 
 async def process_result(message: aio_pika.IncomingMessage, bot: Bot):
-    """Process messages from the result queue (sent by workers)."""
+    """Обработка сообщений из очереди результатов."""
     async with message.process():
         try:
-            data = json.loads(message.body.decode('utf-8'))
+            data = json.loads(message.body.decode())
         except Exception as e:
-            logging.error(f"Invalid message format: {e}")
+            logging.error(f"Неверный формат сообщения: {e}")
             return
         user_id = data.get("user_id")
         result_type = data.get("type")
@@ -117,6 +125,7 @@ async def process_result(message: aio_pika.IncomingMessage, bot: Bot):
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
+
     bot = Bot(
         token=config.BOT_TOKEN,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML)
@@ -124,15 +133,18 @@ if __name__ == "__main__":
     dp = Dispatcher(storage=RedisStorage.from_url(
         f"redis://{config.REDIS_HOST}:{config.REDIS_PORT}/{config.REDIS_DB}"
     ))
-    # Register middlewares
+
+    # Подключаем middlewares
     dp.message.middleware(AuthMiddleware())
     dp.callback_query.middleware(AuthMiddleware())
-    # Register routers
+
+    # Регистрируем роутеры из ваших модулей
     dp.include_router(start.router)
     dp.include_router(students.router)
     dp.include_router(generation.router)
     dp.include_router(chatgpt.router)
     dp.include_router(subscription.router)
     dp.include_router(settings.router)
-    # Start polling
+
+    # Запускаем polling
     dp.run_polling(bot, on_startup=on_startup, on_shutdown=on_shutdown)
