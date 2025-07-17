@@ -103,9 +103,11 @@ async def main():
     )
 
     # 2) Диспетчер с Redis-FSM
-    dp = Dispatcher(storage=RedisStorage.from_url(
-        f"redis://{config.REDIS_HOST}:{config.REDIS_PORT}/{config.REDIS_DB_FSM}"
-    ))
+    dp = Dispatcher(
+        storage=RedisStorage.from_url(
+            f"redis://{config.REDIS_HOST}:{config.REDIS_PORT}/{config.REDIS_DB_FSM}"
+        )
+    )
 
     # 3) Подключаем middleware (AuthMiddleware гарантирует, что запись в users есть)
     dp.message.middleware(AuthMiddleware())

@@ -26,7 +26,10 @@ RESULT_QUEUE = os.getenv("RABBITMQ_RESULT_QUEUE", "result_queue")
 # Redis (for caching/chat context)
 REDIS_HOST = os.getenv("REDIS_HOST", "redis")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
-REDIS_DB = int(os.getenv("REDIS_DB_CACHE", "1"))  # use DB index 1 for context
+# Redis DB, где будут храниться состояния FSM
+REDIS_DB_FSM   = int(os.getenv("REDIS_DB_FSM",   "0"))
+# Redis DB для общего кэша / контекста чата
+REDIS_DB_CACHE = int(os.getenv("REDIS_DB_CACHE", "1"))
 
 # Encryption key (same as bot's key for decrypting DB fields)
 _key_str = os.getenv("ENCRYPTION_KEY")
