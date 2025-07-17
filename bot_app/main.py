@@ -3,15 +3,13 @@ import logging
 import json
 
 from aiogram import Bot, Dispatcher
+from aiogram.client.bot import DefaultBotProperties
+from aiogram.enums import ParseMode
 from aiogram.fsm.storage.redis import RedisStorage
 
 import aio_pika
 import asyncpg
 import redis.asyncio as redis
-
-from aiogram import Bot
-from aiogram.client.session import DefaultBotProperties
-
 
 from bot_app import config
 from bot_app import database
@@ -27,7 +25,6 @@ async def on_startup(bot: Bot, dp: Dispatcher):
     # Initialize database connection pool
     dsn = f"postgresql://{config.DB_USER}:{config.DB_PASSWORD}@{config.DB_HOST}:{config.DB_PORT}/{config.DB_NAME}"
     await database.db.init_db_pool(dsn)
-    # Setup Redis for FSM storage is done via RedisStorage, but we may also use it for caching if needed.
     # Initialize RabbitMQ connection and channel
     connection = await aio_pika.connect_robust(
         host=config.RABBITMQ_HOST,
@@ -36,7 +33,7 @@ async def on_startup(bot: Bot, dp: Dispatcher):
         password=config.RABBITMQ_PASS
     )
     global rabbit_channel
-    rabbit_channel = await connection.channel()  # obtain channel
+    rabbit_channel = await connection.channel()
     # Declare task and result queues
     await rabbit_channel.declare_queue(config.RABBITMQ_TASK_QUEUE, durable=True)
     result_queue = await rabbit_channel.declare_queue(config.RABBITMQ_RESULT_QUEUE, durable=True)
@@ -44,9 +41,10 @@ async def on_startup(bot: Bot, dp: Dispatcher):
     await result_queue.consume(lambda msg: asyncio.create_task(process_result(msg, bot)))
 
 async def on_shutdown(bot: Bot, dp: Dispatcher):
-    # Optionally close DB pool and other resources
+    # Close DB pool if exists
     if database.db._pool:
         await database.db._pool.close()
+
 
 async def process_result(message: aio_pika.IncomingMessage, bot: Bot):
     """Process messages from the result queue (sent by workers)."""
@@ -116,14 +114,16 @@ async def process_result(message: aio_pika.IncomingMessage, bot: Bot):
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     bot = Bot(
-    token=config.BOT_TOKEN,
-    default=DefaultBotProperties(parse_mode="HTML")
+        token=config.BOT_TOKEN,
+        default=DefaultBotProperties(parse_mode=ParseMode.HTML)
     )
-    dp = Dispatcher(storage=RedisStorage.from_url(f"redis://{config.REDIS_HOST}:{config.REDIS_PORT}/{config.REDIS_DB_FSM}"))
+    dp = Dispatcher(storage=RedisStorage.from_url(
+        f"redis://{config.REDIS_HOST}:{config.REDIS_PORT}/{config.REDIS_DB}"
+    ))
     # Register middlewares
     dp.message.middleware(AuthMiddleware())
     dp.callback_query.middleware(AuthMiddleware())
-    # Register handlers from modules
+    # Register routers
     dp.include_router(start.router)
     dp.include_router(students.router)
     dp.include_router(generation.router)
