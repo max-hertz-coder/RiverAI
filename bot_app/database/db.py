@@ -1,138 +1,162 @@
-import asyncio
-import logging
-import json
-
-from aiogram import Bot, Dispatcher
-from aiogram.client.bot import DefaultBotProperties
-from aiogram.enums import ParseMode
-from aiogram.fsm.storage.redis import RedisStorage
-from aiogram.types import BotCommand
-
-import aio_pika
 import asyncpg
-import redis.asyncio as redis
+from bot_app.utils import encryption
 
-from bot_app import config, database
-from bot_app.middlewares.auth import AuthMiddleware
-from bot_app.handlers import start, students, generation, chatgpt, subscription, settings
-from bot_app.keyboards.chat_menu import chat_gpt_back_kb, chat_menu_kb, result_plan_kb, result_tasks_kb, result_check_kb
+# Connection pool (initialized in startup)
+_pool: asyncpg.Pool = None
 
-# Global RabbitMQ channel for publishing tasks (will be set in on_startup)
-rabbit_channel: aio_pika.Channel = None
+async def init_db_pool(dsn: str):
+    """Initialize the PostgreSQL connection pool."""
+    global _pool
+    _pool = await asyncpg.create_pool(dsn)
 
-async def on_startup(bot: Bot, dp: Dispatcher):
-    """Setup resources (DB, Redis, RabbitMQ), commands, and background consumer on startup."""
-    # Initialize database connection pool
-    dsn = f"postgresql://{config.DB_USER}:{config.DB_PASSWORD}@{config.DB_HOST}:{config.DB_PORT}/{config.DB_NAME}"
-    await database.db.init_db_pool(dsn)
+# Utility: ensure pool is initialized
+def _get_pool():
+    if _pool is None:
+        raise RuntimeError("Database pool is not initialized")
+    return _pool
 
-    # Configure Telegram bot menu commands
-    await bot.set_my_commands([
-        BotCommand(command="show_students", description="👤 Ученики"),
-        BotCommand(command="add_student", description="➕ Добавить ученика"),
-        BotCommand(command="settings", description="⚙️ Настройки"),
-        BotCommand(command="subscription", description="💳 Оплата"),
-    ])
+# ---------- User-related operations ----------
 
-    # Initialize RabbitMQ connection and channel
-    connection = await aio_pika.connect_robust(
-        host=config.RABBITMQ_HOST,
-        port=config.RABBITMQ_PORT,
-        login=config.RABBITMQ_USER,
-        password=config.RABBITMQ_PASS
-    )
-    global rabbit_channel
-    rabbit_channel = await connection.channel()
+async def get_user_by_tg_id(telegram_id: int):
+    """Fetch a user by Telegram ID. Returns a record or None."""
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT telegram_id, name_enc, plan, usage_count, usage_limit, language, notifications, password_hash, ydisk_token_enc FROM users WHERE telegram_id=$1", telegram_id)
+        return row
 
-    # Declare task and result queues
-    await rabbit_channel.declare_queue(config.RABBITMQ_TASK_QUEUE, durable=True)
-    result_queue = await rabbit_channel.declare_queue(config.RABBITMQ_RESULT_QUEUE, durable=True)
+async def create_user(telegram_id: int, name: str):
+    """Create a new user with given telegram_id and name. Returns the new record."""
+    pool = _get_pool()
+    # Encrypt the name for storage
+    name_enc = encryption.encrypt_str(name) if name else ""
+    # Default plan and usage
+    plan = "basic"
+    usage_limit = 200  # basic plan monthly limit (for example)
+    usage_count = 0
+    language = "RU"
+    notifications = True
+    password_hash = ""  # no password set initially
+    ydisk_token_enc = ""
+    async with pool.acquire() as conn:
+        await conn.execute("""
+            INSERT INTO users (telegram_id, name_enc, plan, usage_count, usage_limit, language, notifications, password_hash, ydisk_token_enc)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            ON CONFLICT (telegram_id) DO NOTHING
+        """, telegram_id, name_enc, plan, usage_count, usage_limit, language, notifications, password_hash, ydisk_token_enc)
+        # Return the user (fetch it)
+        row = await conn.fetchrow("SELECT telegram_id, name_enc, plan, usage_count, usage_limit, language, notifications, password_hash, ydisk_token_enc FROM users WHERE telegram_id=$1", telegram_id)
+        return row
 
-    # Start consuming results in background
-    await result_queue.consume(lambda msg: asyncio.create_task(process_result(msg, bot)))
+async def update_user_name(user_id: int, new_name: str):
+    pool = _get_pool()
+    name_enc = encryption.encrypt_str(new_name)
+    async with pool.acquire() as conn:
+        await conn.execute("UPDATE users SET name_enc=$1 WHERE telegram_id=$2", name_enc, user_id)
 
-async def on_shutdown(bot: Bot, dp: Dispatcher):
-    # Close DB pool if exists
-    if database.db._pool:
-        await database.db._pool.close()
+async def update_user_password(user_id: int, new_password_hash: str):
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("UPDATE users SET password_hash=$1 WHERE telegram_id=$2", new_password_hash, user_id)
 
-async def process_result(message: aio_pika.IncomingMessage, bot: Bot):
-    """Process messages from the result queue (sent by workers)."""
-    async with message.process():
-        try:
-            data = json.loads(message.body.decode('utf-8'))
-        except Exception as e:
-            logging.error(f"Invalid message format: {e}")
-            return
-        user_id = data.get("user_id")
-        result_type = data.get("type")
-        # Route based on result type (same logic as before)
-        if result_type == "plan":
-            plan_text = data.get("plan_text") or "(пусто)"
-            file_url = data.get("file_url")
-            text = f"📄 Сгенерированный учебный план:\n{plan_text}"
-            if file_url == "yadisk":
-                text += "\nФайл PDF сохранён на Яндекс.Диске."
-            elif file_url and file_url.startswith("http"):
-                text += "\nPDF: " + file_url
-            await bot.send_message(user_id, text, reply_markup=result_plan_kb(data.get("student_id"), lang="RU"))
-        elif result_type == "tasks":
-            tasks_text = data.get("tasks_text") or "(нет данных)"
-            file_url = data.get("file_url")
-            file_base64 = data.get("file")
-            text = f"📝 Сгенерированные задания:\n{tasks_text}"
-            if file_url == "yadisk":
-                text += "\nPDF сохранён на Я.Диске."
-            elif file_base64:
-                import base64
-                from aiogram.types import BufferedInputFile
-                pdf_bytes = base64.b64decode(file_base64)
-                input_file = BufferedInputFile(pdf_bytes, filename="Tasks.pdf")
-                await bot.send_document(user_id, input_file, caption="PDF с заданиями")
-            elif file_url:
-                await bot.send_document(user_id, file_url, caption="PDF с заданиями")
-            await bot.send_message(user_id, "Выберите дальнейшие действия:", reply_markup=result_tasks_kb(data.get("student_id"), lang="RU"))
-        elif result_type == "check":
-            report_text = data.get("report_text") or "(нет отчёта)"
-            file_url = data.get("file_url")
-            file_base64 = data.get("file")
-            text = f"✔️ Результаты проверки:\n{report_text}"
-            if file_url == "yadisk":
-                text += "\nОтчёт сохранён на Я.Диске."
-            elif file_base64:
-                import base64
-                from aiogram.types import BufferedInputFile
-                pdf_bytes = base64.b64decode(file_base64)
-                input_file = BufferedInputFile(pdf_bytes, filename="HomeworkReport.pdf")
-                await bot.send_document(user_id, input_file, caption="Отчёт проверки")
-            elif file_url:
-                await bot.send_document(user_id, file_url, caption="Отчёт проверки")
-            await bot.send_message(user_id, "Выберите дальнейшие действия:", reply_markup=result_check_kb(data.get("student_id"), lang="RU"))
-        elif result_type == "chat":
-            answer = data.get("answer") or ""
-            await bot.send_message(user_id, answer, reply_markup=chat_gpt_back_kb(lang="RU"))
-        elif result_type == "error":
-            error_msg = data.get("message", "Произошла ошибка.")
-            await bot.send_message(user_id, f"⚠️ {error_msg}")
+async def update_user_language(user_id: int, new_lang: str):
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("UPDATE users SET language=$1 WHERE telegram_id=$2", new_lang, user_id)
 
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-    bot = Bot(
-        token=config.BOT_TOKEN,
-        default=DefaultBotProperties(parse_mode=ParseMode.HTML)
-    )
-    dp = Dispatcher(storage=RedisStorage.from_url(
-        f"redis://{config.REDIS_HOST}:{config.REDIS_PORT}/{config.REDIS_DB}"
-    ))
-    # Register middlewares
-    dp.message.middleware(AuthMiddleware())
-    dp.callback_query.middleware(AuthMiddleware())
-    # Register routers
-    dp.include_router(start.router)
-    dp.include_router(students.router)
-    dp.include_router(generation.router)
-    dp.include_router(chatgpt.router)
-    dp.include_router(subscription.router)
-    dp.include_router(settings.router)
-    # Start polling
-    dp.run_polling(bot, on_startup=on_startup, on_shutdown=on_shutdown)
+async def update_user_notifications(user_id: int, enabled: bool):
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("UPDATE users SET notifications=$1 WHERE telegram_id=$2", enabled, user_id)
+
+async def update_user_ydisk_token(user_id: int, token: str):
+    pool = _get_pool()
+    token_enc = encryption.encrypt_str(token)
+    async with pool.acquire() as conn:
+        await conn.execute("UPDATE users SET ydisk_token_enc=$1 WHERE telegram_id=$2", token_enc, user_id)
+
+# ---------- Student-related operations ----------
+
+async def get_students_by_user(user_id: int):
+    """Retrieve all students for a given user (decrypt fields for use)."""
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("SELECT id, name_enc, subject_enc, level_enc, notes_enc FROM students WHERE user_id=$1 ORDER BY id", user_id)
+        students = []
+        for row in rows:
+            name = encryption.decrypt_str(row["name_enc"]) if row["name_enc"] else ""
+            subject = encryption.decrypt_str(row["subject_enc"]) if row["subject_enc"] else ""
+            level = encryption.decrypt_str(row["level_enc"]) if row["level_enc"] else ""
+            notes = encryption.decrypt_str(row["notes_enc"]) if row["notes_enc"] else ""
+            students.append({
+                "id": row["id"],
+                "name": name,
+                "subject": subject,
+                "level": level,
+                "notes": notes
+            })
+        return students
+
+async def get_student(student_id: int):
+    """Get a single student record (with decrypted fields)."""
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT id, user_id, name_enc, subject_enc, level_enc, notes_enc FROM students WHERE id=$1", student_id)
+        if row:
+            return {
+                "id": row["id"],
+                "user_id": row["user_id"],
+                "name": encryption.decrypt_str(row["name_enc"]) if row["name_enc"] else "",
+                "subject": encryption.decrypt_str(row["subject_enc"]) if row["subject_enc"] else "",
+                "level": encryption.decrypt_str(row["level_enc"]) if row["level_enc"] else "",
+                "notes": encryption.decrypt_str(row["notes_enc"]) if row["notes_enc"] else ""
+            }
+        return None
+
+async def add_student(user_id: int, name: str, subject: str, level: str, notes: str):
+    """Add a new student for the user (store encrypted values)."""
+    pool = _get_pool()
+    name_enc = encryption.encrypt_str(name)
+    subject_enc = encryption.encrypt_str(subject)
+    level_enc = encryption.encrypt_str(level)
+    notes_enc = encryption.encrypt_str(notes) if notes else ""
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("""
+            INSERT INTO students (user_id, name_enc, subject_enc, level_enc, notes_enc)
+            VALUES ($1, $2, $3, $4, $5) RETURNING id
+        """, user_id, name_enc, subject_enc, level_enc, notes_enc)
+        return row["id"] if row else None
+
+async def update_student(student_id: int, name: str, subject: str, level: str, notes: str):
+    pool = _get_pool()
+    name_enc = encryption.encrypt_str(name)
+    subject_enc = encryption.encrypt_str(subject)
+    level_enc = encryption.encrypt_str(level)
+    notes_enc = encryption.encrypt_str(notes) if notes else ""
+    async with pool.acquire() as conn:
+        await conn.execute("""
+            UPDATE students SET name_enc=$1, subject_enc=$2, level_enc=$3, notes_enc=$4
+            WHERE id=$5
+        """, name_enc, subject_enc, level_enc, notes_enc, student_id)
+
+async def delete_student(student_id: int):
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("DELETE FROM students WHERE id=$1", student_id)
+
+# ---------- Subscription and usage ----------
+
+async def increment_usage(user_id: int):
+    """Increment usage count for user by 1."""
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("UPDATE users SET usage_count = usage_count + 1 WHERE telegram_id=$1", user_id)
+
+async def set_plan(user_id: int, plan: str, new_limit: int = None):
+    """Update user's subscription plan (and optionally usage limit)."""
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        if new_limit is not None:
+            await conn.execute("UPDATE users SET plan=$1, usage_limit=$2 WHERE telegram_id=$3", plan, new_limit, user_id)
+        else:
+            await conn.execute("UPDATE users SET plan=$1 WHERE telegram_id=$2", plan, user_id)
+
