@@ -53,7 +53,7 @@ async def on_startup(bot: Bot, dp: Dispatcher):
     rabbit_channel = await connection.channel()
 
     # 4) Декларируем очереди
-    await rabbit_channel.declare_queue(config.RABBITMQ_TASK_QUEUE,   durable=True)
+    await rabbit_channel.declare_queue(config.RABBITMQ_TASK_QUEUE, durable=True)
     result_queue = await rabbit_channel.declare_queue(config.RABBITMQ_RESULT_QUEUE, durable=True)
 
     # 5) Стартуем прослушку результатов
@@ -117,15 +117,18 @@ async def process_result(message: aio_pika.IncomingMessage, bot: Bot):
                 await bot.send_document(user_id, file_url, caption="Отчёт проверки")
             await bot.send_message(user_id, "Выберите дальнейшие действия:", reply_markup=result_check_kb(data.get("student_id"), lang="RU"))
         elif result_type == "chat":
-            answer = data.get("answer") or ""
-            await bot.send_message(user_id, answer, reply_markup=chat_gpt_back_kb(lang="RU"))
+            await bot.send_message(
+                user_id,
+                data.get("answer",""),
+                reply_markup=chat_gpt_back_kb(lang="RU")
+            )
+
         elif result_type == "error":
-            error_msg = data.get("message", "Произошла ошибка.")
-            await bot.send_message(user_id, f"⚠️ {error_msg}")
+            await bot.send_message(user_id, f"⚠️ {data.get('message','Произошла ошибка.')}")
 
-if __name__ == "__main__":
+
+async def main():
     logging.basicConfig(level=logging.INFO)
-
     bot = Bot(
         token=config.BOT_TOKEN,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML)
@@ -138,7 +141,7 @@ if __name__ == "__main__":
     dp.message.middleware(AuthMiddleware())
     dp.callback_query.middleware(AuthMiddleware())
 
-    # Регистрируем роутеры из ваших модулей
+    # Регистрируем роутеры
     dp.include_router(start.router)
     dp.include_router(students.router)
     dp.include_router(generation.router)
@@ -146,5 +149,8 @@ if __name__ == "__main__":
     dp.include_router(subscription.router)
     dp.include_router(settings.router)
 
-    # Запускаем polling
-    dp.run_polling(bot, on_startup=on_startup, on_shutdown=on_shutdown)
+    # Запускаем polling с on_startup и on_shutdown
+    await dp.start_polling(bot, on_startup=on_startup, on_shutdown=on_shutdown)
+
+if __name__ == "__main__":
+    asyncio.run(main())
