@@ -6,13 +6,13 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.bot import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.redis import RedisStorage
+from aiogram.types import BotCommand
 
 import aio_pika
 import asyncpg
 import redis.asyncio as redis
 
-from bot_app import config
-from bot_app import database
+from bot_app import config, database
 from bot_app.middlewares.auth import AuthMiddleware
 from bot_app.handlers import start, students, generation, chatgpt, subscription, settings
 from bot_app.keyboards.chat_menu import chat_gpt_back_kb, chat_menu_kb, result_plan_kb, result_tasks_kb, result_check_kb
@@ -21,10 +21,19 @@ from bot_app.keyboards.chat_menu import chat_gpt_back_kb, chat_menu_kb, result_p
 rabbit_channel: aio_pika.Channel = None
 
 async def on_startup(bot: Bot, dp: Dispatcher):
-    """Setup resources (DB, Redis, RabbitMQ) and background consumer on startup."""
+    """Setup resources (DB, Redis, RabbitMQ), commands, and background consumer on startup."""
     # Initialize database connection pool
     dsn = f"postgresql://{config.DB_USER}:{config.DB_PASSWORD}@{config.DB_HOST}:{config.DB_PORT}/{config.DB_NAME}"
     await database.db.init_db_pool(dsn)
+
+    # Configure Telegram bot menu commands
+    await bot.set_my_commands([
+        BotCommand(command="show_students", description="👤 Ученики"),
+        BotCommand(command="add_student", description="➕ Добавить ученика"),
+        BotCommand(command="settings", description="⚙️ Настройки"),
+        BotCommand(command="subscription", description="💳 Оплата"),
+    ])
+
     # Initialize RabbitMQ connection and channel
     connection = await aio_pika.connect_robust(
         host=config.RABBITMQ_HOST,
@@ -34,9 +43,11 @@ async def on_startup(bot: Bot, dp: Dispatcher):
     )
     global rabbit_channel
     rabbit_channel = await connection.channel()
+
     # Declare task and result queues
     await rabbit_channel.declare_queue(config.RABBITMQ_TASK_QUEUE, durable=True)
     result_queue = await rabbit_channel.declare_queue(config.RABBITMQ_RESULT_QUEUE, durable=True)
+
     # Start consuming results in background
     await result_queue.consume(lambda msg: asyncio.create_task(process_result(msg, bot)))
 
@@ -44,7 +55,6 @@ async def on_shutdown(bot: Bot, dp: Dispatcher):
     # Close DB pool if exists
     if database.db._pool:
         await database.db._pool.close()
-
 
 async def process_result(message: aio_pika.IncomingMessage, bot: Bot):
     """Process messages from the result queue (sent by workers)."""
@@ -56,12 +66,10 @@ async def process_result(message: aio_pika.IncomingMessage, bot: Bot):
             return
         user_id = data.get("user_id")
         result_type = data.get("type")
-        # Route based on result type
+        # Route based on result type (same logic as before)
         if result_type == "plan":
-            # Send the generated plan text
             plan_text = data.get("plan_text") or "(пусто)"
-            file_url = data.get("file_url")  # could be 'yadisk' or actual URL or None
-            # Compose message text
+            file_url = data.get("file_url")
             text = f"📄 Сгенерированный учебный план:\n{plan_text}"
             if file_url == "yadisk":
                 text += "\nФайл PDF сохранён на Яндекс.Диске."
@@ -76,14 +84,12 @@ async def process_result(message: aio_pika.IncomingMessage, bot: Bot):
             if file_url == "yadisk":
                 text += "\nPDF сохранён на Я.Диске."
             elif file_base64:
-                # If worker returned file content (base64), send as document
                 import base64
-                from aiogram.types import FSInputFile, BufferedInputFile
+                from aiogram.types import BufferedInputFile
                 pdf_bytes = base64.b64decode(file_base64)
                 input_file = BufferedInputFile(pdf_bytes, filename="Tasks.pdf")
                 await bot.send_document(user_id, input_file, caption="PDF с заданиями")
             elif file_url:
-                # If provided a public URL (e.g., from S3), instruct Telegram to fetch and send
                 await bot.send_document(user_id, file_url, caption="PDF с заданиями")
             await bot.send_message(user_id, "Выберите дальнейшие действия:", reply_markup=result_tasks_kb(data.get("student_id"), lang="RU"))
         elif result_type == "check":
@@ -104,12 +110,10 @@ async def process_result(message: aio_pika.IncomingMessage, bot: Bot):
             await bot.send_message(user_id, "Выберите дальнейшие действия:", reply_markup=result_check_kb(data.get("student_id"), lang="RU"))
         elif result_type == "chat":
             answer = data.get("answer") or ""
-            # Send the assistant's answer in chat context with a Back button
             await bot.send_message(user_id, answer, reply_markup=chat_gpt_back_kb(lang="RU"))
         elif result_type == "error":
             error_msg = data.get("message", "Произошла ошибка.")
             await bot.send_message(user_id, f"⚠️ {error_msg}")
-        # else: ignore unknown types
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)

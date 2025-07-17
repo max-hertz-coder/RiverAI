@@ -12,7 +12,7 @@ def main_menu_kb(lang: str = "RU"):
         kb.button(text="👤 Мои ученики", callback_data="show_students")
         kb.button(text="➕ Добавить ученика", callback_data="add_student")
         kb.button(text="💳 Подписка", callback_data="subscription")
-        kb.button(text="⚙ Настройки", callback_data="settings")
+        kb.button(text="⚙️ Настройки", callback_data="settings")
     kb.adjust(1)  # one button per row
     return kb.as_markup()
 
