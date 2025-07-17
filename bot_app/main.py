@@ -9,6 +9,10 @@ import aio_pika
 import asyncpg
 import redis.asyncio as redis
 
+from aiogram import Bot
+from aiogram.client.session import DefaultBotProperties
+
+
 from bot_app import config
 from bot_app import database
 from bot_app.middlewares.auth import AuthMiddleware
@@ -111,7 +115,10 @@ async def process_result(message: aio_pika.IncomingMessage, bot: Bot):
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    bot = Bot(token=config.BOT_TOKEN, parse_mode="HTML")
+    bot = Bot(
+    token=config.BOT_TOKEN,
+    default=DefaultBotProperties(parse_mode="HTML")
+    )
     dp = Dispatcher(storage=RedisStorage.from_url(f"redis://{config.REDIS_HOST}:{config.REDIS_PORT}/{config.REDIS_DB_FSM}"))
     # Register middlewares
     dp.message.middleware(AuthMiddleware())
