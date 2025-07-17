@@ -5,6 +5,7 @@ from aiogram.fsm.state import StatesGroup, State
 
 from bot_app.database import db
 from bot_app.keyboards import students as student_kb
+from bot_app.keyboards.chat_menu import chat_menu_kb
 
 router = Router()
 
@@ -252,17 +253,21 @@ async def cb_select_student(callback: CallbackQuery):
 # 4) Переход в контекст чата для ученика
 @router.callback_query(F.data.startswith("open_chat:"))
 async def cb_open_chat(callback: CallbackQuery):
-    student_id = int(callback.data.split(":")[1])
+    # Парсим ID ученика из callback_data вида "open_chat:<id>"
+    student_id = int(callback.data.split(":", 1)[1])
+
+    # Получаем данные ученика
     student = await db.get_student(student_id)
     if not student:
-        return await callback.answer("Ученик не найден.", show_alert=True)
+        await callback.answer("Ученик не найден.", show_alert=True)
+        return
 
+    # Формируем заголовок и показываем inline-меню из chat_menu_kb
     header = f"👤 {student['name']} | Предмет: {student['subject']} | Уровень: {student['level']}"
     await callback.message.edit_text(
         header,
-        reply_markup=student_kb.chat_menu_kb(student_id, lang="RU")
+        reply_markup=chat_menu_kb(student_id, lang="RU")
     )
-
 
 # 5) FSM редактирования информации
 @router.callback_query(F.data.startswith("edit_student:"))
