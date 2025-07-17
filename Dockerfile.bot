@@ -1,17 +1,24 @@
 FROM python:3.10-slim
 
-# Install any system dependencies if needed (none required for bot aside from Python itself)
+# 1) Установить системные сборочные инструменты и dev-библиотеки
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+    build-essential \
+    gcc \
+    libpq-dev \
+ && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
-# Copy requirements and install
+# 2) Копируем и апгрейдим pip
 COPY requirements.txt .
+RUN pip install --upgrade pip setuptools wheel
+
+# 3) Устанавливаем Python-библиотеки
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy bot application code
-COPY bot_app/ bot_app/
+# 4) Копируем код бота
+COPY bot_app ./bot_app
 
-# Set environment variables for Python (if needed, e.g. to buffer outputs)
-ENV PYTHONUNBUFFERED=1
-
-# Run the bot application
-CMD ["python", "-u", "bot_app/main.py"]
+# 5) Стартовый команд
+CMD ["python", "-u", "-m", "bot_app.main"]
