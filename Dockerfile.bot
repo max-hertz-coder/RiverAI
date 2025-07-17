@@ -1,21 +1,26 @@
+# /opt/RiverAI/Dockerfile.bot
+
 FROM python:3.10-slim
 
-# 1) Системные библиотеки для сборки пакетов
+# 1) Устанавливаем OS-зависимости для сборки пакетов
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      build-essential gcc libpq-dev \
+      build-essential \
+      python3-dev \
+      libffi-dev \
+      libpq-dev \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# 2) Копируем и обновляем pip
-COPY requirements.txt .
-RUN pip install --upgrade pip setuptools wheel
+# 2) Копируем только требования и обновляем pip
+COPY requirements.txt ./
 
-# 3) Ставим Python-зависимости
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --upgrade pip setuptools wheel \
+ && pip install --no-cache-dir -r requirements.txt
 
-# 4) Копируем код бота
-COPY bot_app/ ./bot_app/
+# 3) Копируем весь исходный код (в т.ч. bot_app/, .env и др.)
+COPY . .
 
+# 4) Запуск бота
 CMD ["python", "-u", "-m", "bot_app.main"]
