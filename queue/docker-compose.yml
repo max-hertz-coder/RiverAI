@@ -11,14 +11,15 @@ services:
 
   rabbitmq:
     image: rabbitmq:3-management
-    ports:
-      - "15672:15672"
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS}
-    restart: unless-stopped
+    ports:
+      - "15672:15672"   # UI
+      - "5672:5672"     # AMQP для бота
     networks:
       - internal
+    restart: unless-stopped
 
 networks:
   internal:

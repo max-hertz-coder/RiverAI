@@ -22,7 +22,8 @@ services:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS}
     ports:
-      - "15672:15672"   # RabbitMQ Management UI (optional)
+      - "15672:15672"   # UI
+      - "5672:5672"     # AMQP для бота
     networks:
       - internal
     restart: unless-stopped
