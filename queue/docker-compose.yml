@@ -1,38 +1,23 @@
-version: "3.9"
+version: '3.9'
 
 services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    networks:
+      - internal
+
   rabbitmq:
     image: rabbitmq:3-management
-    hostname: rabbitmq
+    restart: unless-stopped
     ports:
-      - "5672:5672"      # AMQP
-      - "15672:15672"    # Management UI
+      - "15672:15672"    # UI
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    networks:
+      - internal
 
-  redis:
-    image: redis:6-alpine
-    hostname: redis
-    ports:
-      - "6379:6379"
-
-  worker:
-    build: ../worker
-    depends_on:
-      - rabbitmq
-      - redis
-    environment:
-      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672/
-      REDIS_URL: redis://redis:6379
-
-  api:
-    build: ../api
-    ports:
-      - "8000:8000"
-    depends_on:
-      - rabbitmq
-      - redis
-    environment:
-      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672/
-      REDIS_URL: redis://redis:6379
+networks:
+  internal:
+    driver: bridge
