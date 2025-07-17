@@ -12,21 +12,23 @@ services:
 
   redis:
     image: redis:7-alpine
+    restart: unless-stopped
     networks:
       - internal
-    restart: unless-stopped
+    ports:
+      - "6379:6379"       # <- пробросим порт Redis наружу
 
   rabbitmq:
     image: rabbitmq:3-management
+    restart: unless-stopped
+    ports:
+      - "15672:15672"
+      - "5672:5672"
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS}
-    ports:
-      - "15672:15672"   # UI
-      - "5672:5672"     # AMQP для бота
     networks:
       - internal
-    restart: unless-stopped
 
   bot:
     build:
