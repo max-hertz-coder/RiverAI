@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 import asyncio
 import logging
@@ -82,9 +83,7 @@ async def main():
     await channel.consume(handle_message, queue_name=config.TASK_QUEUE)
     logging.info(f"✅ Subscribed to queue '{config.TASK_QUEUE}', waiting for tasks…")
 
-    # Не даём процессу завершиться
     await asyncio.Future()
-
 
 if __name__ == "__main__":
     asyncio.run(main())
