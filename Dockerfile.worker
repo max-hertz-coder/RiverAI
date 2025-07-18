@@ -24,4 +24,4 @@ COPY . .
 
 # 4) Запуск основного скрипта воркера
 ENV PYTHONUNBUFFERED=1
-CMD ["python", "-u", "worker/main.py"]
+CMD ["python", "-u", "-m", "worker.main"]
