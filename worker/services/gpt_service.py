@@ -1,37 +1,39 @@
+# worker/services/gpt_service.py
+
 import openai
-from worker import config
+from bot_app import config
 
-# If multiple API keys are provided, cycle through them
+# По очереди перебираем ключи из config.OPENAI_API_KEYS
 _key_index = 0
-if config.OPENAI_API_KEYS:
-    openai.api_key = config.OPENAI_API_KEYS[0]
-
-def get_next_api_key():
+def _get_next_api_key():
     global _key_index
-    if not config.OPENAI_API_KEYS:
+    keys = config.OPENAI_API_KEYS
+    if not keys:
         return None
-    key = config.OPENAI_API_KEYS[_key_index]
-    _key_index = (_key_index + 1) % len(config.OPENAI_API_KEYS)
+    key = keys[_key_index]
+    _key_index = (_key_index + 1) % len(keys)
     return key
 
-async def ask_gpt(messages, model="gpt-3.5-turbo"):
+async def chat_with_gpt(
+    prompt: str,
+    model: str = "gpt-3.5-turbo",
+    temperature: float = 0.7
+) -> str:
     """
-    Send a list of messages (conversation) to OpenAI ChatCompletion API.
-    Returns the assistant's reply text.
+    Отправляет одиночное сообщение пользователю в ChatCompletion API.
+    Возвращает текст ответа или сообщение об ошибке.
     """
-    # Rotate API keys if multiple
-    api_key = get_next_api_key()
+    api_key = _get_next_api_key()
     if api_key:
         openai.api_key = api_key
+
     try:
-        # Use async API call
         response = await openai.ChatCompletion.acreate(
             model=model,
-            messages=messages,
-            temperature=0.7
+            messages=[{"role": "user", "content": prompt}],
+            temperature=temperature
         )
-        answer = response.choices[0].message.content
-        return answer
+        return response.choices[0].message.content
     except Exception as e:
-        # Log or print error
-        return f"Ошибка GPT: {e}"
+        # Возвращаем текст ошибки, чтобы воркер мог её залогировать
+        return f"GPT error: {e}"

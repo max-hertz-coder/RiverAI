@@ -1,19 +1,27 @@
+# /opt/RiverAI/Dockerfile.worker
+
 FROM python:3.10-slim
 
-# Install system dependencies (LaTeX for PDF generation)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    texlive-latex-base \
-  && rm -rf /var/lib/apt/lists/*
+# 1) Системные зависимости для сборки C-расширений и LaTeX
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      build-essential \
+      python3-dev \
+      libffi-dev \
+      libpq-dev \
+      texlive-latex-base \
+ && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# 2) Ставим зависимости Python
+COPY requirements.txt ./
+RUN pip install --upgrade pip setuptools wheel \
+ && pip install --no-cache-dir -r requirements.txt
 
-# Copy worker code and templates
-COPY worker/ worker/
-COPY templates/ templates/
+# 3) Копируем весь проект (включая bot_app/, worker/ и templates/)
+COPY . .
 
+# 4) Запуск основного скрипта воркера
 ENV PYTHONUNBUFFERED=1
-
 CMD ["python", "-u", "worker/main.py"]

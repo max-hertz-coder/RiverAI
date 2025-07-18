@@ -3,12 +3,18 @@ services:
   db:
     image: postgres:14
     environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_DB:       ${POSTGRES_DB}
+      POSTGRES_USER:     ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $POSTGRES_USER -d $POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     networks:
       - internal
     restart: unless-stopped
+
 
   redis:
     image: redis:7-alpine
@@ -47,7 +53,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.worker
-    env_file: .env
+    env_file:
+      - .env
     depends_on:
       - db
       - redis
@@ -55,6 +62,7 @@ services:
     networks:
       - internal
     restart: unless-stopped
+
 
 networks:
   internal:
