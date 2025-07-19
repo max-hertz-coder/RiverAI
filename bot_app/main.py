@@ -57,10 +57,11 @@ async def process_result(message: aio_pika.IncomingMessage) -> None:
             logging.warning(f"❓ process_result: неизвестный type={t}")
 
 
+
 async def on_startup(bot: Bot, dp: Dispatcher) -> None:
     logging.info("🚀 on_startup: регистрируем команды и подписываемся на очередь результатов")
 
-    # 1) команды Telegram
+    # 1) Регистрируем команды Telegram
     await bot.set_my_commands([
         BotCommand("show_students", "👤 Ученики"),
         BotCommand("add_student",   "➕ Добавить ученика"),
@@ -68,20 +69,24 @@ async def on_startup(bot: Bot, dp: Dispatcher) -> None:
         BotCommand("subscription",  "💳 Оплата"),
     ])
 
-    # 2) подключаемся к RabbitMQ
+    # 2) Подключаемся к RabbitMQ
     connection = await aio_pika.connect_robust(
         host=config.RABBITMQ_HOST,
         port=config.RABBITMQ_PORT,
         login=config.RABBITMQ_USER,
-        password=config.RABBITMQ_PASS
+        password=config.RABBITMQ_PASS,
     )
     channel = await connection.channel()
     logging.info("✔️ Connected to RabbitMQ")
 
-    # 3) декларируем очередь результатов и подписываемся
+    # 3) Декларируем очередь результатов и подписываемся на неё
     result_q = await channel.declare_queue(config.RESULT_QUEUE, durable=True)
-    process_result.bot = bot   # привязываем bot к обработчику
-    await result_q.consume(process_result, no_ack=False)
+    # каждый раз, как придёт сообщение — запускаем process_result(msg, bot)
+    from bot_app.main import process_result  # ваша функция-обработчик
+    await result_q.consume(
+        lambda msg: asyncio.create_task(process_result(msg, bot)),
+        no_ack=False,
+    )
     logging.info(f"🔔 Subscribed to result queue '{config.RESULT_QUEUE}'")
 
 

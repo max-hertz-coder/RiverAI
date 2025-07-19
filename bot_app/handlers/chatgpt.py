@@ -31,14 +31,14 @@ async def handle_gpt_dialog_message(message: Message, state: FSMContext):
     user_id    = message.from_user.id
     text       = message.text.strip()
 
-    # Подготавливаем задачу
+    # Формируем задачу для воркера
     if text.lower() in ("/back", "/exit"):
-        task = {"type":"end_chat","user_id":user_id,"student_id":student_id}
+        task = {"type":"end_chat", "user_id":user_id, "student_id":student_id}
     else:
-        task = {"type":"chat_gpt","user_id":user_id,"student_id":student_id,"message":text}
+        task = {"type":"chat_gpt", "user_id":user_id, "student_id":student_id, "message":text}
 
     try:
-        # Публикуем в очередь
+        # Подключаемся к RabbitMQ и публикуем задачу в очередь task
         connection = await aio_pika.connect_robust(
             host=config.RABBITMQ_HOST,
             port=config.RABBITMQ_PORT,
@@ -47,17 +47,23 @@ async def handle_gpt_dialog_message(message: Message, state: FSMContext):
         )
         channel = await connection.channel()
         await channel.default_exchange.publish(
-            aio_pika.Message(body=json.dumps(task).encode("utf-8")),
-            routing_key=config.RABBITMQ_TASK_QUEUE,
+            aio_pika.Message(body=json.dumps(task).encode()),
+            routing_key=config.TASK_QUEUE,   # <— теперь единообразно
         )
         await connection.close()
 
-        # Ответ пользователю
+        # Сообщаем пользователю
         if task["type"] == "end_chat":
             await state.clear()
-            await message.answer("🔚 Чат с GPT завершён.", reply_markup=chat_menu_kb(student_id))
+            await message.answer(
+                "🔚 Чат с GPT завершён.",
+                reply_markup=chat_menu_kb(student_id, lang="RU"),
+            )
         else:
-            await message.answer("💭 Сообщение отправлено ИИ, ожидайте ответ...", reply_markup=chat_menu_kb(student_id))
+            await message.answer(
+                "💭 Сообщение отправлено ИИ, ожидайте ответ...",
+                reply_markup=chat_menu_kb(student_id, lang="RU"),
+            )
 
     except Exception:
         logging.exception("Ошибка публикации задачи в очередь")

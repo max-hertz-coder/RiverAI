@@ -28,13 +28,11 @@ if not DB_PASSWORD:
 # ——————————————
 RABBITMQ_HOST         = os.getenv("RABBITMQ_HOST",          "rabbitmq")
 RABBITMQ_PORT         = int(os.getenv("RABBITMQ_PORT",       "5672"))
-RABBITMQ_USER         = os.getenv("RABBITMQ_USER",          "rabbit_user")
-RABBITMQ_PASS         = os.getenv("RABBITMQ_PASS")
-if not RABBITMQ_PASS:
-    raise RuntimeError("RABBITMQ_PASS not set for RabbitMQ")
-RABBITMQ_TASK_QUEUE   = os.getenv("RABBITMQ_TASK_QUEUE",    "task_queue")
-RABBITMQ_RESULT_QUEUE = os.getenv("RABBITMQ_RESULT_QUEUE",  "result_queue")
-
+RABBITMQ_USER = os.getenv("RABBITMQ_USER", "guest")
+RABBITMQ_PASS = os.getenv("RABBITMQ_PASS", "guest")
+# вот эти имена очередей должны совпадать везде:
+TASK_QUEUE   = os.getenv("RABBITMQ_TASK_QUEUE",   "task_queue")
+RESULT_QUEUE = os.getenv("RABBITMQ_RESULT_QUEUE", "result_queue")
 # ——————————————
 # Redis (FSM и кэш)
 # ——————————————
