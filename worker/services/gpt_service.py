@@ -1,39 +1,43 @@
-# worker/services/gpt_service.py
+# /opt/RiverAI/worker/services/gpt_service.py
 
 import openai
-from bot_app import config
+import string
+from worker import config
 
-# По очереди перебираем ключи из config.OPENAI_API_KEYS
+# Индекс для круговой смены ключей
 _key_index = 0
-def _get_next_api_key():
+
+def get_next_api_key() -> str | None:
+    """
+    Возвращает следующий API-ключ из списка и устанавливает его в openai.api_key.
+    """
     global _key_index
     keys = config.OPENAI_API_KEYS
     if not keys:
         return None
     key = keys[_key_index]
     _key_index = (_key_index + 1) % len(keys)
+    openai.api_key = key
     return key
 
-async def chat_with_gpt(
-    prompt: str,
-    model: str = "gpt-3.5-turbo",
-    temperature: float = 0.7
+async def ask_gpt(
+    messages: list[dict],
+    model: str = "gpt-3.5-turbo"
 ) -> str:
     """
-    Отправляет одиночное сообщение пользователю в ChatCompletion API.
-    Возвращает текст ответа или сообщение об ошибке.
+    Отправляет список сообщений в OpenAI ChatCompletion и возвращает ответ.
+    messages: [{"role":"user"|"system"|"assistant","content": "..."}]
     """
-    api_key = _get_next_api_key()
-    if api_key:
-        openai.api_key = api_key
+    # Подменяем ключ, если больше одного
+    get_next_api_key()
 
     try:
         response = await openai.ChatCompletion.acreate(
             model=model,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=temperature
+            messages=messages,
+            temperature=0.7,
         )
         return response.choices[0].message.content
     except Exception as e:
-        # Возвращаем текст ошибки, чтобы воркер мог её залогировать
-        return f"GPT error: {e}"
+        # В случае ошибки возвращаем текст с префиксом "Ошибка GPT:"
+        return f"Ошибка GPT: {e}"
