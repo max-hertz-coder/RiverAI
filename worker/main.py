@@ -39,21 +39,12 @@ async def handle_message(message: aio_pika.IncomingMessage):
         except Exception:
             logging.exception("🔴 Failed to publish result:")
 
-# /opt/RiverAI/worker/main.py
-
-#!/usr/bin/env python3
-import asyncio
-import logging
-import json
-
-import aio_pika
-from aio_pika import Message
-
-from worker import config, db, redis_cache
-from worker.consumers import task_consumer
 
 async def main():
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s"
+    )
     logging.info("🚀 Worker starting up")
 
     # 1) Инициализация PostgreSQL через DSN
@@ -64,8 +55,7 @@ async def main():
     await db.init_db_pool(dsn)
     logging.info("✔️ Database pool initialized")
 
-    # 2) Инициализация Redis (у вас init_redis() тоже, скорее всего, не принимает аргументов, 
-    #    поэтому либо аналогично расширьте, либо вызовите без аргументов – как вы уже сделали)
+    # 2) Инициализация Redis
     await redis_cache.init_redis()
     logging.info("✔️ Redis cache initialized")
 
@@ -79,17 +69,13 @@ async def main():
     channel = await connection.channel()
     logging.info("✔️ Connected to RabbitMQ")
 
-    # 4) Объявляем очереди
-    await channel.declare_queue(config.TASK_QUEUE, durable=True)
-    await channel.declare_queue(config.RESULT_QUEUE, durable=True)
-    logging.info(f"🕸 Queues declared: {config.TASK_QUEUE}, {config.RESULT_QUEUE}")
-
-    # 5) Подписываемся и ждём сообщений
+    # 4) Объявляем очередь задач и подписываемся на неё
+    task_queue = await channel.declare_queue(config.TASK_QUEUE, durable=True)
     await channel.set_qos(prefetch_count=1)
-    await channel.consume(handle_message, queue_name=config.TASK_QUEUE)
+    await task_queue.consume(handle_message)
     logging.info(f"✅ Subscribed to queue '{config.TASK_QUEUE}', waiting for tasks…")
 
-    # Блокировка, чтобы процесс не завершался
+    # 5) Блокировка, чтобы процесс не завершился
     await asyncio.Future()
 
 if __name__ == "__main__":
