@@ -101,3 +101,19 @@ async def handle_gpt_dialog_message(message: Message, state: FSMContext):
         await message.answer("💭 Сообщение отправлено ИИ, ожидайте ответ...")
     else:
         await message.answer("⚠️ Не удалось отправить задачу в очередь. Попробуйте позже.")
+
+import logging
+import aio_pika, json
+from bot_app import config
+from bot_app.main import rabbit_channel
+
+async def publish_task(task: dict):
+    body = json.dumps(task).encode()
+    try:
+        await rabbit_channel.default_exchange.publish(
+            aio_pika.Message(body=body),
+            routing_key=config.TASK_QUEUE,
+        )
+        logging.info(f"▶ Task published to {config.TASK_QUEUE}: {task}")
+    except Exception as e:
+        logging.error(f"❌ Failed to publish task: {e}")
