@@ -9,6 +9,8 @@ from aiogram.enums import ParseMode
 from aiogram.fsm.storage.redis import RedisStorage
 from aiogram.types import BotCommand
 
+rabbit_channel: aio_pika.Channel | None = None
+
 from bot_app import config
 from bot_app.database import db
 from bot_app.middlewares.auth import AuthMiddleware
@@ -79,12 +81,20 @@ async def on_startup(bot: Bot, dp: Dispatcher) -> None:
     channel = await connection.channel()
     logging.info("✔️ Connected to RabbitMQ")
 
+    # Сохраняем канал в пакете bot_app, чтобы имели доступ обработчики
+    import bot_app
+    bot_app.rabbit_channel = channel
+    global rabbit_channel
+    rabbit_channel = channel
+
     # 3) Декларируем очередь результатов и подписываемся на неё
     result_q = await channel.declare_queue(config.RESULT_QUEUE, durable=True)
-    # каждый раз, как придёт сообщение — запускаем process_result(msg, bot)
-    from bot_app.main import process_result  # ваша функция-обработчик
+    
+    # передаём бота через атрибут функции, чтобы не возникала ошибка аргументов
+    from bot_app.main import process_result
+    process_result.bot = bot
     await result_q.consume(
-        lambda msg: asyncio.create_task(process_result(msg, bot)),
+        lambda msg: asyncio.create_task(process_result(msg)),
         no_ack=False,
     )
     logging.info(f"🔔 Subscribed to result queue '{config.RESULT_QUEUE}'")
