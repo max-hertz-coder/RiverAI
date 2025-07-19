@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 import asyncio
 import logging
@@ -23,7 +22,7 @@ async def handle_message(message: aio_pika.IncomingMessage):
 
         try:
             result = await task_consumer.process_task_message(task_data)
-        except Exception as e:
+        except Exception:
             logging.exception("🔴 Error while processing task:")
             return
 
@@ -37,7 +36,7 @@ async def handle_message(message: aio_pika.IncomingMessage):
                 routing_key=config.RESULT_QUEUE
             )
             logging.info("✅ Published result to result queue")
-        except Exception as e:
+        except Exception:
             logging.exception("🔴 Failed to publish result:")
 
 
@@ -45,14 +44,12 @@ async def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     logging.info("🚀 Worker starting up")
 
-    # 1) Инициализация PostgreSQL
-    await db.init_db_pool(
-        host=config.DB_HOST,
-        port=config.DB_PORT,
-        user=config.DB_USER,
-        password=config.DB_PASSWORD,
-        database=config.DB_NAME,
+    # 1) Инициализация PostgreSQL через DSN
+    dsn = (
+        f"postgresql://{config.DB_USER}:{config.DB_PASSWORD}"
+        f"@{config.DB_HOST}:{config.DB_PORT}/{config.DB_NAME}"
     )
+    await db.init_db_pool(dsn)
     logging.info("✔️ Database pool initialized")
 
     # 2) Инициализация Redis
@@ -78,11 +75,12 @@ async def main():
     await channel.declare_queue(config.RESULT_QUEUE, durable=True)
     logging.info(f"🕸 Queues declared: {config.TASK_QUEUE}, {config.RESULT_QUEUE}")
 
-    # 5) Подписываемся и ждём сообщений
+    # 5) Подписываемся и ждем сообщений
     await channel.set_qos(prefetch_count=1)
     await channel.consume(handle_message, queue_name=config.TASK_QUEUE)
     logging.info(f"✅ Subscribed to queue '{config.TASK_QUEUE}', waiting for tasks…")
 
+    # Блокируем, чтобы процесс не завершился
     await asyncio.Future()
 
 if __name__ == "__main__":
