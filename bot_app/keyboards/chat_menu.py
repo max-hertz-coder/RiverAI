@@ -3,26 +3,23 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 # bot_app/keyboards/chat_menu.py
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-def chat_menu_kb(student_id: int) -> InlineKeyboardMarkup:
-    kb = InlineKeyboardMarkup(row_width=2)
-    kb.add(
-        InlineKeyboardButton("📝 Генерация учебного плана", callback_data=f"generate_plan:{student_id}"),
-        InlineKeyboardButton("🗂 Генерация заданий", callback_data=f"generate_tasks:{student_id}")
-    )
-    kb.add(
-        InlineKeyboardButton("✔️ Проверка ДЗ", callback_data=f"check_homework:{student_id}"),
-        InlineKeyboardButton("💬 Пообщаться с GPT", callback_data=f"chat_gpt:{student_id}")
-    )
-    # добавляем единую кнопку Назад
-    kb.add(back_button())
-    return kb
+# bot_app/keyboards/chat_menu.py
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-def back_button() -> InlineKeyboardButton:
-    """
-    Универсальная кнопка «← Назад» для возврата на предыдущий уровень меню.
-    """
-    return InlineKeyboardButton("← Назад", callback_data="back")
+def chat_menu_kb(student_id: int):
+    kb = InlineKeyboardBuilder()
+    kb.button(text="📄 Учебный план",     callback_data=f"generate_plan:{student_id}")
+    kb.button(text="📝 Задания",           callback_data=f"generate_tasks:{student_id}")
+    kb.button(text="🔄 Проверить ДЗ",      callback_data=f"correct_tasks:{student_id}")
+    kb.button(text="💬 Чат с GPT",         callback_data=f"chat_gpt:{student_id}")
+    kb.adjust(2)  # две кнопки в ряд
+    return kb.as_markup()
 
+
+def back_button():
+    kb = InlineKeyboardBuilder()
+    kb.button(text="← Назад", callback_data="back")
+    return kb.as_markup()
 
 def result_plan_kb(student_id: int, lang: str = "RU"):
     """Keyboard after generating a plan: refine or save, back to menu."""
