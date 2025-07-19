@@ -9,6 +9,9 @@ from aio_pika import Message
 from worker import config, db, redis_cache
 from worker.consumers import task_consumer
 
+# Глобальная переменная для обмена (default exchange) RabbitMQ
+publish_exchange: aio_pika.Exchange | None = None
+
 async def handle_message(message: aio_pika.IncomingMessage):
     async with message.process():
         try:
@@ -30,8 +33,13 @@ async def handle_message(message: aio_pika.IncomingMessage):
             logging.warning("⚠️ No result returned by task_consumer")
             return
 
+        if publish_exchange is None:
+            logging.error("🔴 Cannot publish result: publish_exchange is not initialized")
+            return
+
         try:
-            await message.channel.default_exchange.publish(
+            # Публикуем результат в очередь результатов
+            await publish_exchange.publish(
                 Message(body=json.dumps(result).encode("utf-8")),
                 routing_key=config.RESULT_QUEUE
             )
@@ -68,6 +76,10 @@ async def main():
     )
     channel = await connection.channel()
     logging.info("✔️ Connected to RabbitMQ")
+
+    # Сохраняем default exchange в глобальной переменной
+    global publish_exchange
+    publish_exchange = connection.default_exchange
 
     # 4) Объявляем очередь задач и подписываемся на неё
     task_queue = await channel.declare_queue(config.TASK_QUEUE, durable=True)
