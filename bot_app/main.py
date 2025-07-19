@@ -89,14 +89,8 @@ async def on_startup(bot: Bot, dp: Dispatcher) -> None:
 
     # 3) Декларируем очередь результатов и подписываемся на неё
     result_q = await channel.declare_queue(config.RESULT_QUEUE, durable=True)
-    
-    # передаём бота через атрибут функции, чтобы не возникала ошибка аргументов
-    from bot_app.main import process_result
-    process_result.bot = bot
-    await result_q.consume(
-        lambda msg: asyncio.create_task(process_result(msg)),
-        no_ack=False,
-    )
+    await result_q.consume(lambda msg: asyncio.create_task(process_result(msg, bot)))
+
     logging.info(f"🔔 Subscribed to result queue '{config.RESULT_QUEUE}'")
 
 

@@ -11,60 +11,49 @@ from bot_app import config
 from bot_app.keyboards.chat_menu import chat_menu_kb
 
 router = Router()
+logger = logging.getLogger(__name__)
 
 class ChatGPTDialog(StatesGroup):
     active = State()
 
 @router.callback_query(F.data.startswith("chat_gpt:"))
 async def cb_chat_gpt(callback: CallbackQuery, state: FSMContext):
-    student_id = int(callback.data.split(":", 1)[1])
+    student_id = int(callback.data.split(":",1)[1])
     await state.update_data(student_id=student_id)
     await state.set_state(ChatGPTDialog.active)
-    await callback.message.edit_text(
-        "💬 Чат с GPT открыт. Напишите сообщение для ИИ (или /back для выхода):"
-    )
+    await callback.message.edit_text("💬 Чат с GPT открыт. Введите сообщение для ИИ (или /back):")
 
 @router.message(ChatGPTDialog.active)
-async def handle_gpt_dialog_message(message: Message, state: FSMContext):
+async def handle_gpt(message: Message, state: FSMContext):
     data = await state.get_data()
-    student_id = data.get("student_id")
-    user_id    = message.from_user.id
-    text       = message.text.strip()
+    student_id = data["student_id"]
+    user_id = message.from_user.id
+    text = message.text.strip()
 
-    # Формируем задачу для воркера
-    if text.lower() in ("/back", "/exit"):
-        task = {"type":"end_chat", "user_id":user_id, "student_id":student_id}
+    if text.lower() in ("/back","/exit"):
+        task = {"type":"end_chat","user_id":user_id,"student_id":student_id}
+        clear = True
     else:
-        task = {"type":"chat_gpt", "user_id":user_id, "student_id":student_id, "message":text}
+        task = {"type":"chat","user_id":user_id,"student_id":student_id,"message":text}
+        clear = False
 
     try:
-        # Подключаемся к RabbitMQ и публикуем задачу в очередь task
-        connection = await aio_pika.connect_robust(
-            host=config.RABBITMQ_HOST,
-            port=config.RABBITMQ_PORT,
-            login=config.RABBITMQ_USER,
-            password=config.RABBITMQ_PASS,
+        conn = await aio_pika.connect_robust(
+            host=config.RABBITMQ_HOST, port=config.RABBITMQ_PORT,
+            login=config.RABBITMQ_USER, password=config.RABBITMQ_PASS
         )
-        channel = await connection.channel()
-        await channel.default_exchange.publish(
+        ch = await conn.channel()
+        await ch.default_exchange.publish(
             aio_pika.Message(body=json.dumps(task).encode()),
-            routing_key=config.TASK_QUEUE,   # <— теперь единообразно
+            routing_key=config.TASK_QUEUE
         )
-        await connection.close()
-
-        # Сообщаем пользователю
-        if task["type"] == "end_chat":
-            await state.clear()
-            await message.answer(
-                "🔚 Чат с GPT завершён.",
-                reply_markup=chat_menu_kb(student_id, lang="RU"),
-            )
-        else:
-            await message.answer(
-                "💭 Сообщение отправлено ИИ, ожидайте ответ...",
-                reply_markup=chat_menu_kb(student_id, lang="RU"),
-            )
-
+        await conn.close()
     except Exception:
-        logging.exception("Ошибка публикации задачи в очередь")
-        await message.answer("⚠️ Не удалось отправить задачу в очередь. Попробуйте позже.")
+        logger.exception("Ошибка публикации в очередь chat_gpt")
+        return await message.answer("⚠️ Не удалось отправить сообщение ИИ. Попробуйте позже.")
+
+    if clear:
+        await state.clear()
+        await message.answer("🔚 Чат завершён.", reply_markup=chat_menu_kb(student_id, lang="RU"))
+    else:
+        await message.answer("💭 Сообщение отправлено ИИ, ожидайте ответ...", reply_markup=chat_menu_kb(student_id, lang="RU"))

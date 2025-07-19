@@ -3,32 +3,30 @@ from aiogram.types import CallbackQuery, Message
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 
-from bot_app import database
+from bot_app.database import db
 from bot_app.keyboards import settings as settings_kb
-
 import bcrypt
 
 router = Router()
 
-# FSM states for changing name and password, and Yandex token
 class ChangeNameFSM(StatesGroup):
-    waiting_for_name = State()
+    name = State()
 
 class ChangePasswordFSM(StatesGroup):
-    waiting_for_old = State()
-    waiting_for_new = State()
-    waiting_for_confirm = State()
+    old = State()
+    new = State()
+    confirm = State()
 
 class YandexTokenFSM(StatesGroup):
-    waiting_for_token = State()
+    token = State()
 
 @router.callback_query(F.data == "settings")
 async def cb_settings(callback: CallbackQuery):
-    user_id = callback.from_user.id
-    user = await database.db.get_user_by_tg_id(user_id)
+    user = await db.get_user_by_tg_id(callback.from_user.id)
     lang = user["language"] if user else "RU"
-    text = "Настройки профиля:" if lang == "RU" else "Profile Settings:"
+    text = "Настройки профиля:" if lang=="RU" else "Profile settings:"
     await callback.message.edit_text(text, reply_markup=settings_kb.settings_menu_kb(lang))
+
 
 @router.callback_query(F.data == "change_name")
 async def cb_change_name(callback: CallbackQuery, state: FSMContext):

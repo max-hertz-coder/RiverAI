@@ -4,15 +4,15 @@ import logging
 import json
 
 import aio_pika
-from aio_pika import Message
+from aio_pika import Message, IncomingMessage
 
 from worker import config, db, redis_cache
 from worker.consumers import task_consumer
 
-# Глобальная переменная для обмена (default exchange) RabbitMQ
+# Global reference to the default exchange for publishing results
 publish_exchange: aio_pika.Exchange | None = None
 
-async def handle_message(message: aio_pika.IncomingMessage):
+async def handle_message(message: IncomingMessage) -> None:
     async with message.process():
         try:
             task_data = json.loads(message.body)
@@ -20,13 +20,14 @@ async def handle_message(message: aio_pika.IncomingMessage):
             logging.error(f"🔴 Failed to decode task message: {e}")
             return
 
-        t = task_data.get("type")
-        logging.info(f"▶ Received task of type: {t}")
+        task_type = task_data.get("type")
+        logging.info(f"▶ Received task of type: {task_type}")
 
+        # Dispatch to the appropriate service
         try:
             result = await task_consumer.process_task_message(task_data)
         except Exception:
-            logging.exception("🔴 Error while processing task:")
+            logging.exception("🔴 Error while processing task")
             return
 
         if not result:
@@ -37,24 +38,24 @@ async def handle_message(message: aio_pika.IncomingMessage):
             logging.error("🔴 Cannot publish result: publish_exchange is not initialized")
             return
 
+        # Publish the result back to the result queue
         try:
             await publish_exchange.publish(
                 Message(body=json.dumps(result).encode("utf-8")),
-                routing_key=config.RESULT_QUEUE
+                routing_key=config.RESULT_QUEUE,
             )
             logging.info("✅ Published result to result queue")
         except Exception:
-            logging.exception("🔴 Failed to publish result:")
+            logging.exception("🔴 Failed to publish result")
 
-
-async def main():
+async def main() -> None:
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(message)s"
     )
     logging.info("🚀 Worker starting up")
 
-    # 1) Инициализация PostgreSQL через DSN
+    # 1) Initialize PostgreSQL pool via DSN
     dsn = (
         f"postgresql://{config.DB_USER}:{config.DB_PASSWORD}"
         f"@{config.DB_HOST}:{config.DB_PORT}/{config.DB_NAME}"
@@ -62,11 +63,11 @@ async def main():
     await db.init_db_pool(dsn)
     logging.info("✔️ Database pool initialized")
 
-    # 2) Инициализация Redis
+    # 2) Initialize Redis cache (for chat context, etc.)
     await redis_cache.init_redis()
     logging.info("✔️ Redis cache initialized")
 
-    # 3) Подключение к RabbitMQ
+    # 3) Connect to RabbitMQ
     connection = await aio_pika.connect_robust(
         host=config.RABBITMQ_HOST,
         port=config.RABBITMQ_PORT,
@@ -76,17 +77,22 @@ async def main():
     channel = await connection.channel()
     logging.info("✔️ Connected to RabbitMQ")
 
-    # Сохраняем default exchange из канала
+    # 4) Grab the default exchange for publishing results
     global publish_exchange
     publish_exchange = channel.default_exchange
 
-    # 4) Объявляем очередь задач и подписываемся на неё
+    # 5) Declare both the task and result queues (idempotent)
+    await channel.declare_queue(config.TASK_QUEUE, durable=True)
+    await channel.declare_queue(config.RESULT_QUEUE, durable=True)
+    logging.info(f"🕸 Queues declared: {config.TASK_QUEUE}, {config.RESULT_QUEUE}")
+
+    # 6) Subscribe to the task queue
     task_queue = await channel.declare_queue(config.TASK_QUEUE, durable=True)
     await channel.set_qos(prefetch_count=1)
     await task_queue.consume(handle_message)
-    logging.info(f"✅ Subscribed to queue '{config.TASK_QUEUE}', waiting for tasks…")
+    logging.info(f"✅ Subscribed to '{config.TASK_QUEUE}', waiting for tasks…")
 
-    # 5) Блокировка, чтобы процесс не завершился
+    # 7) Keep the process alive indefinitely
     await asyncio.Future()
 
 if __name__ == "__main__":

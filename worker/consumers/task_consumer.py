@@ -1,22 +1,40 @@
-# worker/consumers/task_consumer.py
-from worker.tasks import generate_plan, generate_tasks, check_homework, chat_gpt
+import json
+import logging
+from aio_pika import IncomingMessage, Message
+from worker.services.ocr_service       import ocr_openai_vision
+from worker.services.generation_service import generate_raw_tasks, generate_raw_solutions
+from worker.services.corrections_service import generate_corrected_tasks
 
-async def process_task_message(task: dict):
-    task_type = task.get("type")
-    if task_type == "generate_plan":
-        return await generate_plan.handle_generate_plan(task)
-    elif task_type == "generate_tasks":
-        return await generate_tasks.handle_generate_tasks(task)
-    elif task_type == "check_homework":
-        return await check_homework.handle_check_homework(task)
-    elif task_type == "chat_gpt":
-        return await chat_gpt.handle_chat_gpt(task)
-    elif task_type == "end_chat":
-        # End chat context (clear conversation in Redis)
-        await chat_gpt.handle_end_chat(task)
-        return None  # No direct response to user needed for ending chat
-    else:
-        # Unknown task type, respond with error (optional)
-        if "user_id" in task:
-            return {"type": "error", "user_id": task["user_id"], "message": "Unknown task type"}
+async def process_task_message(task: dict) -> dict | None:
+    """Распознаём тип задачи и вызываем нужный сервис."""
+    t = task.get("type")
+    user_id    = task.get("user_id")
+    student_id = task.get("student_id")
+
+    try:
+        if t == "ocr":
+            path = task["file_path"]  # бот должен передать локальный путь или base64
+            text = await ocr_openai_vision(path)
+            return {"type":"ocr_result", "user_id":user_id, "student_id":student_id, "text":text}
+
+        if t == "generate_tasks":
+            prompt = task["prompt"]
+            raw    = await generate_raw_tasks(prompt)
+            return {"type":"generate_tasks_result", "user_id":user_id, "student_id":student_id, "raw_tasks":raw}
+
+        if t == "generate_solutions":
+            raw_tasks = task["raw_tasks"]
+            sols      = await generate_raw_solutions(raw_tasks)
+            return {"type":"generate_solutions_result", "user_id":user_id, "student_id":student_id, "solutions":sols}
+
+        if t == "correct_tasks":
+            instr     = task["instruction"]
+            raw_tasks = task["raw_tasks"]
+            corrected = await generate_corrected_tasks(instr, raw_tasks)
+            return {"type":"correct_tasks_result", "user_id":user_id, "student_id":student_id,
+                    "corrected": corrected}
+
+        logging.warning("Unknown task type: %s", t)
+    except Exception:
+        logging.exception("Error processing task %r", task)
     return None
