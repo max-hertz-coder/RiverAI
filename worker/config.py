@@ -1,6 +1,7 @@
 # /opt/RiverAI/worker/config.py
 
 import os
+import string
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -25,10 +26,20 @@ REDIS_HOST     = os.getenv("REDIS_HOST", "redis")
 REDIS_PORT     = int(os.getenv("REDIS_PORT", "6379"))
 REDIS_DB_CACHE = int(os.getenv("REDIS_DB_CACHE", "1"))   # ← добавили эту строку
 
-# Encryption key
-ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY")
-if not ENCRYPTION_KEY:
+# Encryption key (hex-строка 64 символа → 32 байта)
+_key_str = os.getenv("ENCRYPTION_KEY")
+if not _key_str:
     raise RuntimeError("ENCRYPTION_KEY not set for worker")
+
+# Если это 64-символьная hex-строка, конвертируем в 32 байта
+if len(_key_str) == 64 and all(c in string.hexdigits for c in _key_str):
+    ENCRYPTION_KEY = bytes.fromhex(_key_str)
+else:
+    # Иначе используем как raw-bytes (UTF-8), но длина должна быть 16/24/32
+    key_bytes = _key_str.encode("utf-8")
+    if len(key_bytes) not in (16, 24, 32):
+        raise RuntimeError(f"Invalid ENCRYPTION_KEY length: {len(key_bytes)} bytes")
+    ENCRYPTION_KEY = key_bytes
 
 # OpenAI
 _openai_keys = os.getenv("OPENAI_API_KEYS", "")
