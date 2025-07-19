@@ -1,47 +1,50 @@
 import os
 import base64
+import tempfile
 import logging
 import asyncio
-import base64
+from aio_pika import Message
+from worker.config import OPENAI_API_KEYS, RABBITMQ_RESULT_QUEUE
 import openai
-from worker.config import OPENAI_API_KEYS  # убедитесь, что в config.py есть эта константа
+import aio_pika
 
-# Инициализируем ключ один раз при старте модуля
-openai.api_key = OPENAI_API_KEYS
+# Инициализация API-ключа
+openai.api_key = OPENAI_API_KEYS[0] if OPENAI_API_KEYS else None
 
 logger = logging.getLogger(__name__)
 
-def _sync_ocr(path_or_url: str) -> str:
+async def handle_ocr(task: dict) -> dict:
     """
     Синхронная OCR-обработка через OpenAI Vision.
     """
-    if path_or_url.startswith("data:") or path_or_url.startswith("http"):
-        image_obj = {"url": path_or_url, "detail": "high"}
+
+    # Получаем локальный путь к файлу
+    if "file_data" in task:
+        b64 = task["file_data"]
+        data = base64.b64decode(b64)
+        fd, path = tempfile.mkstemp(suffix=os.path.splitext(task.get("file_name",""))[1])
+        os.write(fd, data)
+        os.close(fd)
     else:
-        with open(path_or_url, "rb") as f:
-            b64 = base64.b64encode(f.read()).decode("utf-8")
-        image_obj = {"url": f"data:image/jpeg;base64,{b64}", "detail": "high"}
+        path = task["file_path"]
 
-    try:
-        resp = openai.chat.completions.create(
-            model="gpt-4o",
-            messages=[{
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": "Извлеките текст из этого изображения."},
-                    {"type": "image_url", "image_url": image_obj}
-                ]
-            }]
-        )
-        text = resp.choices[0].message.content.strip()
-        low = text.lower()
-        if "извин" in low or "sorry" in low:
-            logger.info("OCR отказ: %r", text)
+    # Синхронный OCR в поток
+    def _sync_ocr(p: str) -> str:
+        try:
+            # для OpenAI Vision комбинируем текстовый и изображ. ввод
+            resp = openai.Image.create(
+                model="vision-ocr",
+                image=open(p, "rb")
+            )
+            return resp["data"]["text"]  # примерный формат
+        except Exception as e:
+            logger.exception("OCR failed: %s", e)
             return ""
-        return text
-    except Exception as e:
-        logger.exception("Ошибка при OCR: %s", e)
-        return ""
+    text = await asyncio.to_thread(_sync_ocr, path)
 
-async def ocr_openai_vision(path_or_url: str) -> str:
-    return await asyncio.to_thread(_sync_ocr, path_or_url)
+    return {
+        "type": "ocr_result",
+        "user_id": task["user_id"],
+        "student_id": task["student_id"],
+        "text": text
+    }
