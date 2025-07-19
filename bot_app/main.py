@@ -20,44 +20,47 @@ from bot_app.keyboards.chat_menu import (
     result_check_kb,
 )
 
-# Глобальный канал для RabbitMQ
-rabbit_channel: aio_pika.RobustChannel | None = None
-
 
 async def process_result(message: aio_pika.IncomingMessage) -> None:
-    """Обработка результатов из очереди и отправка их пользователю."""
+    """Обрабатываем каждое сообщение из очереди результатов и шлём его в Telegram."""
     async with message.process():
         try:
             data = json.loads(message.body)
         except Exception as e:
-            logging.error(f"❌ process_result: неверный JSON: {e}")
+            logging.error(f"❌ process_result — неверный JSON: {e}")
             return
 
-        user_id     = data.get("user_id")
-        result_type = data.get("type")
-        bot: Bot    = process_result.bot  # закрепили бот в startup
+        user_id = data.get("user_id")
+        t       = data.get("type")
+        answer  = data.get("answer") or ""
+        logging.info(f"▶ process_result: type={t} user={user_id}")
 
-        if result_type == "plan":
-            text = f"📄 План:\n{data.get('plan_text', '(пусто)')}"
-            await bot.send_message(user_id, text, reply_markup=result_plan_kb(data.get("student_id")))
-        elif result_type == "tasks":
-            text = f"📝 Задания:\n{data.get('tasks_text', '(нет данных)')}"
-            await bot.send_message(user_id, text, reply_markup=result_tasks_kb(data.get("student_id")))
-        elif result_type == "check":
-            text = f"✔️ Проверка:\n{data.get('report_text', '(нет отчёта)')}"
-            await bot.send_message(user_id, text, reply_markup=result_check_kb(data.get("student_id")))
-        elif result_type == "chat":
-            await bot.send_message(user_id, data.get("answer", ""), reply_markup=chat_gpt_back_kb())
-        elif result_type == "error":
-            await bot.send_message(user_id, f"⚠️ {data.get('message')}")
+        if t == "chat":
+            # вот здесь точно отправляем сообщение в чат
+            await process_result.bot.send_message(
+                user_id,
+                answer,
+                reply_markup=chat_gpt_back_kb()
+            )
+        elif t == "plan":
+            text = f"📄 План:\n{data.get('plan_text','(пусто)')}"
+            await process_result.bot.send_message(user_id, text, reply_markup=result_plan_kb(data.get("student_id")))
+        elif t == "tasks":
+            text = f"📝 Задания:\n{data.get('tasks_text','(нет данных)')}"
+            await process_result.bot.send_message(user_id, text, reply_markup=result_tasks_kb(data.get("student_id")))
+        elif t == "check":
+            text = f"✔️ Результаты проверки:\n{data.get('report_text','(нет отчёта)')}"
+            await process_result.bot.send_message(user_id, text, reply_markup=result_check_kb(data.get("student_id")))
+        elif t == "error":
+            await process_result.bot.send_message(user_id, f"⚠️ {data.get('message','Ошибка')}")
         else:
-            logging.warning(f"❓ Unknown result type: {result_type}")
+            logging.warning(f"❓ process_result: неизвестный type={t}")
 
 
 async def on_startup(bot: Bot, dp: Dispatcher) -> None:
-    logging.info("🚀 on_startup: регистрируем команды и настраиваем RabbitMQ")
+    logging.info("🚀 on_startup: регистрируем команды и подписываемся на очередь результатов")
 
-    # Регистрируем команды в нижнем меню Telegram
+    # 1) команды Telegram
     await bot.set_my_commands([
         BotCommand("show_students", "👤 Ученики"),
         BotCommand("add_student",   "➕ Добавить ученика"),
@@ -65,19 +68,19 @@ async def on_startup(bot: Bot, dp: Dispatcher) -> None:
         BotCommand("subscription",  "💳 Оплата"),
     ])
 
-    # Подключаемся к RabbitMQ
+    # 2) подключаемся к RabbitMQ
     connection = await aio_pika.connect_robust(
         host=config.RABBITMQ_HOST,
         port=config.RABBITMQ_PORT,
         login=config.RABBITMQ_USER,
-        password=config.RABBITMQ_PASS,
+        password=config.RABBITMQ_PASS
     )
     channel = await connection.channel()
     logging.info("✔️ Connected to RabbitMQ")
 
-    # Декларируем очередь результатов и подписываемся
+    # 3) декларируем очередь результатов и подписываемся
     result_q = await channel.declare_queue(config.RESULT_QUEUE, durable=True)
-    process_result.bot = bot  # сохраняем объект бота в обработчике
+    process_result.bot = bot   # привязываем bot к обработчику
     await result_q.consume(process_result, no_ack=False)
     logging.info(f"🔔 Subscribed to result queue '{config.RESULT_QUEUE}'")
 
@@ -91,7 +94,7 @@ async def on_shutdown(bot: Bot, dp: Dispatcher) -> None:
 async def main() -> None:
     logging.basicConfig(level=logging.INFO)
 
-    # 1) Инициализируем пул PostgreSQL **до** регистрации middleware
+    # 0) Инициализируем пул PostgreSQL ДО создания Dispatcher
     dsn = (
         f"postgresql://{config.DB_USER}:{config.DB_PASSWORD}"
         f"@{config.DB_HOST}:{config.DB_PORT}/{config.DB_NAME}"
@@ -99,24 +102,24 @@ async def main() -> None:
     await db.init_db_pool(dsn)
     logging.info("✔️ Database pool initialized")
 
-    # 2) Создаём Telegram Bot
+    # 1) создаём бота
     bot = Bot(
         token=config.BOT_TOKEN,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML)
     )
 
-    # 3) Диспетчер с Redis-FSM
+    # 2) диспетчер с FSM на Redis
     dp = Dispatcher(
         storage=RedisStorage.from_url(
             f"redis://{config.REDIS_HOST}:{config.REDIS_PORT}/{config.REDIS_DB_FSM}"
         )
     )
 
-    # 4) Middleware (AuthMiddleware теперь найдёт пул)
+    # 3) middleware (AuthMiddleware сразу найдёт инициализированный пул)
     dp.message.middleware(AuthMiddleware())
     dp.callback_query.middleware(AuthMiddleware())
 
-    # 5) Подключаем роутеры
+    # 4) регистрируем все ваши роутеры
     dp.include_router(start.router)
     dp.include_router(students.router)
     dp.include_router(generation.router)
@@ -124,7 +127,7 @@ async def main() -> None:
     dp.include_router(subscription.router)
     dp.include_router(settings.router)
 
-    # 6) Запускаем polling (on_startup подхватит очередь + команды)
+    # 5) стартуем polling
     await dp.start_polling(
         bot,
         skip_updates=True,
