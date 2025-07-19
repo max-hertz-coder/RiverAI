@@ -44,13 +44,11 @@ async def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     logging.info("🚀 Worker starting up")
 
-    # 1) Инициализация PostgreSQL через DSN
-    dsn = (
-        f"postgresql://{config.DB_USER}:{config.DB_PASSWORD}"
-        f"@{config.DB_HOST}:{config.DB_PORT}/{config.DB_NAME}"
-    )
-    await db.init_db_pool(dsn)
+
+    # 1) Инициализация PostgreSQL
+    await db.init_db_pool()
     logging.info("✔️ Database pool initialized")
+
 
     # 2) Инициализация Redis
     await redis_cache.init_redis(
