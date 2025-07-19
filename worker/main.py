@@ -38,7 +38,6 @@ async def handle_message(message: aio_pika.IncomingMessage):
             return
 
         try:
-            # Публикуем результат в очередь результатов
             await publish_exchange.publish(
                 Message(body=json.dumps(result).encode("utf-8")),
                 routing_key=config.RESULT_QUEUE
@@ -77,9 +76,9 @@ async def main():
     channel = await connection.channel()
     logging.info("✔️ Connected to RabbitMQ")
 
-    # Сохраняем default exchange в глобальной переменной
+    # Сохраняем default exchange из канала
     global publish_exchange
-    publish_exchange = connection.default_exchange
+    publish_exchange = channel.default_exchange
 
     # 4) Объявляем очередь задач и подписываемся на неё
     task_queue = await channel.declare_queue(config.TASK_QUEUE, durable=True)
