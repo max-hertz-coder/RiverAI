@@ -11,4 +11,4 @@ services:
 
 networks:
   internal:
-    external: true         # эта сеть уже создаётся вашим compose для очереди/БД
+    driver: bridge        # эта сеть уже создаётся вашим compose для очереди/БД

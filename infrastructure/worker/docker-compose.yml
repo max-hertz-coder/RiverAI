@@ -1,19 +1,10 @@
 version: '3.9'
+
 services:
   worker:
     build:
-      context: ../..                       
-      dockerfile: Dockerfile.worker         
+      context: ../..          # корень проекта с Dockerfile.worker
+      dockerfile: Dockerfile.worker
     env_file:
-      - ../../.env                          
-    depends_on:
-      - db
-      - redis
-      - rabbitmq
-    networks:
-      - internal
+      - ../../.env            # ваши переменные окружения с RABBITMQ_HOST, POSTGRES_HOST и т.п.
     restart: unless-stopped
-
-networks:
-  internal:
-    external: true
