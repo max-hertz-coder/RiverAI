@@ -1,0 +1,19 @@
+version: '3.9'
+services:
+  bot:
+    build:
+      context: ../..                    
+      dockerfile: Dockerfile.bot        
+    env_file:
+      - ../../.env                      
+    depends_on:
+      - db
+      - redis
+      - rabbitmq
+    networks:
+      - internal
+    restart: unless-stopped
+
+networks:
+  internal:
+    external: true  # если вы хотите объединить эти сети со всеми остальными
