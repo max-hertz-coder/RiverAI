@@ -1,33 +1,49 @@
+# /opt/RiverAI/worker/redis_cache.py
+
 import redis.asyncio as redis
 from worker import config
 
-_client: redis.Redis = None
+_client: redis.Redis | None = None
 
 async def init_redis():
+    """
+    Initialize the Redis client using settings from config.
+    Connects to host=config.REDIS_HOST, port=config.REDIS_PORT,
+    and database index config.REDIS_DB_CACHE.
+    """
     global _client
-    _client = redis.Redis(host=config.REDIS_HOST, port=config.REDIS_PORT, db=config.REDIS_DB)
+    _client = redis.Redis(
+        host=config.REDIS_HOST,
+        port=config.REDIS_PORT,
+        db=config.REDIS_DB_CACHE,  # ← используем REDIS_DB_CACHE из config
+    )
 
-def _get_client():
+def _get_client() -> redis.Redis:
     if _client is None:
-        raise RuntimeError("Redis not initialized")
+        raise RuntimeError("Redis client is not initialized")
     return _client
 
-async def get_conversation(user_id: int, student_id: int):
-    """Retrieve chat history from Redis for given user & student."""
+async def get_conversation(user_id: int, student_id: int) -> str | None:
+    """
+    Retrieve chat history (JSON string) for given user & student from Redis.
+    """
     client = _get_client()
     key = f"chat:{user_id}:{student_id}"
     data = await client.get(key)
-    if data:
-        # store as plaintext JSON string
-        return data.decode('utf-8')
-    return None
+    return data.decode('utf-8') if data else None
 
-async def save_conversation(user_id: int, student_id: int, conv_json: str):
+async def save_conversation(user_id: int, student_id: int, conv_json: str) -> None:
+    """
+    Save chat history (JSON string) for given user & student to Redis.
+    """
     client = _get_client()
     key = f"chat:{user_id}:{student_id}"
     await client.set(key, conv_json)
 
-async def clear_conversation(user_id: int, student_id: int):
+async def clear_conversation(user_id: int, student_id: int) -> None:
+    """
+    Delete chat history for given user & student from Redis.
+    """
     client = _get_client()
     key = f"chat:{user_id}:{student_id}"
     await client.delete(key)
