@@ -1,8 +1,10 @@
 import os
 import asyncio
-from openai import OpenAI
+import openai
+from worker.config import OPENAI_API_KEYS  # убедитесь, что в config.py есть эта константа
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEYS"))
+# Инициализируем ключ один раз при старте модуля
+openai.api_key = OPENAI_API_KEYS
 
 _system_prompts = {
     "tasks": (
@@ -21,7 +23,7 @@ def _sync_call(prompt: str, role: str) -> str:
         {"role": "system",   "content": _system_prompts[role]},
         {"role": "user",     "content": prompt}
     ]
-    resp = client.chat.completions.create(
+    resp = openai.chat.completions.create(
         model="gpt-3.5-turbo",
         messages=messages,
         temperature=0.0,
