@@ -2,9 +2,12 @@ import os
 import base64
 import logging
 import asyncio
-from openai import OpenAI
+import base64
+import openai
+from worker.config import OPENAI_API_KEYS  # убедитесь, что в config.py есть эта константа
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEYS"))
+# Инициализируем ключ один раз при старте модуля
+openai.api_key = OPENAI_API_KEYS
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +23,7 @@ def _sync_ocr(path_or_url: str) -> str:
         image_obj = {"url": f"data:image/jpeg;base64,{b64}", "detail": "high"}
 
     try:
-        resp = client.chat.completions.create(
+        resp = openai.chat.completions.create(
             model="gpt-4o",
             messages=[{
                 "role": "user",

@@ -1,8 +1,11 @@
 import os
 import asyncio
-from openai import OpenAI
+import openai
+from worker.config import OPENAI_API_KEYS  # убедитесь, что в config.py есть эта константа
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEYS"))
+# Инициализируем ключ один раз при старте модуля
+openai.api_key = OPENAI_API_KEYS
+
 
 _corrections_prompt = (
     "Вы — редактор математических задач. Вам приходят две части: инструкция "
@@ -12,7 +15,7 @@ _corrections_prompt = (
 
 def _sync_correct(instruction: str, raw: str) -> str:
     full = instruction.strip() + "\n\n" + raw.strip()
-    resp = client.chat.completions.create(
+    resp = openai.chat.completions.create(
         model="gpt-3.5-turbo",
         messages=[
             {"role": "system", "content": _corrections_prompt},

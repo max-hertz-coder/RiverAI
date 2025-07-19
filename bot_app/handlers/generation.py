@@ -10,10 +10,31 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 
 from bot_app import config
-from bot_app.keyboards.chat_menu import chat_menu_kb, back_button
+
+from bot_app.keyboards.chat_menu import chat_menu_kb
+from bot_app.keyboards.main_menu import back_button
 
 router = Router()
 logger = logging.getLogger(__name__)
+
+# Helper to send any task
+async def _send_task(task: dict):
+    try:
+        conn = await aio_pika.connect_robust(
+            host=config.RABBITMQ_HOST,
+            port=config.RABBITMQ_PORT,
+            login=config.RABBITMQ_USER,
+            password=config.RABBITMQ_PASS,
+        )
+        ch = await conn.channel()
+        await ch.default_exchange.publish(
+            aio_pika.Message(body=json.dumps(task).encode()),
+            routing_key=config.TASK_QUEUE,
+        )
+        await conn.close()
+    except Exception:
+        logger.exception("Ошибка отправки задачи в очередь")
+        raise
 
 # --- OCR ---
 @router.message(F.photo)

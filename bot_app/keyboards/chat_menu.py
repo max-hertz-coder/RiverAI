@@ -1,24 +1,28 @@
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-def chat_menu_kb(student_id: int, lang: str = "RU"):
+# bot_app/keyboards/chat_menu.py
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+
+def chat_menu_kb(student_id: int) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardMarkup(row_width=2)
+    kb.add(
+        InlineKeyboardButton("📝 Генерация учебного плана", callback_data=f"generate_plan:{student_id}"),
+        InlineKeyboardButton("🗂 Генерация заданий", callback_data=f"generate_tasks:{student_id}")
+    )
+    kb.add(
+        InlineKeyboardButton("✔️ Проверка ДЗ", callback_data=f"check_homework:{student_id}"),
+        InlineKeyboardButton("💬 Пообщаться с GPT", callback_data=f"chat_gpt:{student_id}")
+    )
+    # добавляем единую кнопку Назад
+    kb.add(back_button())
+    return kb
+
+def back_button() -> InlineKeyboardButton:
     """
-    Inline keyboard for a student's menu of actions: generate plan, generate tasks, check homework, chat with GPT, back.
+    Универсальная кнопка «← Назад» для возврата на предыдущий уровень меню.
     """
-    kb = InlineKeyboardBuilder()
-    if lang.upper() == "EN":
-        kb.button(text="📄 Generate Study Plan", callback_data=f"gen_plan:{student_id}")
-        kb.button(text="📝 Generate Tasks", callback_data=f"gen_tasks:{student_id}")
-        kb.button(text="✔️ Check Homework", callback_data=f"check_hw:{student_id}")
-        kb.button(text="💬 Chat with GPT", callback_data=f"chat_gpt:{student_id}")
-        kb.button(text="← Back", callback_data="back:students")
-    else:
-        kb.button(text="📄 Генерация учебного плана", callback_data=f"gen_plan:{student_id}")
-        kb.button(text="📝 Генерация заданий", callback_data=f"gen_tasks:{student_id}")
-        kb.button(text="✔️ Проверка ДЗ", callback_data=f"check_hw:{student_id}")
-        kb.button(text="💬 Пообщаться с GPT", callback_data=f"chat_gpt:{student_id}")
-        kb.button(text="← Назад", callback_data="back:students")
-    kb.adjust(1)
-    return kb.as_markup()
+    return InlineKeyboardButton("← Назад", callback_data="back")
+
 
 def result_plan_kb(student_id: int, lang: str = "RU"):
     """Keyboard after generating a plan: refine or save, back to menu."""
