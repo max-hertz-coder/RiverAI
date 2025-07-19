@@ -54,6 +54,6 @@ async def handle_gpt(message: Message, state: FSMContext):
 
     if clear:
         await state.clear()
-        await message.answer("🔚 Чат завершён.", reply_markup=chat_menu_kb(student_id, lang="RU"))
+        await message.answer("🔚 Чат завершён.", reply_markup=chat_menu_kb(student_id))
     else:
-        await message.answer("💭 Сообщение отправлено ИИ, ожидайте ответ...", reply_markup=chat_menu_kb(student_id, lang="RU"))
+        await message.answer("💭 Сообщение отправлено ИИ, ожидайте ответ...", reply_markup=chat_menu_kb(student_id))

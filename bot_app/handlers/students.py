@@ -115,6 +115,8 @@ async def cb_open_chat(callback: CallbackQuery):
     if not student:
         return await callback.answer("Ученик не найден.", show_alert=True)
     header = f"👤 {student['name']} | Предмет: {student['subject']} | Уровень: {student['level']}"
-    await callback.message.edit_text(header, reply_markup=chat_menu_kb(sid, lang="RU"))
-
+    await callback.message.edit_text(
+        header,
+        reply_markup=chat_menu_kb(sid)  # убрали lang="RU"
+    )
 # Редактирование и удаление — оставляем без изменений, главное ensure_user перед CRUD
