@@ -44,18 +44,16 @@ async def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     logging.info("🚀 Worker starting up")
 
-
-    # 1) Инициализация PostgreSQL
-    await db.init_db_pool()
+    # 1) Инициализация PostgreSQL через DSN
+    dsn = (
+        f"postgresql://{config.DB_USER}:{config.DB_PASSWORD}"
+        f"@{config.DB_HOST}:{config.DB_PORT}/{config.DB_NAME}"
+    )
+    await db.init_db_pool(dsn)
     logging.info("✔️ Database pool initialized")
 
-
     # 2) Инициализация Redis
-    await redis_cache.init_redis(
-        host=config.REDIS_HOST,
-        port=config.REDIS_PORT,
-        db=config.REDIS_DB_CACHE,
-    )
+    await redis_cache.init_redis()
     logging.info("✔️ Redis cache initialized")
 
     # 3) Подключение к RabbitMQ
@@ -73,12 +71,12 @@ async def main():
     await channel.declare_queue(config.RESULT_QUEUE, durable=True)
     logging.info(f"🕸 Queues declared: {config.TASK_QUEUE}, {config.RESULT_QUEUE}")
 
-    # 5) Подписываемся и ждем сообщений
+    # 5) Подписываемся и ждём сообщений
     await channel.set_qos(prefetch_count=1)
     await channel.consume(handle_message, queue_name=config.TASK_QUEUE)
     logging.info(f"✅ Subscribed to queue '{config.TASK_QUEUE}', waiting for tasks…")
 
-    # Блокируем, чтобы процесс не завершился
+    # Блокировка, чтобы процесс не завершался
     await asyncio.Future()
 
 if __name__ == "__main__":
