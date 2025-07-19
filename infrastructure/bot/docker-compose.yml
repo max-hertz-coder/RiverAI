@@ -1,19 +1,14 @@
-version: '3.9'
 services:
   bot:
     build:
-      context: ../..                    
-      dockerfile: Dockerfile.bot        
+      context: ../..       # корень репо, где лежат Dockerfile.bot и всё приложение
+      dockerfile: Dockerfile.bot
     env_file:
-      - ../../.env                      
-    depends_on:
-      - db
-      - redis
-      - rabbitmq
+      - ../../.env         # подтянет DB_HOST, REDIS_HOST, RABBITMQ_HOST и т.д.
     networks:
       - internal
     restart: unless-stopped
 
 networks:
   internal:
-    external: true  # если вы хотите объединить эти сети со всеми остальными
+    external: true         # эта сеть уже создаётся вашим compose для очереди/БД
