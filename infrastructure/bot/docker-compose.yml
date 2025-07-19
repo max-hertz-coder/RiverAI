@@ -1,14 +1,16 @@
+version: '3.9'
+
 services:
   bot:
     build:
-      context: ../..       # корень репо, где лежат Dockerfile.bot и всё приложение
+      context: ../..       # корень репо с Dockerfile.bot
       dockerfile: Dockerfile.bot
     env_file:
       - ../../.env         # подтянет DB_HOST, REDIS_HOST, RABBITMQ_HOST и т.д.
+    restart: unless-stopped
     networks:
       - internal
-    restart: unless-stopped
 
 networks:
   internal:
-    driver: bridge        # эта сеть уже создаётся вашим compose для очереди/БД
+    driver: bridge

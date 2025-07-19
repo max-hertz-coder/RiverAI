@@ -3,8 +3,14 @@ version: '3.9'
 services:
   worker:
     build:
-      context: ../..          # корень проекта с Dockerfile.worker
+      context: ../..            # корень репо с Dockerfile.worker
       dockerfile: Dockerfile.worker
     env_file:
-      - ../../.env            # ваши переменные окружения с RABBITMQ_HOST, POSTGRES_HOST и т.п.
+      - ../../.env              # подтянет POSTGRES_HOST, RABBITMQ_HOST, REDIS_HOST и др.
     restart: unless-stopped
+    networks:
+      - internal
+
+networks:
+  internal:
+    driver: bridge

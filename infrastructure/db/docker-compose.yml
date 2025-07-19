@@ -1,4 +1,5 @@
 version: '3.9'
+
 services:
   db:
     image: postgres:14
@@ -9,9 +10,9 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
     networks:
       - internal
-    restart: unless-stopped
 
 networks:
   internal:
