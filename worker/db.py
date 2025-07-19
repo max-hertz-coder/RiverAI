@@ -1,18 +1,29 @@
+# /opt/RiverAI/worker/db.py
+
 import asyncpg
 from worker import config
-from worker.utils import encryption
+from worker.utils import encryption  # или откуда у вас берётся encryption
 
 _pool: asyncpg.Pool = None
 
-async def init_db_pool():
+async def init_db_pool(dsn: str | None = None):
+    """
+    Initialize the PostgreSQL connection pool.
+    Если DSN не передан, берём его из config.
+    """
     global _pool
-    dsn = f"postgresql://{config.DB_USER}:{config.DB_PASSWORD}@{config.DB_HOST}:{config.DB_PORT}/{config.DB_NAME}"
+    if dsn is None:
+        dsn = (
+            f"postgresql://{config.DB_USER}:{config.DB_PASSWORD}"
+            f"@{config.DB_HOST}:{config.DB_PORT}/{config.DB_NAME}"
+        )
     _pool = await asyncpg.create_pool(dsn)
 
 def _get_pool():
     if _pool is None:
-        raise RuntimeError("DB pool not initialized")
+        raise RuntimeError("Database pool is not initialized")
     return _pool
+
 
 async def get_user(user_id: int):
     pool = _get_pool()

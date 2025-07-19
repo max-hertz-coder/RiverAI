@@ -39,6 +39,18 @@ async def handle_message(message: aio_pika.IncomingMessage):
         except Exception:
             logging.exception("🔴 Failed to publish result:")
 
+# /opt/RiverAI/worker/main.py
+
+#!/usr/bin/env python3
+import asyncio
+import logging
+import json
+
+import aio_pika
+from aio_pika import Message
+
+from worker import config, db, redis_cache
+from worker.consumers import task_consumer
 
 async def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -52,7 +64,8 @@ async def main():
     await db.init_db_pool(dsn)
     logging.info("✔️ Database pool initialized")
 
-    # 2) Инициализация Redis
+    # 2) Инициализация Redis (у вас init_redis() тоже, скорее всего, не принимает аргументов, 
+    #    поэтому либо аналогично расширьте, либо вызовите без аргументов – как вы уже сделали)
     await redis_cache.init_redis()
     logging.info("✔️ Redis cache initialized")
 
