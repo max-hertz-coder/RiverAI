@@ -1,64 +1,37 @@
 import json
 import logging
-import aio_pika
+from aio_pika import IncomingMessage
 from aiogram import Bot
-from aiogram.types import InputFile
-from io import BytesIO
-import base64
+from bot_app.keyboards.chat_menu import (
+    chat_gpt_back_kb, result_plan_kb, result_tasks_kb, result_check_kb
+)
 
-logger = logging.getLogger(__name__)
-
-async def process_result(message: aio_pika.IncomingMessage, bot: Bot):
+async def process_result(message: IncomingMessage, bot: Bot):
     async with message.process():
         try:
-            body = message.body.decode()
-            data = json.loads(body)
+            data = json.loads(message.body)
+            logging.info(f"📥 Получен результат из очереди: {data}")
         except Exception as e:
-            logger.exception(f"📛 Ошибка декодирования сообщения из очереди: {e}")
+            logging.error(f"❌ Ошибка при разборе JSON результата: {e}")
             return
 
-        user_id    = data.get("user_id")
+        user_id = data.get("user_id")
+        t       = data.get("type")
         student_id = data.get("student_id")
-        result_type = data.get("type")
 
-        logger.info(f"📩 Получен результат '{result_type}' для user_id={user_id}")
+        if not user_id or not t:
+            logging.warning("⚠️ Результат не содержит user_id или type")
+            return
 
-        try:
-            if result_type == "generate_plan_result":
-                await bot.send_message(user_id, f"📋 Учебный план:\n{data.get('text')}")
-
-            elif result_type == "chat_result":
-                await bot.send_message(user_id, data.get("text", "🤖"))
-
-            elif result_type == "ocr_result":
-                await bot.send_message(user_id, f"🔍 Распознанный текст:\n{data.get('text')}")
-
-            elif result_type == "generate_tasks_result":
-                await bot.send_message(user_id, f"📝 Сырые задания:\n{data.get('raw_tasks')}")
-
-            elif result_type == "generate_solutions_result":
-                await bot.send_message(user_id, f"✅ Решения:\n{data.get('solutions')}")
-
-            elif result_type == "correct_tasks_result":
-                await bot.send_message(user_id, f"🧪 Скорректированные задания:\n{data.get('corrected')}")
-
-            elif result_type == "check_homework_result":
-                file_data = data.get("file_data")
-                file_name = data.get("file_name", "check_result.pdf")
-                if file_data:
-                    decoded = base64.b64decode(file_data)
-                    f = BytesIO(decoded)
-                    f.name = file_name
-                    await bot.send_document(user_id, InputFile(f))
-                else:
-                    await bot.send_message(user_id, "⚠️ Не удалось получить файл проверки")
-
-            elif result_type == "error":
-                await bot.send_message(user_id, f"❌ Ошибка:\n{data.get('message','Неизвестная ошибка')}")
-
-            else:
-                logger.warning(f"⚠️ Неизвестный тип результата: {result_type}")
-                await bot.send_message(user_id, "⚠️ Получен неизвестный результат")
-
-        except Exception as e:
-            logger.exception(f"Ошибка при отправке результата пользователю {user_id}: {e}")
+        if t == "chat":
+            await bot.send_message(user_id, data.get("answer", "(нет ответа)"), reply_markup=chat_gpt_back_kb())
+        elif t == "plan":
+            await bot.send_message(user_id, f"📄 План:\n{data.get('plan_text', '(пусто)')}", reply_markup=result_plan_kb(student_id))
+        elif t == "tasks":
+            await bot.send_message(user_id, f"📝 Задания:\n{data.get('tasks_text', '(нет данных)')}", reply_markup=result_tasks_kb(student_id))
+        elif t == "check":
+            await bot.send_message(user_id, f"✔️ Результаты проверки:\n{data.get('report_text', '(нет отчёта)')}", reply_markup=result_check_kb(student_id))
+        elif t == "error":
+            await bot.send_message(user_id, f"⚠️ Ошибка: {data.get('message', 'Неизвестная ошибка')}")
+        else:
+            logging.warning(f"❓ Неизвестный тип результата: {t}")
