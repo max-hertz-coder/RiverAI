@@ -4,7 +4,7 @@ import tempfile
 import logging
 import asyncio
 from aio_pika import Message
-from worker.config import OPENAI_API_KEYS, RABBITMQ_RESULT_QUEUE
+from worker.config import OPENAI_API_KEYS, RESULT_QUEUE
 import openai
 import aio_pika
 

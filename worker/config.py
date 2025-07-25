@@ -7,24 +7,26 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # PostgreSQL
-DB_HOST     = os.getenv("POSTGRES_HOST", "db")
-DB_PORT     = int(os.getenv("POSTGRES_PORT", "5432"))
-DB_NAME     = os.getenv("POSTGRES_DB", "riverai_db")
-DB_USER     = os.getenv("POSTGRES_USER", "riverai_user")
-DB_PASSWORD = os.getenv("POSTGRES_PASSWORD", "")
+DB_HOST = os.getenv("POSTGRES_HOST")
+DB_PORT = int(os.getenv("POSTGRES_PORT", "5432"))
+DB_NAME = os.getenv("POSTGRES_DB")
+DB_USER = os.getenv("POSTGRES_USER")
+DB_PASSWORD = os.getenv("POSTGRES_PASSWORD")
 
 # RabbitMQ
-RABBITMQ_HOST = os.getenv("RABBITMQ_HOST", "rabbitmq")
+RABBITMQ_HOST = os.getenv("RABBITMQ_HOST")
 RABBITMQ_PORT = int(os.getenv("RABBITMQ_PORT", "5672"))
-RABBITMQ_USER = os.getenv("RABBITMQ_USER", "guest")
-RABBITMQ_PASS = os.getenv("RABBITMQ_PASS", "guest")
-TASK_QUEUE    = os.getenv("RABBITMQ_TASK_QUEUE", "task_queue")
-RESULT_QUEUE  = os.getenv("RABBITMQ_RESULT_QUEUE", "result_queue")
+RABBITMQ_USER = os.getenv("RABBITMQ_USER")
+RABBITMQ_PASS = os.getenv("RABBITMQ_PASS")
+
+
+TASK_QUEUE   = os.getenv("RABBITMQ_TASK_QUEUE",   "task_queue")
+RESULT_QUEUE = os.getenv("RABBITMQ_RESULT_QUEUE", "result_queue")
 
 # Redis
-REDIS_HOST     = os.getenv("REDIS_HOST", "redis")
-REDIS_PORT     = int(os.getenv("REDIS_PORT", "6379"))
-REDIS_DB_CACHE = int(os.getenv("REDIS_DB_CACHE", "1"))   # ← добавили эту строку
+REDIS_HOST = os.getenv("REDIS_HOST")
+REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+REDIS_DB = int(os.getenv("REDIS_DB_CACHE", "1"))   # ← добавили эту строку
 
 # Encryption key (hex-строка 64 символа → 32 байта)
 _key_str = os.getenv("ENCRYPTION_KEY")
@@ -42,5 +44,6 @@ else:
     ENCRYPTION_KEY = key_bytes
 
 # OpenAI
-_openai_keys = os.getenv("OPENAI_API_KEYS", "")
-OPENAI_API_KEYS = [k.strip() for k in _openai_keys.split(",") if k.strip()]
+OPENAI_API_KEYS = [k.strip() for k in os.getenv("OPENAI_API_KEYS", "").split(",") if k.strip()]
+if not OPENAI_API_KEYS:
+    raise RuntimeError("OPENAI_API_KEYS not set")
