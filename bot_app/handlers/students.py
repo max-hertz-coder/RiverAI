@@ -4,7 +4,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 
 from bot_app.database import db
-from bot_app.keyboards import students as student_kb
+from bot_app.keyboards import students as student_kb 
 from bot_app.keyboards.chat_menu import chat_menu_kb
 
 router = Router()
@@ -120,3 +120,22 @@ async def cb_open_chat(callback: CallbackQuery):
         reply_markup=chat_menu_kb(sid)  # убрали lang="RU"
     )
 # Редактирование и удаление — оставляем без изменений, главное ensure_user перед CRUD
+
+@router.callback_query(F.data == "back:chat")
+async def cb_back_to_chat_menu(callback: CallbackQuery, state: FSMContext):
+    """Возврат к меню ученика (список действий) из режима чата или генерации."""
+    # Попробуем получить текущего ученика из FSM данных
+    data = await state.get_data()
+    sid = data.get("student_id")
+    # Очищаем состояние (выходим из любых FSM)
+    await state.clear()
+    if sid:
+        # Если ID ученика известен, показываем меню действий для этого ученика
+        student = await db.get_student(sid)
+        header = f"Действия с учеником: {student['name']}" if student else "Действия с учеником"
+        await callback.message.edit_text(header, reply_markup=chat_menu_kb(sid))
+    else:
+        # Если не удалось определить ученика, возвращаемся к списку учеников
+        students = await db.get_students_by_user(callback.from_user.id)
+        text = "Ваши ученики:" + ("\n_(список пуст)_" if not students else "")
+        await callback.message.edit_text(text, reply_markup=student_kb.students_list_kb(students, lang="RU"))
