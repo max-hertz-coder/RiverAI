@@ -23,9 +23,9 @@ services:
 
   queue-server:
     build:
-      context: ../..           # Корень проекта RiverAI
+      context: ../..
       dockerfile: queue_server/Dockerfile
-    container_name: riverai-queue-server
+    container_name: queue-server
     restart: unless-stopped
     depends_on:
       - redis
@@ -48,6 +48,7 @@ services:
       DB_PASSWORD: ${DB_PASSWORD}
     networks:
       - internal
+
 
 networks:
   internal:
