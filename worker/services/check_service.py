@@ -1,4 +1,6 @@
 import asyncio
+import logging
+
 from worker.services.gpt_service import ask_gpt
 
 async def handle_check(task: dict) -> dict:
@@ -11,6 +13,7 @@ async def handle_check(task: dict) -> dict:
     system = {"role": "system", "content": "Вы — педагог; проверьте это домашнее задание и дайте отчёт:"}
     user   = {"role": "user",   "content": description}
     report = await ask_gpt([system, user])
+    logging.info(f"[chat_service] Answer to queue: {report}")
 
     return {
         "type": "check_homework_result",

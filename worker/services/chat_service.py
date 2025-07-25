@@ -1,3 +1,4 @@
+import logging
 from worker.services.gpt_service import ask_gpt
 from worker.redis_cache import get_conversation, save_conversation
 import json
@@ -14,6 +15,9 @@ async def handle_chat(task: dict) -> dict:
     # получаем историю (json-строку) или начинаем новую
     hist_json = await get_conversation(user_id, student_id)
     history   = [] if not hist_json else json.loads(hist_json)
+
+    answer = await ask_gpt(history)
+    logging.info(f"[chat_service] Answer to queue: {answer}")
 
     # append user request
     history.append({"role": "user", "content": msg})

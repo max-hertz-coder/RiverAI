@@ -21,53 +21,57 @@ async def handle_message(message: IncomingMessage) -> None:
             return
 
         task_type = task_data.get("type")
-        logging.info(f"▶ Received task of type: {task_type}")
+        user_id   = task_data.get("user_id")
+        student_id = task_data.get("student_id")
+        logging.info(f"▶ Получена задача: type={task_type}, user={user_id}, student={student_id}")
 
-        # Dispatch to the appropriate service
+        # Выполняем задачу через нужный обработчик
         try:
             result = await task_consumer.process_task_message(task_data)
-        except Exception:
-            logging.exception("🔴 Error while processing task")
+            logging.info(f"✅ Задача type={task_type} успешно обработана.")
+        except Exception as e:
+            logging.exception(f"🔴 Ошибка при обработке задачи type={task_type}")
             return
 
         if not result:
-            logging.warning("⚠️ No result returned by task_consumer")
+            logging.warning("⚠️ process_task_message вернул None — результат не будет отправлен")
             return
 
         if publish_exchange is None:
-            logging.error("🔴 Cannot publish result: publish_exchange is not initialized")
+            logging.error("🔴 publish_exchange is not initialized — невозможно отправить результат")
             return
 
-        # Publish the result back to the result queue
+        # Публикуем результат в очередь
         try:
+            result_json = json.dumps(result, ensure_ascii=False)
             await publish_exchange.publish(
-                Message(body=json.dumps(result).encode("utf-8")),
+                Message(body=result_json.encode("utf-8")),
                 routing_key=config.RESULT_QUEUE,
             )
-            logging.info("✅ Published result to result queue")
+            logging.info(f"📤 Результат опубликован в очередь '{config.RESULT_QUEUE}': {result_json}")
         except Exception:
-            logging.exception("🔴 Failed to publish result")
+            logging.exception("🔴 Ошибка при публикации результата в очередь")
 
 async def main() -> None:
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(message)s"
     )
-    logging.info("🚀 Worker starting up")
+    logging.info("🚀 Запуск воркера...")
 
-    # 1) Initialize PostgreSQL pool via DSN
+    # 1) Подключаем БД
     dsn = (
         f"postgresql://{config.DB_USER}:{config.DB_PASSWORD}"
         f"@{config.DB_HOST}:{config.DB_PORT}/{config.DB_NAME}"
     )
     await db.init_db_pool(dsn)
-    logging.info("✔️ Database pool initialized")
+    logging.info("✔️ Подключение к PostgreSQL успешно")
 
-    # 2) Initialize Redis cache (for chat context, etc.)
+    # 2) Подключаем Redis
     await redis_cache.init_redis()
-    logging.info("✔️ Redis cache initialized")
+    logging.info("✔️ Подключение к Redis успешно")
 
-    # 3) Connect to RabbitMQ
+    # 3) Подключение к RabbitMQ
     connection = await aio_pika.connect_robust(
         host=config.RABBITMQ_HOST,
         port=config.RABBITMQ_PORT,
@@ -75,24 +79,24 @@ async def main() -> None:
         password=config.RABBITMQ_PASS,
     )
     channel = await connection.channel()
-    logging.info("✔️ Connected to RabbitMQ")
+    logging.info("✔️ Подключение к RabbitMQ успешно")
 
-    # 4) Grab the default exchange for publishing results
+    # 4) Сохраняем default exchange
     global publish_exchange
     publish_exchange = channel.default_exchange
 
-    # 5) Declare both the task and result queues (idempotent)
+    # 5) Объявляем очереди (на всякий случай)
     await channel.declare_queue(config.TASK_QUEUE, durable=True)
     await channel.declare_queue(config.RESULT_QUEUE, durable=True)
-    logging.info(f"🕸 Queues declared: {config.TASK_QUEUE}, {config.RESULT_QUEUE}")
+    logging.info(f"🕸 Очереди объявлены: {config.TASK_QUEUE}, {config.RESULT_QUEUE}")
 
-    # 6) Subscribe to the task queue
+    # 6) Подписка на очередь задач
     task_queue = await channel.declare_queue(config.TASK_QUEUE, durable=True)
     await channel.set_qos(prefetch_count=1)
     await task_queue.consume(handle_message)
-    logging.info(f"✅ Subscribed to '{config.TASK_QUEUE}', waiting for tasks…")
+    logging.info(f"✅ Подписка на очередь '{config.TASK_QUEUE}' выполнена. Ожидаю задачи...")
 
-    # 7) Keep the process alive indefinitely
+    # 7) Бесконечный цикл
     await asyncio.Future()
 
 if __name__ == "__main__":
