@@ -3,6 +3,7 @@ import asyncio
 import logging
 import json
 
+import aio_pika
 from aiogram import Bot, Dispatcher
 from aiogram.client.bot import DefaultBotProperties
 from aiogram.enums import ParseMode
@@ -21,35 +22,38 @@ from bot_app.keyboards.chat_menu import (
 )
 
 
-async def process_result(message, bot: Bot):
-    """Обрабатывает результат из очереди и отправляет пользователю"""
+async def process_result(message: aio_pika.IncomingMessage, bot: Bot) -> None:
     async with message.process():
         try:
             data = json.loads(message.body)
+            logging.info(f"📨 Получено сообщение из result_queue: {json.dumps(data, ensure_ascii=False)}")
         except Exception as e:
-            logging.error(f"❌ Ошибка парсинга JSON из result_queue: {e}")
+            logging.error(f"❌ process_result — неверный JSON: {e}")
             return
 
         user_id = data.get("user_id")
         t       = data.get("type")
-        student_id = data.get("student_id")
-        logging.info(f"📬 Получен результат type={t} для user_id={user_id}")
+        answer  = data.get("answer") or "(пусто)"
+        logging.info(f"📦 type={t} user_id={user_id} answer={answer[:100]}")
 
-        if t == "chat":
-            await bot.send_message(user_id, data.get("answer", "⚠️ Нет ответа"), reply_markup=chat_gpt_back_kb())
-        elif t == "plan":
-            await bot.send_message(user_id, f"📄 План:\n{data.get('plan_text', '(пусто)')}",
-                                   reply_markup=result_plan_kb(student_id))
-        elif t == "tasks":
-            await bot.send_message(user_id, f"📝 Задания:\n{data.get('tasks_text', '(пусто)')}",
-                                   reply_markup=result_tasks_kb(student_id))
-        elif t == "check":
-            await bot.send_message(user_id, f"✅ Проверка:\n{data.get('report_text', '(нет отчета)')}",
-                                   reply_markup=result_check_kb(student_id))
-        elif t == "error":
-            await bot.send_message(user_id, f"❗ Ошибка: {data.get('message', 'неизвестная')}")
-        else:
-            logging.warning(f"❓ Неизвестный тип результата: {t}")
+        try:
+            if t == "chat":
+                await bot.send_message(user_id, answer, reply_markup=chat_gpt_back_kb())
+            elif t == "plan":
+                await bot.send_message(user_id, f"📄 План:\n{data.get('plan_text', '(пусто)')}",
+                                       reply_markup=result_plan_kb(data.get("student_id")))
+            elif t == "tasks":
+                await bot.send_message(user_id, f"📝 Задания:\n{data.get('tasks_text', '(нет данных)')}",
+                                       reply_markup=result_tasks_kb(data.get("student_id")))
+            elif t == "check":
+                await bot.send_message(user_id, f"✔️ Проверка:\n{data.get('report_text', '(нет отчёта)')}",
+                                       reply_markup=result_check_kb(data.get("student_id")))
+            elif t == "error":
+                await bot.send_message(user_id, f"⚠️ Ошибка: {data.get('message','Ошибка')}")
+            else:
+                logging.warning(f"❓ Неизвестный тип результата: {t}")
+        except Exception as e:
+            logging.error(f"❌ Ошибка при отправке сообщения в Telegram: {e}")
 
 
 async def on_startup(bot: Bot, dp: Dispatcher):
