@@ -7,6 +7,11 @@ from aiogram.client.bot import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.redis import RedisStorage
 from aiogram.types import BotCommand
+import asyncio
+import logging
+import json
+import base64               # ← Добавить импорт
+from io import BytesIO      # ← Добавить импорт
 
 import aio_pika
 
@@ -68,6 +73,7 @@ async def on_shutdown(bot: Bot, dp: Dispatcher):
         await db._pool.close()
 
 
+
 async def process_result(message: aio_pika.IncomingMessage, bot: Bot):
     """Обработка сообщений из очереди результатов."""
     async with message.process():
@@ -77,28 +83,47 @@ async def process_result(message: aio_pika.IncomingMessage, bot: Bot):
             logging.error(f"Invalid message format: {e}")
             return
 
+        # Логируем полученный результат для отладки
+        logging.info(f"Получен результат из очереди: {data}")  # ← Добавлено логирование
+
         user_id = data.get("user_id")
-        t       = data.get("type")
+        t = data.get("type")
 
         if t == "plan":
-            text = f"📄 План:\n{data.get('plan_text','(пусто)')}"
+            text = f"📄 План:\n{data.get('plan_text', '(пусто)')}"
             await bot.send_message(user_id, text,
                                    reply_markup=result_plan_kb(data.get("student_id"), lang="RU"))
+
         elif t == "tasks":
-            text = f"📝 Задания:\n{data.get('tasks_text','(нет)')}"
+            text = f"📝 Задания:\n{data.get('tasks_text', '(нет)')}"
             await bot.send_message(user_id, text,
                                    reply_markup=result_tasks_kb(data.get("student_id"), lang="RU"))
+
         elif t == "check":
-            text = f"✔️ Проверка:\n{data.get('report_text','(нет)')}"
+            text = f"✔️ Проверка:\n{data.get('report_text', '(нет)')}"
             await bot.send_message(user_id, text,
                                    reply_markup=result_check_kb(data.get("student_id"), lang="RU"))
+            # Если вместе с результатом есть PDF-файл (отчет), отправляем его пользователю
+            file_b64 = data.get("file")
+            if file_b64:
+                file_bytes = base64.b64decode(file_b64)
+                file_obj = BytesIO(file_bytes)
+                file_obj.name = "Homework_Report.pdf"  # название файла для отправки
+                await bot.send_document(user_id, file_obj, caption="📎 Отчёт в PDF")
+
         elif t == "chat":
-            await bot.send_message(user_id, data.get("answer",""),
+            # Ответ на сообщение в GPT-чате
+            await bot.send_message(user_id, data.get("answer", ""),
                                    reply_markup=chat_gpt_back_kb(lang="RU"))
+
+        elif t == "ocr":
+            # Отправляем распознанный текст (результат OCR)
+            text = f"🖼️ Распознанный текст:\n{data.get('text', '(пусто)')}"
+            await bot.send_message(user_id, text)
+
         elif t == "error":
-            await bot.send_message(user_id, f"⚠️ {data.get('message','Error')}")
-
-
+            await bot.send_message(user_id, f"⚠️ {data.get('message', 'Error')}")
+            
 async def main():
     logging.basicConfig(level=logging.INFO)
     bot = Bot(

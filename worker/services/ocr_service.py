@@ -41,10 +41,9 @@ async def handle_ocr(task: dict) -> dict:
             logger.exception("OCR failed: %s", e)
             return ""
     text = await asyncio.to_thread(_sync_ocr, path)
-
     return {
-        "type": "ocr_result",
+        "type": "ocr",               # было "ocr_result"
         "user_id": task["user_id"],
         "student_id": task["student_id"],
-        "text": text
+        "text": text                 # распознанный текст
     }

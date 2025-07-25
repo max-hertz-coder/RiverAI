@@ -5,6 +5,7 @@ from worker.services.tasks_service      import handle_tasks
 from worker.services.check_service      import handle_check
 from worker.services.chat_service       import handle_chat
 from worker.services.chat_service import handle_chat
+from worker.tasks.chat_gpt import handle_end_chat  # ← Добавить импорт
 
 
 async def process_task_message(task: dict) -> dict | None:
@@ -34,6 +35,10 @@ async def process_task_message(task: dict) -> dict | None:
         
         if t == "chat":
             return await handle_chat(task)
+        if t == "end_chat":
+        # Очистка истории диалога в Redis, результат не требуется
+            await handle_end_chat(task)
+            return None
 
         logging.warning("Unknown task type: %s", t)
     except Exception:
