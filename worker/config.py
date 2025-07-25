@@ -1,32 +1,35 @@
 # /opt/RiverAI/worker/config.py
 
-import os
 import string
+import os
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# PostgreSQL
 DB_HOST = os.getenv("POSTGRES_HOST")
 DB_PORT = int(os.getenv("POSTGRES_PORT", "5432"))
 DB_NAME = os.getenv("POSTGRES_DB")
 DB_USER = os.getenv("POSTGRES_USER")
 DB_PASSWORD = os.getenv("POSTGRES_PASSWORD")
 
-# RabbitMQ
+REDIS_HOST = os.getenv("REDIS_HOST", "redis")
+REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+# Здесь — единственная переменная для номера БД:
+REDIS_DB   = int(os.getenv("REDIS_DB_CACHE", "1"))
+
 RABBITMQ_HOST = os.getenv("RABBITMQ_HOST")
 RABBITMQ_PORT = int(os.getenv("RABBITMQ_PORT", "5672"))
 RABBITMQ_USER = os.getenv("RABBITMQ_USER")
 RABBITMQ_PASS = os.getenv("RABBITMQ_PASS")
 
-
 TASK_QUEUE   = os.getenv("RABBITMQ_TASK_QUEUE",   "task_queue")
 RESULT_QUEUE = os.getenv("RABBITMQ_RESULT_QUEUE", "result_queue")
 
-# Redis
-REDIS_HOST = os.getenv("REDIS_HOST")
-REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
-REDIS_DB = int(os.getenv("REDIS_DB_CACHE", "1"))   # ← добавили эту строку
+OPENAI_API_KEYS = [k.strip() for k in os.getenv("OPENAI_API_KEYS", "").split(",") if k.strip()]
+if not OPENAI_API_KEYS:
+    raise RuntimeError("OPENAI_API_KEYS not set")
+
+
 
 # Encryption key (hex-строка 64 символа → 32 байта)
 _key_str = os.getenv("ENCRYPTION_KEY")
@@ -43,7 +46,3 @@ else:
         raise RuntimeError(f"Invalid ENCRYPTION_KEY length: {len(key_bytes)} bytes")
     ENCRYPTION_KEY = key_bytes
 
-# OpenAI
-OPENAI_API_KEYS = [k.strip() for k in os.getenv("OPENAI_API_KEYS", "").split(",") if k.strip()]
-if not OPENAI_API_KEYS:
-    raise RuntimeError("OPENAI_API_KEYS not set")

@@ -1,49 +1,40 @@
-# /opt/RiverAI/worker/redis_cache.py
-
 import redis.asyncio as redis
 from worker import config
 
-_client: redis.Redis | None = None
+_client: redis.Redis = None
 
-async def init_redis():
+async def init_redis() -> None:
     """
-    Initialize the Redis client using settings from config.
-    Connects to host=config.REDIS_HOST, port=config.REDIS_PORT,
-    and database index config.REDIS_DB_CACHE.
+    Инициализируем клиент Redis для кэша (используем DB из config.REDIS_DB).
     """
     global _client
+    # config.REDIS_DB — та переменная, которая у вас определена в worker/config.py
     _client = redis.Redis(
         host=config.REDIS_HOST,
         port=config.REDIS_PORT,
-        db=config.REDIS_DB_CACHE,  # ← используем REDIS_DB_CACHE из config
+        db=config.REDIS_DB
     )
 
 def _get_client() -> redis.Redis:
     if _client is None:
-        raise RuntimeError("Redis client is not initialized")
+        raise RuntimeError("Redis not initialized")
     return _client
 
 async def get_conversation(user_id: int, student_id: int) -> str | None:
     """
-    Retrieve chat history (JSON string) for given user & student from Redis.
+    Получить историю чата из Redis (JSON-строка).
     """
     client = _get_client()
     key = f"chat:{user_id}:{student_id}"
     data = await client.get(key)
-    return data.decode('utf-8') if data else None
+    return data.decode("utf-8") if data else None
 
 async def save_conversation(user_id: int, student_id: int, conv_json: str) -> None:
-    """
-    Save chat history (JSON string) for given user & student to Redis.
-    """
     client = _get_client()
     key = f"chat:{user_id}:{student_id}"
     await client.set(key, conv_json)
 
 async def clear_conversation(user_id: int, student_id: int) -> None:
-    """
-    Delete chat history for given user & student from Redis.
-    """
     client = _get_client()
     key = f"chat:{user_id}:{student_id}"
     await client.delete(key)
