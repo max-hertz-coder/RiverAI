@@ -1,3 +1,5 @@
+version: "3.9"
+
 services:
   redis:
     image: redis:7-alpine
@@ -10,44 +12,32 @@ services:
   rabbitmq:
     image: rabbitmq:3-management
     restart: unless-stopped
-    networks:
-      - internal
     ports:
       - "5672:5672"
       - "15672:15672"
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS}
+    networks:
+      - internal
 
   queue-server:
     build:
       context: ../..
       dockerfile: queue_server/Dockerfile
     container_name: queue-server
+    restart: unless-stopped
     depends_on:
       - redis
       - rabbitmq
-    restart: unless-stopped
     networks:
       - internal
+    env_file:
+      - .env
     environment:
-      BOT_TOKEN: ${BOT_TOKEN}
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      REDIS_DB: 0
+      REDIS_DB_FSM: 0
+      REDIS_DB_CACHE: 1
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_PORT: 5672
-      RABBITMQ_USER: ${RABBITMQ_USER}
-      RABBITMQ_PASS: ${RABBITMQ_PASS}
-      RABBITMQ_TASK_QUEUE: task_queue
-      RABBITMQ_RESULT_QUEUE: result_queue
-      POSTGRES_HOST: ${POSTGRES_HOST}
-      POSTGRES_PORT: ${POSTGRES_PORT}
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
-
-networks:
-  internal:
-    driver: bridge
