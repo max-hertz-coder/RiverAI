@@ -87,7 +87,7 @@ async def main():
     # Создание диспетчера
     dp = Dispatcher(
         storage=RedisStorage.from_url(
-            f"redis://{config.REDIS_HOST}:{config.REDIS_PORT}/{config.REDIS_DB}"
+            f"redis://{config.REDIS_HOST}:{config.REDIS_PORT}/{config.REDIS_DB_FSM}"
         )
     )
 
