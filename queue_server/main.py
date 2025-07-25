@@ -111,11 +111,12 @@ async def main():
 
     # Установка команд
     await bot.set_my_commands([
-        BotCommand("show_students", "👤 Ученики"),
-        BotCommand("add_student", "➕ Добавить ученика"),
-        BotCommand("settings", "⚙️ Настройки"),
-        BotCommand("subscription", "💳 Оплата"),
+        BotCommand(command="show_students", description="👤 Ученики"),
+        BotCommand(command="add_student", description="➕ Добавить ученика"),
+        BotCommand(command="settings", description="⚙️ Настройки"),
+        BotCommand(command="subscription", description="💳 Оплата"),
     ])
+
 
     # Подключение к RabbitMQ
     connection = await aio_pika.connect_robust(
