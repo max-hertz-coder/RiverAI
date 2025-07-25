@@ -1,5 +1,6 @@
 from worker.services.gpt_service import ask_gpt
 from worker.redis_cache import get_conversation, save_conversation
+import json
 
 async def handle_chat(task: dict) -> dict:
     """
