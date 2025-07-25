@@ -4,6 +4,8 @@ from worker.services.plan_service       import handle_plan
 from worker.services.tasks_service      import handle_tasks
 from worker.services.check_service      import handle_check
 from worker.services.chat_service       import handle_chat
+from worker.services.chat_service import handle_chat
+
 
 async def process_task_message(task: dict) -> dict | None:
     t = task.get("type")
@@ -28,6 +30,9 @@ async def process_task_message(task: dict) -> dict | None:
             return await handle_check(task)
 
         if t == "chat_gpt":
+            return await handle_chat(task)
+        
+        if t == "chat":
             return await handle_chat(task)
 
         logging.warning("Unknown task type: %s", t)

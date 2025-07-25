@@ -1,17 +1,15 @@
+#!/usr/bin/env python3
 import asyncio
 import logging
 import json
 
-import aio_pika
 from aiogram import Bot, Dispatcher
 from aiogram.client.bot import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.redis import RedisStorage
 from aiogram.types import BotCommand
 
-rabbit_channel: aio_pika.Channel | None = None
-
-from bot_app import config
+from bot_app import config, rabbit
 from bot_app.database import db
 from bot_app.middlewares.auth import AuthMiddleware
 from bot_app.handlers import start, students, generation, chatgpt, subscription, settings
@@ -22,109 +20,91 @@ from bot_app.keyboards.chat_menu import (
     result_check_kb,
 )
 
-async def process_result(message: aio_pika.IncomingMessage, bot: Bot) -> None:
-    """Обрабатывает сообщение из очереди результатов и отправляет его в Telegram пользователю."""
+
+async def process_result(message, bot: Bot):
+    """Обрабатывает результат из очереди и отправляет пользователю"""
     async with message.process():
         try:
             data = json.loads(message.body)
         except Exception as e:
-            logging.error(f"❌ process_result — неверный JSON: {e}")
+            logging.error(f"❌ Ошибка парсинга JSON из result_queue: {e}")
             return
 
         user_id = data.get("user_id")
         t       = data.get("type")
-        answer  = data.get("answer") or ""
-        logging.info(f"▶ process_result: type={t} user={user_id}")
+        student_id = data.get("student_id")
+        logging.info(f"📬 Получен результат type={t} для user_id={user_id}")
 
         if t == "chat":
-            # Ответ от GPT-чата
-            await bot.send_message(
-                user_id,
-                answer,
-                reply_markup=chat_gpt_back_kb()
-            )
+            await bot.send_message(user_id, data.get("answer", "⚠️ Нет ответа"), reply_markup=chat_gpt_back_kb())
         elif t == "plan":
-            text = f"📄 План:\n{data.get('plan_text','(пусто)')}"
-            await bot.send_message(user_id, text, reply_markup=result_plan_kb(data.get("student_id")))
+            await bot.send_message(user_id, f"📄 План:\n{data.get('plan_text', '(пусто)')}",
+                                   reply_markup=result_plan_kb(student_id))
         elif t == "tasks":
-            text = f"📝 Задания:\n{data.get('tasks_text','(нет данных)')}"
-            await bot.send_message(user_id, text, reply_markup=result_tasks_kb(data.get("student_id")))
+            await bot.send_message(user_id, f"📝 Задания:\n{data.get('tasks_text', '(пусто)')}",
+                                   reply_markup=result_tasks_kb(student_id))
         elif t == "check":
-            text = f"✔️ Результаты проверки:\n{data.get('report_text','(нет отчёта)')}"
-            await bot.send_message(user_id, text, reply_markup=result_check_kb(data.get("student_id")))
+            await bot.send_message(user_id, f"✅ Проверка:\n{data.get('report_text', '(нет отчета)')}",
+                                   reply_markup=result_check_kb(student_id))
         elif t == "error":
-            await bot.send_message(user_id, f"⚠️ {data.get('message','Ошибка')}")
+            await bot.send_message(user_id, f"❗ Ошибка: {data.get('message', 'неизвестная')}")
         else:
-            logging.warning(f"❓ process_result: неизвестный type={t}")
+            logging.warning(f"❓ Неизвестный тип результата: {t}")
 
-async def on_startup(bot: Bot, dp: Dispatcher) -> None:
-    logging.info("🚀 on_startup: регистрируем команды и подключаем RabbitMQ очереди")
 
-    # 1) Регистрация команд для меню бота
+async def on_startup(bot: Bot, dp: Dispatcher):
+    logging.info("🚀 on_startup: подключение к RabbitMQ и подписка на result_queue")
+
+    # 1) Telegram-команды
     await bot.set_my_commands([
         BotCommand("show_students", "👤 Ученики"),
-        BotCommand("add_student",   "➕ Добавить ученика"),
-        BotCommand("settings",      "⚙️ Настройки"),
-        BotCommand("subscription",  "💳 Оплата"),
+        BotCommand("add_student", "➕ Добавить ученика"),
+        BotCommand("settings", "⚙️ Настройки"),
+        BotCommand("subscription", "💳 Подписка"),
     ])
 
     # 2) Подключение к RabbitMQ
-    connection = await aio_pika.connect_robust(
-        host=config.RABBITMQ_HOST,
-        port=config.RABBITMQ_PORT,
-        login=config.RABBITMQ_USER,
-        password=config.RABBITMQ_PASS,
-    )
-    channel = await connection.channel()
-    logging.info("✔️ Connected to RabbitMQ")
+    await rabbit.connect()
+    await rabbit.declare_queues()
 
-    # Сохранение канала глобально для использования в обработчиках
-    import bot_app
-    bot_app.rabbit_channel = channel
-    global rabbit_channel
-    rabbit_channel = channel
+    # 3) Подписка на очередь результатов
+    await rabbit.subscribe_result_queue(lambda msg: asyncio.create_task(process_result(msg, bot)))
+    logging.info("📥 Подписка на очередь результатов завершена")
 
-    # 3) Объявление очередей и подписка на очередь результатов
-    await channel.declare_queue(config.TASK_QUEUE, durable=True)
-    result_q = await channel.declare_queue(config.RESULT_QUEUE, durable=True)
-    await result_q.consume(lambda msg: asyncio.create_task(process_result(msg, bot)))
 
-    logging.info(f"🔔 Subscribed to result queue '{config.RESULT_QUEUE}'")
-
-async def on_shutdown(bot: Bot, dp: Dispatcher) -> None:
-    logging.info("🔌 on_shutdown: закрываем соединения с БД")
+async def on_shutdown(bot: Bot, dp: Dispatcher):
+    logging.info("🔌 Завершение работы: закрываем соединения")
     if db._pool:
         await db._pool.close()
+    await rabbit.disconnect()
 
-async def main() -> None:
+
+async def main():
     logging.basicConfig(level=logging.INFO)
 
-    # 0) Инициализируем пул PostgreSQL ДО создания Dispatcher
-    dsn = (
-        f"postgresql://{config.DB_USER}:{config.DB_PASSWORD}"
-        f"@{config.DB_HOST}:{config.DB_PORT}/{config.DB_NAME}"
-    )
+    # 0) Инициализация базы данных
+    dsn = f"postgresql://{config.DB_USER}:{config.DB_PASSWORD}@{config.DB_HOST}:{config.DB_PORT}/{config.DB_NAME}"
     await db.init_db_pool(dsn)
-    logging.info("✔️ Database pool initialized")
+    logging.info("✅ PostgreSQL подключен")
 
-    # 1) Создаем объект бота
+    # 1) Создание бота
     bot = Bot(
         token=config.BOT_TOKEN,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML)
     )
 
-    # 2) Инициализируем диспетчер с хранением FSM в Redis
+    # 2) Диспетчер + Redis
     dp = Dispatcher(
         storage=RedisStorage.from_url(
             f"redis://{config.REDIS_HOST}:{config.REDIS_PORT}/{config.REDIS_DB_FSM}"
         )
     )
 
-    # 3) Подключаем middleware аутентификации
+    # 3) Middleware
     dp.message.middleware(AuthMiddleware())
     dp.callback_query.middleware(AuthMiddleware())
 
-    # 4) Регистрируем все роутеры команд/обработчиков
+    # 4) Роутеры
     dp.include_router(start.router)
     dp.include_router(students.router)
     dp.include_router(generation.router)
@@ -132,13 +112,14 @@ async def main() -> None:
     dp.include_router(subscription.router)
     dp.include_router(settings.router)
 
-    # 5) Запускаем бот (long polling)
+    # 5) Старт polling
     await dp.start_polling(
         bot,
         skip_updates=True,
         on_startup=on_startup,
         on_shutdown=on_shutdown,
     )
+
 
 if __name__ == "__main__":
     asyncio.run(main())
