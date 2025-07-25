@@ -41,3 +41,7 @@ services:
       REDIS_DB_CACHE: 1
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_PORT: 5672
+
+networks:
+  internal:
+    driver: bridge
