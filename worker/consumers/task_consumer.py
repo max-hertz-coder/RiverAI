@@ -1,13 +1,24 @@
+# worker/consumers/task_consumer.py
+
 import logging
 
-from worker.services.ocr_service       import ocr_openai_vision
-from worker.services.generation_service import generate_raw_tasks, generate_raw_solutions
-from worker.services.corrections_service import generate_corrected_tasks
+from worker.services.ocr_service       import handle_ocr
+from worker.services.plan_service      import handle_plan
+from worker.services.tasks_service     import handle_tasks
+from worker.services.solutions_service import handle_solutions
+from worker.services.check_service     import handle_check
+from worker.services.corrections_service import handle_corrections
+from worker.services.chat_service      import handle_chat
+
 
 async def process_task_message(task: dict) -> dict | None:
     """
-    По полю task["type"] вызывает нужный сервис
-    и возвращает словарь с полем "type" для очереди результатов.
+    Dispatch incoming task by type to the appropriate service handler.
+    Each handler must return a dict that includes at least:
+      - "type":      the response type for the result queue (e.g. "ocr_result")
+      - "user_id":   telegram user id
+      - "student_id":student id context
+      - other keys depending on the task
     """
     t = task.get("type")
     user_id    = task.get("user_id")
@@ -15,50 +26,43 @@ async def process_task_message(task: dict) -> dict | None:
 
     try:
         if t == "ocr":
-            # Открываем файл по пути, переданному ботом
-            path = task["file_path"]
-            text = await ocr_openai_vision(path)
-            return {
-                "type": "ocr_result",
-                "user_id": user_id,
-                "student_id": student_id,
-                "text": text,
-            }
+            # Распознать текст из изображения/PDF
+            result = await handle_ocr(task)
 
-        if t == "generate_tasks":
-            prompt = task.get("prompt", "")
-            raw    = await generate_raw_tasks(prompt)
-            return {
-                "type": "generate_tasks_result",
-                "user_id": user_id,
-                "student_id": student_id,
-                "raw_tasks": raw,
-            }
+        elif t == "generate_plan":
+            # Сгенерировать учебный план
+            result = await handle_plan(task)
 
-        if t == "generate_solutions":
-            raw_tasks = task.get("raw_tasks", "")
-            sols      = await generate_raw_solutions(raw_tasks)
-            return {
-                "type": "generate_solutions_result",
-                "user_id": user_id,
-                "student_id": student_id,
-                "solutions": sols,
-            }
+        elif t == "generate_tasks":
+            # Сгенерировать задания
+            result = await handle_tasks(task)
 
-        if t == "correct_tasks":
-            instr     = task.get("instruction", "")
-            raw_tasks = task.get("raw_tasks", "")
-            corrected = await generate_corrected_tasks(instr, raw_tasks)
-            return {
-                "type": "correct_tasks_result",
-                "user_id": user_id,
-                "student_id": student_id,
-                "corrected": corrected,
-            }
+        elif t == "generate_solutions":
+            # Сгенерировать решения к заданиям
+            result = await handle_solutions(task)
 
-        logging.warning("Unknown task type: %s", t)
+        elif t == "check_homework":
+            # Проверить домашнюю работу
+            result = await handle_check(task)
+
+        elif t == "correct_tasks":
+            # Отредактировать (скорректировать) готовые задания
+            result = await handle_corrections(task)
+
+        elif t == "chat_gpt":
+            # Общение в контексте чата (ChatGPT)
+            result = await handle_chat(task)
+
+        else:
+            logging.warning("Unknown task type: %s", t)
+            return None
+
+        # Всегда пробрасываем в результат идентификаторы user_id и student_id
+        if isinstance(result, dict):
+            result.setdefault("user_id", user_id)
+            result.setdefault("student_id", student_id)
+        return result
 
     except Exception:
         logging.exception("🔴 Error processing task %r", task)
-
-    return None
+        return None

@@ -15,9 +15,9 @@ logger = logging.getLogger(__name__)
 
 async def handle_ocr(task: dict) -> dict:
     """
-    Синхронная OCR-обработка через OpenAI Vision.
+    Считывает task["file_data"] (base64) или task["file_path"],
+    выполняет OCR через OpenAI Vision и возвращает результат.
     """
-
     # Получаем локальный путь к файлу
     if "file_data" in task:
         b64 = task["file_data"]
