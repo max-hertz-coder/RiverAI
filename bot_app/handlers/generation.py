@@ -8,6 +8,8 @@ from aiogram import Router, F, Bot
 from aiogram.types import CallbackQuery, Message
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
+import bot_app
+from bot_app import config
 
 from bot_app import config, rabbit_channel
 from bot_app.keyboards.chat_menu import chat_menu_kb
@@ -20,9 +22,9 @@ logger = logging.getLogger(__name__)
 async def _send_task(task: dict):
     """Универсальный метод отправки задачи в RabbitMQ."""
     try:
-        if rabbit_channel:
-            # Используем существующее соединение с RabbitMQ для отправки задачи
-            await rabbit_channel.default_exchange.publish(
+        if bot_app.rabbit_channel:
+            # Используем существующее соединение с RabbitMQ
+            await bot_app.rabbit_channel.default_exchange.publish(
                 aio_pika.Message(body=json.dumps(task).encode("utf-8")),
                 routing_key=config.TASK_QUEUE
             )

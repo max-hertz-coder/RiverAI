@@ -5,6 +5,8 @@ from aiogram.types import CallbackQuery, Message
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 
+import bot_app
+from bot_app import config
 from bot_app import config
 from bot_app.keyboards.chat_menu import chat_menu_kb
 
@@ -41,18 +43,24 @@ async def cb_chat_msg(message: Message, state: FSMContext):
     }
 
     try:
-        conn = await aio_pika.connect_robust(
-            host=config.RABBITMQ_HOST,
-            port=config.RABBITMQ_PORT,
-            login=config.RABBITMQ_USER,
-            password=config.RABBITMQ_PASS,
-        )
-        ch = await conn.channel()
-        await ch.default_exchange.publish(
-            aio_pika.Message(body=json.dumps(task).encode("utf-8")),
-            routing_key=config.TASK_QUEUE
-        )
-        await conn.close()
+        if bot_app.rabbit_channel:
+            await bot_app.rabbit_channel.default_exchange.publish(
+                aio_pika.Message(body=json.dumps(task).encode("utf-8")),
+                routing_key=config.TASK_QUEUE
+            )
+        else:
+            conn = await aio_pika.connect_robust(
+                host=config.RABBITMQ_HOST,
+                port=config.RABBITMQ_PORT,
+                login=config.RABBITMQ_USER,
+                password=config.RABBITMQ_PASS,
+            )
+            ch = await conn.channel()
+            await ch.default_exchange.publish(
+                aio_pika.Message(body=json.dumps(task).encode("utf-8")),
+                routing_key=config.TASK_QUEUE
+            )
+            await conn.close()
     except Exception:
         logging.exception("Ошибка публикации в очередь")
         return await message.answer("⚠️ Не удалось отправить, попробуйте позже")
