@@ -73,6 +73,7 @@ async def process_result(message: aio_pika.IncomingMessage):
         except Exception as e:
             logging.error(f"❌ Ошибка при отправке сообщения в Telegram: {e}")
 
+# ... (импорты и остальной код без изменений выше)
 
 async def main():
     global bot
@@ -117,6 +118,13 @@ async def main():
         BotCommand(command="subscription", description="💳 Оплата"),
     ])
 
+    # 🚨 ОТЛАДКА RabbitMQ
+    logging.info("🐇 Пытаемся подключиться к RabbitMQ...")
+    logging.info(f"RabbitMQ host: {config.RABBITMQ_HOST}")
+    logging.info(f"RabbitMQ port: {config.RABBITMQ_PORT}")
+    logging.info(f"RabbitMQ user: {config.RABBITMQ_USER}")
+    logging.info(f"RabbitMQ pass: {config.RABBITMQ_PASS}")
+    logging.info(f"RabbitMQ queue: {config.RABBITMQ_RESULT_QUEUE}")
 
     # Подключение к RabbitMQ
     connection = await aio_pika.connect_robust(
