@@ -1,3 +1,4 @@
+version: '3.8'
 
 services:
   worker:
@@ -7,10 +8,11 @@ services:
       dockerfile: Dockerfile.worker
     restart: unless-stopped
     env_file:
-      - ../../.env     # подтянет все нужные переменные (RABBITMQ_*, REDIS_*, POSTGRES_*)
+      - ../../.env       # подтянет все переменные (RABBITMQ_*, REDIS_*, POSTGRES_*)
     networks:
-      - queue_internal # подключаем к той же сети, где запущены redis & rabbitmq
+      - queue_internal   # Имя сети точно такое же, как создано в очереди
 
 networks:
   queue_internal:
-    external: true
+    external:
+      name: queue_internal
