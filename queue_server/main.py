@@ -74,10 +74,11 @@ async def main():
         return
 
     channel = await connection.channel()
-    queue = await channel.declare_queue(RABBITMQ_RESULT_QUEUE, durable=True)
-    await queue.consume(process_result)
-    logging.info(f"🔔 Подписались на очередь {RABBITMQ_RESULT_QUEUE}")
+    # queue = await channel.declare_queue(RABBITMQ_RESULT_QUEUE, durable=True)
+    # await queue.consume(process_result)
+    # logging.info(f"🔔 Подписались на очередь {RABBITMQ_RESULT_QUEUE}")
 
+    logging.info("🔕 Queue-server не слушает очередь результатов; обработка передана основному боту.")
     # Держим приложение активным
     try:
         while True:
