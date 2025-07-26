@@ -30,6 +30,9 @@ RABBITMQ_HOST         = os.getenv("RABBITMQ_HOST",          "rabbitmq")
 RABBITMQ_PORT         = int(os.getenv("RABBITMQ_PORT",       "5672"))
 RABBITMQ_USER = os.getenv("RABBITMQ_USER", "guest")
 RABBITMQ_PASS = os.getenv("RABBITMQ_PASS", "guest")
+RABBITMQ_TASK_QUEUE = os.getenv("RABBITMQ_TASK_QUEUE", "task_queue")
+RABBITMQ_RESULT_QUEUE = os.getenv("RABBITMQ_RESULT_QUEUE", "result_queue")
+
 # вот эти имена очередей должны совпадать везде:
 TASK_QUEUE   = os.getenv("RABBITMQ_TASK_QUEUE",   "task_queue")
 RESULT_QUEUE = os.getenv("RABBITMQ_RESULT_QUEUE", "result_queue")
