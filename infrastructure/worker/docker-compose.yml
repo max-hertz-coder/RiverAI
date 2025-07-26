@@ -1,15 +1,16 @@
 
 services:
   worker:
+    container_name: riverai-worker-1
     build:
-      context: ../..            # корень репо с Dockerfile.worker
+      context: ../..
       dockerfile: Dockerfile.worker
-    env_file:
-      - ../../.env              # подтянет POSTGRES_HOST, RABBITMQ_HOST, REDIS_HOST и др.
     restart: unless-stopped
+    env_file:
+      - ../../.env     # подтянет все нужные переменные (RABBITMQ_*, REDIS_*, POSTGRES_*)
     networks:
-      - internal
+      - queue_internal # подключаем к той же сети, где запущены redis & rabbitmq
 
 networks:
-  internal:
-    driver: bridge
+  queue_internal:
+    external: true
