@@ -139,3 +139,76 @@ async def cb_back_to_chat_menu(callback: CallbackQuery, state: FSMContext):
         students = await db.get_students_by_user(callback.from_user.id)
         text = "Ваши ученики:" + ("\n_(список пуст)_" if not students else "")
         await callback.message.edit_text(text, reply_markup=student_kb.students_list_kb(students, lang="RU"))
+
+
+@router.callback_query(F.data == "back:students")
+async def cb_back_to_students(callback: CallbackQuery, state: FSMContext):
+    # выходим из любого FSM
+    await state.clear()
+    # берём всех учеников
+    students = await db.get_students_by_user(callback.from_user.id)
+    text = "Ваши ученики:" + ("\n_(список пуст)_" if not students else "")
+    await callback.message.edit_text(
+        text,
+        reply_markup=student_kb.students_list_kb(students, lang="RU")
+    )
+
+@router.callback_query(F.data.startswith("edit_student:"))
+async def cb_edit_student(callback: CallbackQuery, state: FSMContext):
+    sid = int(callback.data.split(":", 1)[1])
+    student = await db.get_student(sid)
+    if not student:
+        return await callback.answer("Ученик не найден.", show_alert=True)
+    # сохраняем в state
+    await state.set_state(EditStudentFSM.name)
+    await state.update_data(student_id=sid)
+    # запрашиваем новое имя
+    await callback.message.edit_text("Введите новое имя ученика:")
+    
+@router.message(EditStudentFSM.name)
+async def process_edit_name(message: Message, state: FSMContext):
+    data = await state.get_data()
+    sid  = data.get("student_id")
+    new_name = message.text.strip()
+    if not new_name:
+        return await message.reply("Имя не может быть пустым. Введите имя ученика:")
+    # обновляем
+    await db.update_student_name(sid, new_name)
+    await state.clear()
+    # возвращаемся в меню действий
+    student = await db.get_student(sid)
+    text = f"Действия с учеником: {student['name']}"
+    await message.answer(
+        text,
+        reply_markup=student_kb.student_actions_kb(sid, lang="RU")
+    )
+
+
+@router.callback_query(F.data.startswith("delete_student:"))
+async def cb_delete_student(callback: CallbackQuery):
+    sid = int(callback.data.split(":", 1)[1])
+    await callback.message.edit_text(
+        "Вы уверены, что хотите удалить этого ученика?",
+        reply_markup=student_kb.confirm_delete_kb(sid, lang="RU")
+    )
+
+@router.callback_query(F.data.startswith("confirm_delete:"))
+async def cb_confirm_delete(callback: CallbackQuery):
+    _, sid_str, answer = callback.data.split(":")
+    sid = int(sid_str)
+    if answer == "yes":
+        await db.delete_student(sid)
+        students = await db.get_students_by_user(callback.from_user.id)
+        text = "Ваши ученики:" + ("\n_(список пуст)_" if not students else "")
+        await callback.message.edit_text(
+            text,
+            reply_markup=student_kb.students_list_kb(students, lang="RU")
+        )
+    else:
+        # отмена — возвращаемся в меню действий
+        student = await db.get_student(sid)
+        text = f"Действия с учеником: {student['name']}"
+        await callback.message.edit_text(
+            text,
+            reply_markup=student_kb.student_actions_kb(sid, lang="RU")
+        )

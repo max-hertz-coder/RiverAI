@@ -1,49 +1,62 @@
 import os
-import base64
-import tempfile
-import logging
 import asyncio
-from aio_pika import Message
-from worker.config import OPENAI_API_KEYS, RESULT_QUEUE
-import openai
-import aio_pika
+import logging
+import fitz  # PyMuPDF: pip install pymupdf
+from dotenv import load_dotenv
+from openai import OpenAI
 
-# Инициализация API-ключа
-openai.api_key = OPENAI_API_KEYS[0] if OPENAI_API_KEYS else None
-
+# Загружаем окружение и инициализируем клиента
+load_dotenv()
+OPENAI_KEY = os.getenv("OPENAI_API_KEY")
+if not OPENAI_KEY:
+    raise RuntimeError("Missing OPENAI_API_KEY environment variable")
+client = OpenAI(api_key=OPENAI_KEY)
 logger = logging.getLogger(__name__)
 
-async def handle_ocr(task: dict) -> dict:
+def sync_ocr(path_or_url: str) -> str:
     """
-    Считывает task["file_data"] (base64) или task["file_path"],
-    выполняет OCR через OpenAI Vision и возвращает результат.
+    Выполняет OCR через OpenAI Vision. Поддерживает URL, локальные JPG/PNG и PDF.
+    Возвращает распознанный текст или пустую строку при отказе/ошибке.
     """
-    # Получаем локальный путь к файлу
-    if "file_data" in task:
-        b64 = task["file_data"]
-        data = base64.b64decode(b64)
-        fd, path = tempfile.mkstemp(suffix=os.path.splitext(task.get("file_name",""))[1])
-        os.write(fd, data)
-        os.close(fd)
-    else:
-        path = task["file_path"]
+    try:
+        # Подготовка данных изображения
+        if path_or_url.startswith("http"):
+            image_data = {"url": path_or_url, "detail": "high"}
+        else:
+            ext = os.path.splitext(path_or_url)[1].lower()
+            if ext == ".pdf":
+                doc = fitz.open(path_or_url)
+                pix = doc.load_page(0).get_pixmap(dpi=300)
+                image_data = {"bytes": pix.tobytes("png"), "detail": "high"}
+            else:
+                with open(path_or_url, "rb") as f:
+                    image_data = {"bytes": f.read(), "detail": "high"}
 
-    # Синхронный OCR в поток
-    def _sync_ocr(p: str) -> str:
-        try:
-            # для OpenAI Vision комбинируем текстовый и изображ. ввод
-            resp = openai.Image.create(
-                model="vision-ocr",
-                image=open(p, "rb")
-            )
-            return resp["data"]["text"]  # примерный формат
-        except Exception as e:
-            logger.exception("OCR failed: %s", e)
+        # Запрос к OpenAI Vision
+        resp = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "Извлеките весь текст (русский, цифры, формулы) из этого изображения."},
+                    {"type": "image_url", "image_url": image_data}
+                ]
+            }]
+        )
+        text = resp.choices[0].message.content.strip()
+        low = text.lower()
+        if "извин" in low or "sorry" in low:
+            logger.info("OCR отказ: %r", text)
             return ""
-    text = await asyncio.to_thread(_sync_ocr, path)
-    return {
-        "type": "ocr",               # было "ocr_result"
-        "user_id": task["user_id"],
-        "student_id": task["student_id"],
-        "text": text                 # распознанный текст
-    }
+        logger.debug("OCR result: %r", text)
+        return text
+    except Exception as e:
+        logger.exception("Ошибка при OCR: %s", e)
+        return ""
+
+
+async def ocr_openai_vision(path_or_url: str) -> str:
+    """
+    Асинхронная обёртка для sync_ocr через asyncio.to_thread.
+    """
+    return await asyncio.to_thread(sync_ocr, path_or_url)

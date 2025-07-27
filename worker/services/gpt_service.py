@@ -1,43 +1,36 @@
-# /opt/RiverAI/worker/services/gpt_service.py
+# worker/services/gpt_service.py
 
-import openai
-import string
-from worker import config
+import os
+import asyncio
+from openai import OpenAI
+from .generation_module import _system_prompts, _sync_call
 
-# Индекс для круговой смены ключей
-_key_index = 0
+# Инициализация клиента OpenAI
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-def get_next_api_key() -> str | None:
+async def generate_raw_tasks(prompt: str) -> str:
     """
-    Возвращает следующий API-ключ из списка и устанавливает его в openai.api_key.
+    Генерация необработанных задач по системному промпту "tasks"
     """
-    global _key_index
-    keys = config.OPENAI_API_KEYS
-    if not keys:
-        return None
-    key = keys[_key_index]
-    _key_index = (_key_index + 1) % len(keys)
-    openai.api_key = key
-    return key
+    return await asyncio.to_thread(_sync_call, prompt, "tasks")
 
-async def ask_gpt(
-    messages: list[dict],
-    model: str = "gpt-3.5-turbo"
-) -> str:
+async def generate_raw_solutions(tasks: str) -> str:
     """
-    Отправляет список сообщений в OpenAI ChatCompletion и возвращает ответ.
-    messages: [{"role":"user"|"system"|"assistant","content": "..."}]
+    Генерация необработанных решений по системному промпту "solutions"
     """
-    # Подменяем ключ, если больше одного
-    get_next_api_key()
+    return await asyncio.to_thread(_sync_call, tasks, "solutions")
 
-    try:
-        response = await openai.ChatCompletion.acreate(
-            model=model,
-            messages=messages,
-            temperature=0.7,
+async def ask_gpt(conversation: list[dict]) -> str:
+    """
+    Свободный режим общения с GPT: принимает список сообщений
+    в формате OpenAI Chat API и возвращает ответ.
+    """
+    response = await asyncio.to_thread(
+        lambda: client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=conversation,
+            temperature=0.5,
+            max_tokens=1500
         )
-        return response.choices[0].message.content
-    except Exception as e:
-        # В случае ошибки возвращаем текст с префиксом "Ошибка GPT:"
-        return f"Ошибка GPT: {e}"
+    )
+    return response.choices[0].message.content.strip()

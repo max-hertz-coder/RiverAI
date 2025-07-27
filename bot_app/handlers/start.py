@@ -27,3 +27,19 @@ async def cmd_start(message: Message):
     await message.reply(welcome, reply_markup=main_menu_kb(lang))
     # Постоянная reply-клавиатура под полем ввода
     await message.answer("Выберите пункт меню:", reply_markup=bottom_menu_kb(lang))
+
+
+from bot_app.keyboards.main_menu import main_menu_kb
+
+@router.callback_query(F.data == "back:main")
+async def cb_back_to_main(callback: CallbackQuery):
+    first_name = callback.from_user.first_name or ""
+    welcome = (
+        f"🤖 ИИ-Ассистент для Репетитора\n"
+        f"Добро пожаловать, {first_name}!\n"
+        f"Чем займёмся сегодня?"
+    )
+    await callback.message.edit_text(
+        welcome,
+        reply_markup=main_menu_kb("RU")
+    )
