@@ -1,6 +1,7 @@
 from aiogram import Router
 from aiogram.types import Message
 from aiogram.filters import Command
+from aiogram import F
 
 from bot_app.keyboards.main_menu import main_menu_kb, bottom_menu_kb
 
