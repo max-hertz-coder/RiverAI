@@ -11,6 +11,7 @@ from aiogram.enums import ParseMode
 from aiogram.fsm.storage.redis import RedisStorage
 from aiogram.types import BotCommand
 
+import bot_app
 from bot_app import config
 from bot_app.database import db
 from bot_app.middlewares.auth import AuthMiddleware
