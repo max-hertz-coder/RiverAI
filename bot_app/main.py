@@ -13,19 +13,11 @@ from bot_app import config
 from bot_app.database import db
 from bot_app.middlewares.auth import AuthMiddleware
 from bot_app.handlers import start, students, generation, chatgpt, subscription, settings
-from bot_app.rabbit import process_result  # импорт обработчика очереди
+from bot_app.rabbit import process_result  # обработчик результата
 
-async def on_startup(bot: Bot, dp: Dispatcher):
-    logging.info("🚀 Startup: регистрация команд и подключение к RabbitMQ")
+bot: Bot = Bot(token=config.BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 
-    await bot.set_my_commands([
-        BotCommand("show_students", "👤 Ученики"),
-        BotCommand("add_student", "➕ Добавить ученика"),
-        BotCommand("settings", "⚙️ Настройки"),
-        BotCommand("subscription", "💳 Оплата"),
-    ])
-
-    # RabbitMQ подключение
+async def consume_results():
     connection = await aio_pika.connect_robust(
         host=config.RABBITMQ_HOST,
         port=config.RABBITMQ_PORT,
@@ -33,19 +25,28 @@ async def on_startup(bot: Bot, dp: Dispatcher):
         password=config.RABBITMQ_PASS
     )
     channel = await connection.channel()
-    bot_app.rabbit_channel = channel
     await channel.set_qos(prefetch_count=5)
 
-    # Очереди
-    await channel.declare_queue(config.TASK_QUEUE, durable=True)
-    result_q = await channel.declare_queue(config.RESULT_QUEUE, durable=True)
+    queue = await channel.declare_queue(config.RESULT_QUEUE, durable=True)
 
-    # Подписка на очередь
-    async def wrapped_result_callback(msg):
-        await process_result(msg, bot)
+    async with queue.iterator() as queue_iter:
+        async for message in queue_iter:
+            try:
+                await process_result(message, bot)
+            except Exception as e:
+                logging.error(f"Ошибка обработки сообщения из result_queue: {e}")
 
-    await result_q.consume(lambda msg: asyncio.create_task(process_result(msg, bot)))
-    logging.info(f"📡 Subscribed to result queue '{config.RESULT_QUEUE}'")
+async def on_startup(bot_: Bot, dp: Dispatcher):
+    logging.info("🚀 Startup: регистрация команд и запуск очереди")
+
+    await bot_.set_my_commands([
+        BotCommand("show_students", "👤 Ученики"),
+        BotCommand("add_student", "➕ Добавить ученика"),
+        BotCommand("settings", "⚙️ Настройки"),
+        BotCommand("subscription", "💳 Оплата"),
+    ])
+
+    asyncio.create_task(consume_results())  # Фоновая подписка на очередь
 
 async def on_shutdown(bot: Bot, dp: Dispatcher):
     logging.info("🔌 Shutdown: закрываем пул БД")
@@ -57,8 +58,6 @@ async def main():
 
     dsn = f"postgresql://{config.DB_USER}:{config.DB_PASSWORD}@{config.DB_HOST}:{config.DB_PORT}/{config.DB_NAME}"
     await db.init_db_pool(dsn)
-
-    bot = Bot(token=config.BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 
     dp = Dispatcher(storage=RedisStorage.from_url(
         f"redis://{config.REDIS_HOST}:{config.REDIS_PORT}/{config.REDIS_DB_FSM}"
