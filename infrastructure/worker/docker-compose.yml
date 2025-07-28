@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   worker:
     container_name: riverai-worker-1
@@ -8,11 +6,10 @@ services:
       dockerfile: Dockerfile.worker
     restart: unless-stopped
     env_file:
-      - ../../.env       # подтянет все переменные (RABBITMQ_*, REDIS_*, POSTGRES_*)
+      - ../../.env         # подтянет все переменные (RABBITMQ_*, REDIS_*, POSTGRES_*)
     networks:
-      - queue_internal   # Имя сети точно такое же, как создано в очереди
+      - queue_internal
 
 networks:
   queue_internal:
-    external:
-      name: queue_internal
+    external: true
