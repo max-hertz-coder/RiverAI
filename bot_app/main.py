@@ -36,16 +36,21 @@ async def consume_results():
             except Exception as e:
                 logging.error(f"Ошибка обработки сообщения из result_queue: {e}")
 
+from aiogram.types import BotCommandScopeDefault
+
 async def on_startup(bot_: Bot, dp: Dispatcher):
-    await bot_.delete_my_commands(scope=None)  # Удалить все глобальные команды
     logging.info("🚀 Startup: регистрация команд и запуск очереди")
 
+    # Удаляем ВСЕ команды в глобальном скоупе
+    await bot_.delete_my_commands(scope=BotCommandScopeDefault())
+
+    # Задаём только нужные
     await bot_.set_my_commands([
         BotCommand("start", "Старт бота"),
         BotCommand("back", "Завершить чат с GPT")
     ])
 
-    asyncio.create_task(consume_results())  # Фоновая подписка на очередь
+    asyncio.create_task(consume_results())
 
 async def on_shutdown(bot: Bot, dp: Dispatcher):
     logging.info("🔌 Shutdown: закрываем пул БД")
