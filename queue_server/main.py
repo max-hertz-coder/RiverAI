@@ -9,7 +9,6 @@ import aio_pika
 from aiogram import Bot
 from aiogram.client.bot import DefaultBotProperties
 from aiogram.enums import ParseMode
-from aiogram.types import BotCommand
 
 from bot_app import config
 from bot_app.keyboards.chat_menu import (
