@@ -27,7 +27,7 @@ async def cmd_start(message: Message):
     # Вступительный message с inline-кнопками
     await message.reply(welcome, reply_markup=main_menu_kb(lang))
     # Постоянная reply-клавиатура под полем ввода
-    await message.answer(" ", reply_markup=bottom_menu_kb(lang))
+    await message.answer(".", reply_markup=bottom_menu_kb(lang))
 
 
 from bot_app.keyboards.main_menu import main_menu_kb
