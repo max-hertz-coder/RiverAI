@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+
 DB_HOST = os.getenv("POSTGRES_HOST")
 DB_PORT = int(os.getenv("POSTGRES_PORT", "5432"))
 DB_NAME = os.getenv("POSTGRES_DB")
@@ -29,6 +30,9 @@ OPENAI_API_KEYS = [k.strip() for k in os.getenv("OPENAI_API_KEYS", "").split(","
 if not OPENAI_API_KEYS:
     raise RuntimeError("OPENAI_API_KEYS not set")
 
+
+# Чтение токена Telegram-бота для прямой отправки результатов
+BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 
 
 # Encryption key (hex-строка 64 символа → 32 байта)
