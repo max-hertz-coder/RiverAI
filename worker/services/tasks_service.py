@@ -12,7 +12,8 @@ LATEX_TEMPLATE = r"""
 \usepackage{fontspec}
 \usepackage{polyglossia}
 \setmainlanguage{russian}
-\setmainfont{Times New Roman}
+\newfontfamily\cyrillicfont{FreeSerif}
+\setmainfont{FreeSerif}
 \usepackage{amsmath}
 \usepackage{geometry}
 \geometry{margin=2cm}
@@ -27,6 +28,8 @@ LATEX_TEMPLATE = r"""
 
 \end{document}
 """
+
+
 
 async def handle_tasks(task: dict) -> dict:
     user_id = task.get("user_id")
