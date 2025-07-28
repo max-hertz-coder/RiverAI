@@ -3,7 +3,7 @@ from worker.services.generation_service import (
     generate_raw_tasks, generate_raw_solutions, generate_solutions_continuation
 )
 from worker.services.corrections_service import generate_corrected_tasks
-from worker.services.ocr_service import ocr_openai_vision
+from worker.services.ocr_service import run_ocr
 from worker.services.latex_service import compile_latex_to_pdf
 
 async def execute(payload: dict) -> dict:
@@ -22,10 +22,10 @@ async def execute(payload: dict) -> dict:
 
     # 1. OCR при необходимости
     if payload.get('use_ocr') and 'path_or_url' in payload:
-        ocr_text = await ocr_openai_vision(payload['path_or_url'])
+        ocr_text = await run_ocr(payload['path_or_url'])
         result['ocr_text'] = ocr_text
         # подставляем распознанный текст в prompt, если нет явного prompt
-        if 'prompt' not in payload:
+        if not payload.get('prompt'):
             payload['prompt'] = ocr_text or ''
 
     # 2. Генерация raw задач

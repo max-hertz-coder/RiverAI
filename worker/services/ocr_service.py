@@ -44,3 +44,24 @@ async def handle_ocr(task: dict) -> dict:
         "student_id": student_id,
         "text": text
     }
+
+async def run_ocr(path: str) -> str:
+    """
+    Универсальный OCR по локальному пути к файлу
+    """
+    try:
+        ext = path.split(".")[-1].lower()
+        if ext == "pdf":
+            doc = fitz.open(path)
+            full_text = ""
+            for page in doc:
+                pix = page.get_pixmap()
+                img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+                full_text += pytesseract.image_to_string(img)
+            return full_text
+        else:
+            img = Image.open(path)
+            return pytesseract.image_to_string(img)
+    except Exception as e:
+        logging.error(f"[run_ocr] Ошибка OCR: {e}")
+        return ""
