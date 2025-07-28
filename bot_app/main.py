@@ -37,6 +37,7 @@ async def consume_results():
                 logging.error(f"Ошибка обработки сообщения из result_queue: {e}")
 
 async def on_startup(bot_: Bot, dp: Dispatcher):
+    await bot_.delete_my_commands(scope=None)  # Удалить все глобальные команды
     logging.info("🚀 Startup: регистрация команд и запуск очереди")
 
     await bot_.set_my_commands([
