@@ -8,8 +8,8 @@ services:
     env_file:
       - ../../.env       # подтянет все переменные (RABBITMQ_*, REDIS_*, POSTGRES_*)
     networks:
-      - queue_internal   # Имя сети точно такое же, как создано в очереди
+      - internal   # Имя сети точно такое же, как создано в очереди
 
 networks:
   internal:
-    driver: bridge
+    external: true
