@@ -1,62 +1,46 @@
-import os
 import asyncio
+import base64
 import logging
-import fitz  # PyMuPDF: pip install pymupdf
-from dotenv import load_dotenv
-from openai import OpenAI
+from io import BytesIO
+from PIL import Image
+import fitz           # PyMuPDF
+import pytesseract    # Tesseract OCR
 
-# Загружаем окружение и инициализируем клиента
-load_dotenv()
-OPENAI_KEY = os.getenv("OPENAI_API_KEY")
-if not OPENAI_KEY:
-    raise RuntimeError("Missing OPENAI_API_KEY environment variable")
-client = OpenAI(api_key=OPENAI_KEY)
-logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
-def sync_ocr(path_or_url: str) -> str:
+async def handle_ocr(task: dict) -> dict:
     """
-    Выполняет OCR через OpenAI Vision. Поддерживает URL, локальные JPG/PNG и PDF.
-    Возвращает распознанный текст или пустую строку при отказе/ошибке.
+    Распознаёт текст из PDF или изображения (base64 в task['file_data']),
+    возвращает:
+      { "type":"ocr", "user_id":..., "student_id":..., "text": "...распознанный текст..." }
     """
+    user_id = task.get("user_id")
+    student_id = task.get("student_id")
+    file_data = task.get("file_data", "")
+    filename = task.get("filename", "")
+
+    text = ""
     try:
-        # Подготовка данных изображения
-        if path_or_url.startswith("http"):
-            image_data = {"url": path_or_url, "detail": "high"}
+        raw = base64.b64decode(file_data)
+        ext = filename.split(".")[-1].lower()
+
+        if ext == "pdf":
+            doc = fitz.open(stream=raw, filetype="pdf")
+            for page in doc:
+                pix = page.get_pixmap()
+                img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+                text += pytesseract.image_to_string(img)
         else:
-            ext = os.path.splitext(path_or_url)[1].lower()
-            if ext == ".pdf":
-                doc = fitz.open(path_or_url)
-                pix = doc.load_page(0).get_pixmap(dpi=300)
-                image_data = {"bytes": pix.tobytes("png"), "detail": "high"}
-            else:
-                with open(path_or_url, "rb") as f:
-                    image_data = {"bytes": f.read(), "detail": "high"}
+            img = Image.open(BytesIO(raw))
+            text = pytesseract.image_to_string(img)
 
-        # Запрос к OpenAI Vision
-        resp = client.chat.completions.create(
-            model="gpt-4o",
-            messages=[{
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": "Извлеките весь текст (русский, цифры, формулы) из этого изображения."},
-                    {"type": "image_url", "image_url": image_data}
-                ]
-            }]
-        )
-        text = resp.choices[0].message.content.strip()
-        low = text.lower()
-        if "извин" in low or "sorry" in low:
-            logger.info("OCR отказ: %r", text)
-            return ""
-        logger.debug("OCR result: %r", text)
-        return text
     except Exception as e:
-        logger.exception("Ошибка при OCR: %s", e)
-        return ""
+        logging.error(f"OCR error: {e}")
+        text = "(не удалось распознать текст)"
 
-
-async def ocr_openai_vision(path_or_url: str) -> str:
-    """
-    Асинхронная обёртка для sync_ocr через asyncio.to_thread.
-    """
-    return await asyncio.to_thread(sync_ocr, path_or_url)
+    return {
+        "type": "ocr",
+        "user_id": user_id,
+        "student_id": student_id,
+        "text": text
+    }
