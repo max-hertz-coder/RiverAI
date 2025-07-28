@@ -11,9 +11,9 @@ logging.basicConfig(level=logging.INFO)
 async def handle_ocr(task: dict) -> dict:
     """
     Распознаёт текст из PDF или изображения (base64 в task['file_data']),
-    возвращает:
-      { "type":"ocr", "user_id":..., "student_id":..., "text": "...распознанный текст..." }
+    возвращает: {"type":"ocr", "user_id":..., "student_id":..., "text": "...распознанный текст..." }
     """
+    import imghdr
     user_id = task.get("user_id")
     student_id = task.get("student_id")
     file_data = task.get("file_data", "")
@@ -22,7 +22,14 @@ async def handle_ocr(task: dict) -> dict:
     text = ""
     try:
         raw = base64.b64decode(file_data)
-        ext = filename.split(".")[-1].lower()
+        ext = filename.split(".")[-1].lower() if "." in filename else None
+
+        if not ext:
+            # Пробуем определить PDF по сигнатуре
+            if raw.startswith(b"%PDF"):
+                ext = "pdf"
+            else:
+                ext = imghdr.what(None, h=raw)  # jpeg, png, etc.
 
         if ext == "pdf":
             doc = fitz.open(stream=raw, filetype="pdf")
@@ -44,6 +51,7 @@ async def handle_ocr(task: dict) -> dict:
         "student_id": student_id,
         "text": text
     }
+
 
 async def run_ocr(path: str) -> str:
     """
