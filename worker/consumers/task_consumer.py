@@ -1,9 +1,10 @@
 import logging
 
 from worker.services.ocr_service import handle_ocr
+from worker.services.plan_service import handle_plan
+from worker.services.tasks_service import handle_tasks
 from worker.tasks.check_homework import handle_check_homework, handle_refine_check
-from worker.tasks.chat_gpt import handle_end_chat
-
+from worker.tasks.chat_gpt import handle_chat_gpt, handle_end_chat
 
 async def process_task_message(task: dict) -> dict | None:
     """
@@ -20,7 +21,6 @@ async def process_task_message(task: dict) -> dict | None:
         if t == "generate_tasks":
             return await handle_tasks(task)
 
-        # Используется единый handler для решений и генерации задач
         if t in ("generate_solutions",):
             return await handle_tasks(task)
 
@@ -30,8 +30,8 @@ async def process_task_message(task: dict) -> dict | None:
         if t == "refine_check":
             return await handle_refine_check(task)
 
-        if t in ("chat_gpt", "chat"):  # единая логика для чата
-            return await handle_chat(task)
+        if t in ("chat_gpt", "chat"):
+            return await handle_chat_gpt(task)
 
         if t == "end_chat":
             await handle_end_chat(task)
