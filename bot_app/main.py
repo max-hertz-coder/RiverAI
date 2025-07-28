@@ -7,6 +7,12 @@ from aiogram.client.bot import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.redis import RedisStorage
 from aiogram.types import BotCommand
+from aiogram.types import (
+    BotCommandScopeDefault,
+    BotCommandScopeAllPrivateChats,
+    BotCommandScopeAllGroupChats,
+    BotCommandScopeAllChatAdministrators,
+)
 
 import bot_app
 from bot_app import config
@@ -36,15 +42,21 @@ async def consume_results():
             except Exception as e:
                 logging.error(f"Ошибка обработки сообщения из result_queue: {e}")
 
-from aiogram.types import BotCommandScopeDefault
 
 async def on_startup(bot_: Bot, dp: Dispatcher):
-    logging.info("🚀 Startup: регистрация команд и запуск очереди")
+    logging.info("🚀 Startup: удаляем ВСЕ старые команды")
 
-    # Удаляем ВСЕ команды в глобальном скоупе
-    await bot_.delete_my_commands(scope=BotCommandScopeDefault())
+    # Удаление из всех скоупов
+    scopes = [
+        BotCommandScopeDefault(),
+        BotCommandScopeAllPrivateChats(),
+        BotCommandScopeAllGroupChats(),
+        BotCommandScopeAllChatAdministrators(),
+    ]
+    for scope in scopes:
+        await bot_.delete_my_commands(scope=scope)
 
-    # Задаём только нужные
+    # Добавляем только нужные
     await bot_.set_my_commands([
         BotCommand("start", "Старт бота"),
         BotCommand("back", "Завершить чат с GPT")
