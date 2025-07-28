@@ -1,10 +1,7 @@
 import logging
 
 from worker.services.ocr_service import handle_ocr
-from worker.services.plan_service import handle_plan
-from worker.services.tasks_service import handle_tasks
 from worker.tasks.check_homework import handle_check_homework, handle_refine_check
-from worker.services.chat_service import handle_chat
 from worker.tasks.chat_gpt import handle_end_chat
 
 

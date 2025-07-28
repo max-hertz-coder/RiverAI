@@ -5,6 +5,8 @@ import os
 import base64
 from io import BytesIO
 
+
+
 import aio_pika
 from aiogram import Bot
 from aiogram.client.bot import DefaultBotProperties
@@ -97,8 +99,16 @@ async def main():
     # Ожидаем сообщений
     await asyncio.Future()
 
-if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        logging.info("⛔ Остановка queue-server")
+
+
+async def main():
+    logging.info("🚀 Запуск queue-server. Подключаемся к RabbitMQ...")
+
+    await asyncio.sleep(5)  # <<< Дать RabbitMQ стартовать
+
+    connection = await aio_pika.connect_robust(
+        host=os.getenv("RABBITMQ_HOST", "rabbitmq"),
+        port=int(os.getenv("RABBITMQ_PORT", "5672")),
+        login=os.getenv("RABBITMQ_USER", "guest"),
+        password=os.getenv("RABBITMQ_PASS", "guest"),
+    )
