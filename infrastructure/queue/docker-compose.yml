@@ -1,6 +1,9 @@
+version: "3.9"
+
 services:
   redis:
     image: redis:7-alpine
+    container_name: queue-redis
     restart: unless-stopped
     networks:
       - internal
@@ -9,16 +12,16 @@ services:
 
   rabbitmq:
     image: rabbitmq:3-management
-    container_name: rabbitmq
+    container_name: queue-rabbitmq
     restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS}
+    ports:
+      - "5672:5672"    # для AMQP
+      - "15672:15672"  # для Web UI (http://localhost:15672)
     networks:
       - internal
-    ports:
-      - "5672:5672"    # AMQP
-      - "15672:15672"  # RabbitMQ Management UI
-    environment:
-      RABBITMQ_DEFAULT_USER: rabbit_user
-      RABBITMQ_DEFAULT_PASS: rabbit_pass
 
   queue-server:
     build:
@@ -27,14 +30,17 @@ services:
     container_name: queue-server
     restart: unless-stopped
     depends_on:
-      - redis
       - rabbitmq
+      - redis
     env_file:
       - .env
     networks:
       - internal
-
-
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
 
 networks:
   internal:
