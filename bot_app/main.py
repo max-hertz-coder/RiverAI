@@ -40,10 +40,8 @@ async def on_startup(bot_: Bot, dp: Dispatcher):
     logging.info("🚀 Startup: регистрация команд и запуск очереди")
 
     await bot_.set_my_commands([
-        BotCommand("show_students", "👤 Ученики"),
-        BotCommand("add_student", "➕ Добавить ученика"),
-        BotCommand("settings", "⚙️ Настройки"),
-        BotCommand("subscription", "💳 Оплата"),
+        BotCommand("start", "Старт бота"),
+        BotCommand("back", "Завершить чат с GPT")
     ])
 
     asyncio.create_task(consume_results())  # Фоновая подписка на очередь
