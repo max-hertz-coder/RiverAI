@@ -30,8 +30,20 @@ async def process_result(message: IncomingMessage, bot: Bot):
         elif t == "tasks":
             await bot.send_message(user_id, f"📝 Задания:\n{data.get('tasks_text', '(нет данных)')}", reply_markup=result_tasks_kb(student_id))
         elif t == "check":
-            await bot.send_message(user_id, f"✔️ Результаты проверки:\n{data.get('report_text', '(нет отчёта)')}", reply_markup=result_check_kb(student_id))
+            await bot.send_message(user_id, f"✔️ Результаты проверки:\n{data.get('report_text', '(нет отчёта)')}", 
+                                    reply_markup=result_check_kb(student_id))
+            # Если есть PDF-файл отчёта, отправляем его как документ
+            file_b64 = data.get("file")
+            if file_b64:
+                from io import BytesIO
+                import base64
+                file_bytes = base64.b64decode(file_b64)
+                file_obj = BytesIO(file_bytes)
+                file_obj.name = "Homework_Report.pdf"
+                await bot.send_document(user_id, file_obj, caption="📎 Отчёт в PDF")
         elif t == "error":
             await bot.send_message(user_id, f"⚠️ Ошибка: {data.get('message', 'Неизвестная ошибка')}")
+        elif t == "ocr":
+            await bot.send_message(user_id, f"🖼️ Распознанный текст:\n{data.get('text', '(пусто)')}")
         else:
             logging.warning(f"❓ Неизвестный тип результата: {t}")

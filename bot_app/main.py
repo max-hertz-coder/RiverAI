@@ -8,6 +8,7 @@ from aiogram.enums import ParseMode
 from aiogram.fsm.storage.redis import RedisStorage
 from aiogram.types import BotCommand
 
+import bot_app
 from bot_app import config
 from bot_app.database import db
 from bot_app.middlewares.auth import AuthMiddleware
@@ -32,6 +33,7 @@ async def on_startup(bot: Bot, dp: Dispatcher):
         password=config.RABBITMQ_PASS
     )
     channel = await connection.channel()
+    bot_app.rabbit_channel = channel
     await channel.set_qos(prefetch_count=5)
 
     # Очереди
@@ -42,7 +44,7 @@ async def on_startup(bot: Bot, dp: Dispatcher):
     async def wrapped_result_callback(msg):
         await process_result(msg, bot)
 
-    await result_q.consume(wrapped_result_callback)
+    await result_q.consume(lambda msg: asyncio.create_task(process_result(msg, bot)))
     logging.info(f"📡 Subscribed to result queue '{config.RESULT_QUEUE}'")
 
 async def on_shutdown(bot: Bot, dp: Dispatcher):
