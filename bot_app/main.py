@@ -43,24 +43,28 @@ async def consume_results():
                 logging.error(f"Ошибка обработки сообщения из result_queue: {e}")
 
 
+from aiogram.types import BotCommand, BotCommandScopeDefault
+
 async def on_startup(bot_: Bot, dp: Dispatcher):
     logging.info("🚀 Startup: удаляем ВСЕ старые команды")
 
-    # Удаление из всех скоупов
-    scopes = [
-        BotCommandScopeDefault(),
-        BotCommandScopeAllPrivateChats(),
-        BotCommandScopeAllGroupChats(),
-        BotCommandScopeAllChatAdministrators(),
-    ]
-    for scope in scopes:
-        await bot_.delete_my_commands(scope=scope)
+    # Удаляем ВСЕ команды — глобальные и для языков
+    await bot_.delete_my_commands(scope=BotCommandScopeDefault(), language_code="ru")
+    await bot_.delete_my_commands(scope=BotCommandScopeDefault(), language_code="en")
+    await bot_.delete_my_commands(scope=None)
 
-    # Добавляем только нужные
+    # Ставим только нужные команды
     await bot_.set_my_commands([
         BotCommand("start", "Старт бота"),
-        BotCommand("back", "Завершить чат с GPT")
-    ])
+        BotCommand("back", "Завершить чат с GPT"),
+    ], language_code="ru")
+
+    await bot_.set_my_commands([
+        BotCommand("start", "Start bot"),
+        BotCommand("back", "End chat with GPT"),
+    ], language_code="en")
+
+    logging.info("✅ Команды успешно обновлены")
 
     asyncio.create_task(consume_results())
 
