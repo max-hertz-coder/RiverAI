@@ -3,16 +3,17 @@ from worker import config
 
 _client: redis.Redis = None
 
-async def init_redis() -> None:
+async def init_redis_pool(host: str, port: int, db: int = 0) -> None:
     """
-    Инициализируем клиент Redis для кэша (используем DB из config.REDIS_DB).
+    Унифицированный инициализатор Redis-клиента (используется в main.py).
     """
     global _client
-    # config.REDIS_DB — та переменная, которая у вас определена в worker/config.py
     _client = redis.Redis(
-        host=config.REDIS_HOST,
-        port=config.REDIS_PORT,
-        db=config.REDIS_DB
+        host=host,
+        port=port,
+        db=db,
+        decode_responses=True,
+        encoding="utf-8"
     )
 
 def _get_client() -> redis.Redis:
@@ -21,13 +22,10 @@ def _get_client() -> redis.Redis:
     return _client
 
 async def get_conversation(user_id: int, student_id: int) -> str | None:
-    """
-    Получить историю чата из Redis (JSON-строка).
-    """
     client = _get_client()
     key = f"chat:{user_id}:{student_id}"
     data = await client.get(key)
-    return data.decode("utf-8") if data else None
+    return data if data else None
 
 async def save_conversation(user_id: int, student_id: int, conv_json: str) -> None:
     client = _get_client()
