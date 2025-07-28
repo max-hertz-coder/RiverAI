@@ -6,27 +6,54 @@ import base64
 
 logger = logging.getLogger(__name__)
 
+# Полноценный шаблон LaTeX с Unicode-поддержкой
+LATEX_TEMPLATE = r"""
+\documentclass[12pt]{article}
+\usepackage{fontspec}
+\usepackage{polyglossia}
+\setmainlanguage{russian}
+\setmainfont{Times New Roman}
+\usepackage{amsmath}
+\usepackage{geometry}
+\geometry{margin=2cm}
+\usepackage{titlesec}
+\titleformat{\section}{\large\bfseries}{\thesection.}{1em}{}
+
+\begin{document}
+
+\section*{Сгенерированные задания}
+
+%TASKS%
+
+\end{document}
+"""
+
 async def handle_tasks(task: dict) -> dict:
     user_id = task.get("user_id")
     student_id = task.get("student_id")
     task_type = task.get("type")
 
     try:
-        # Универсальный вызов обработчика
+        # 1. Универсальный вызов генератора
         result = await generate_tasks.execute(task)
-        latex_source = result.get("corrected_tasks") or result.get("raw_tasks")
-        if not latex_source:
+
+        # 2. Получаем LaTeX-исходник
+        latex_body = result.get("corrected_tasks") or result.get("raw_tasks")
+        if not latex_body:
             return {
                 "type": "error",
                 "user_id": user_id,
                 "message": "Не удалось сгенерировать задачи. Ответ пуст."
             }
 
-        # Компиляция в PDF
-        from worker.services.latex_service import compile_latex_to_pdf
-        pdf_bytes = await compile_latex_to_pdf(latex_source)
+        # 3. Оборачиваем в полноценный LaTeX-документ
+        latex_full = LATEX_TEMPLATE.replace("%TASKS%", latex_body)
 
-        # Пробуем отправить в Я.Диск
+        # 4. Компиляция PDF
+        from worker.services.latex_service import compile_latex_to_pdf
+        pdf_bytes = await compile_latex_to_pdf(latex_full)
+
+        # 5. Попытка загрузки на Яндекс.Диск
         file_url = None
         file_b64 = None
         from worker import db
@@ -43,16 +70,16 @@ async def handle_tasks(task: dict) -> dict:
             if success:
                 file_url = "yadisk"
 
-        # Если не загрузили — кодируем файл
+        # 6. Если не загрузили — кодируем в base64
         if not file_url and pdf_bytes:
             file_b64 = base64.b64encode(pdf_bytes).decode("utf-8")
 
-        # Готовим финальный результат
+        # 7. Возврат результата
         return {
             "type": "tasks",
             "user_id": user_id,
             "student_id": student_id,
-            "tasks_text": latex_source,
+            "tasks_text": latex_body[:1500],
             "file": file_b64,
             "file_url": file_url
         }
