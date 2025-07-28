@@ -6,10 +6,10 @@ services:
       dockerfile: Dockerfile.worker
     restart: unless-stopped
     env_file:
-      - ../../.env         # подтянет все переменные (RABBITMQ_*, REDIS_*, POSTGRES_*)
+      - ../../.env       # подтянет все переменные (RABBITMQ_*, REDIS_*, POSTGRES_*)
     networks:
-      - queue_internal
+      - queue_internal   # Имя сети точно такое же, как создано в очереди
 
 networks:
-  queue_internal:
-    external: true
+  internal:
+    driver: bridge
