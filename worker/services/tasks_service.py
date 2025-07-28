@@ -6,7 +6,6 @@ import base64
 
 logger = logging.getLogger(__name__)
 
-# Полноценный шаблон LaTeX с Unicode-поддержкой
 LATEX_TEMPLATE = r"""
 \documentclass[12pt]{article}
 \usepackage{fontspec}
@@ -29,18 +28,13 @@ LATEX_TEMPLATE = r"""
 \end{document}
 """
 
-
-
 async def handle_tasks(task: dict) -> dict:
     user_id = task.get("user_id")
     student_id = task.get("student_id")
     task_type = task.get("type")
 
     try:
-        # 1. Универсальный вызов генератора
         result = await generate_tasks.execute(task)
-
-        # 2. Получаем LaTeX-исходник
         latex_body = result.get("corrected_tasks") or result.get("raw_tasks")
         if not latex_body:
             return {
@@ -49,16 +43,14 @@ async def handle_tasks(task: dict) -> dict:
                 "message": "Не удалось сгенерировать задачи. Ответ пуст."
             }
 
-        # 3. Оборачиваем в полноценный LaTeX-документ
         latex_full = LATEX_TEMPLATE.replace("%TASKS%", latex_body)
 
-        # 4. Компиляция PDF
         from worker.services.latex_service import compile_latex_to_pdf
         pdf_bytes = await compile_latex_to_pdf(latex_full)
 
-        # 5. Попытка загрузки на Яндекс.Диск
         file_url = None
         file_b64 = None
+
         from worker import db
         from worker.utils import encryption
         from worker.services import storage_service
@@ -73,16 +65,13 @@ async def handle_tasks(task: dict) -> dict:
             if success:
                 file_url = "yadisk"
 
-        # 6. Если не загрузили — кодируем в base64
         if not file_url and pdf_bytes:
             file_b64 = base64.b64encode(pdf_bytes).decode("utf-8")
 
-        # 7. Возврат результата
         return {
             "type": "tasks",
             "user_id": user_id,
             "student_id": student_id,
-            "tasks_text": latex_body[:1500],
             "file": file_b64,
             "file_url": file_url
         }

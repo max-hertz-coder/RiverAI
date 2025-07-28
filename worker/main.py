@@ -74,16 +74,28 @@ async def handle_message(message: aio_pika.IncomingMessage) -> None:
                         }
                     )
                 elif result_type == "tasks":
-                    # Сгенерированные задания для ученика
-                    tasks_text = result.get("tasks_text", "(нет данных)")
-                    await session.post(
-                        f"https://api.telegram.org/bot{config.BOT_TOKEN}/sendMessage",
-                        json={
-                            "chat_id": user_id,
-                            "text": f"📝 Задания:\n{tasks_text}",
-                            "parse_mode": "HTML"
-                        }
-                    )
+                    file_b64 = result.get("file")
+                    if file_b64:
+                        file_bytes = base64.b64decode(file_b64)
+                        file_obj = BytesIO(file_bytes)
+                        file_obj.name = "Задания.pdf"
+                        form = aiohttp.FormData()
+                        form.add_field("chat_id", str(user_id))
+                        form.add_field("caption", "📎 Ваши задания в PDF")
+                        form.add_field("document", file_obj, filename=file_obj.name)
+                        await session.post(
+                            f"https://api.telegram.org/bot{config.BOT_TOKEN}/sendDocument",
+                            data=form
+                        )
+                    else:
+                        await session.post(
+                            f"https://api.telegram.org/bot{config.BOT_TOKEN}/sendMessage",
+                            json={
+                                "chat_id": user_id,
+                                "text": "⚠️ Ошибка: не удалось сгенерировать PDF с заданиями"
+                            }
+                        )
+
                 elif result_type == "check":
                     # Результаты проверки домашнего задания
                     report_text = result.get("report_text", "(нет отчёта)")
