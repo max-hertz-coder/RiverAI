@@ -10,6 +10,8 @@ services:
     networks:
       - internal   # Имя сети точно такое же, как создано в очереди
 
+
 networks:
   internal:
-    external: true
+    driver: bridge
+
