@@ -19,21 +19,25 @@ def students_list_kb(students: list, lang: str = "RU"):
     kb.adjust(1)
     return kb.as_markup()
 
-def student_actions_kb(student_id: int, lang: str = "RU"):
+from aiogram.types import InlineKeyboardMarkup
+
+def student_actions_kb(student_id: int, lang: str = "RU") -> InlineKeyboardMarkup:
     """
     Inline keyboard for actions on a specific student: Open chat, Edit, Delete, Back.
     """
     kb = InlineKeyboardBuilder()
+    
     if lang.upper() == "EN":
         kb.button(text="🔓 Open Chat", callback_data=f"open_chat:{student_id}")
-        kb.button(text="✏️ Edit", callback_data=f"edit_student:{student_id}")
+        #kb.button(text="✏️ Edit Name", callback_data=f"edit_student:{student_id}")
         kb.button(text="🗑 Delete", callback_data=f"delete_student:{student_id}")
         kb.button(text="← Back", callback_data="back:students")
     else:
         kb.button(text="🔓 Открыть чат", callback_data=f"open_chat:{student_id}")
-        kb.button(text="✏️ Изменить данные", callback_data=f"edit_student:{student_id}")
+        #kb.button(text="✏️ Изменить имя", callback_data=f"edit_student:{student_id}")
         kb.button(text="🗑 Удалить ученика", callback_data=f"delete_student:{student_id}")
         kb.button(text="← Назад", callback_data="back:students")
+
     kb.adjust(1)
     return kb.as_markup()
 

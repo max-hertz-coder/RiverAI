@@ -170,12 +170,16 @@ async def process_edit_name(message: Message, state: FSMContext):
     data = await state.get_data()
     sid  = data.get("student_id")
     new_name = message.text.strip()
+    
     if not new_name:
         return await message.reply("Имя не может быть пустым. Введите имя ученика:")
-    # обновляем
-    await db.update_student_name(sid, new_name)
+
+    # 🔧 Исправлено: вызываем правильную функцию
+    await db.update_student(student_id=sid, name=new_name)
+    
     await state.clear()
-    # возвращаемся в меню действий
+
+    # Обновляем инфу и возвращаем меню ученика
     student = await db.get_student(sid)
     text = f"Действия с учеником: {student['name']}"
     await message.answer(

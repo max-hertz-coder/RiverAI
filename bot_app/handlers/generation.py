@@ -50,10 +50,9 @@ async def _send_task(task: dict):
 # OCR: обработка фотографий и документов (распознавание текста)
 #
 @router.message(F.photo)
-async def handle_photo_ocr(message: Message):
+async def handle_photo_ocr(message: Message, bot: Bot):
     bio = BytesIO()
     # Загрузка фото через Bot API (aiogram v3)
-    bot = Bot.get_current()
     file_id = message.photo[-1].file_id
     await bot.download(file_id, destination=bio)
     b64 = base64.b64encode(bio.getvalue()).decode()
@@ -68,10 +67,9 @@ async def handle_photo_ocr(message: Message):
     await message.answer("🔍 Распознавание текста запущено, ожидайте результат...")
 
 @router.message(F.document)
-async def handle_document_ocr(message: Message):
+async def handle_document_ocr(message: Message, bot: Bot):
     bio = BytesIO()
     # Загрузка документа через Bot API
-    bot = Bot.get_current()
     file_id = message.document.file_id
     await bot.download(file_id, destination=bio)
     b64 = base64.b64encode(bio.getvalue()).decode()
@@ -198,10 +196,9 @@ async def cb_check(callback: CallbackQuery, state: FSMContext):
     )
 
 @router.message(CheckFSM.file, F.document)
-async def proc_check(message: Message, state: FSMContext):
+async def proc_check(message: Message,  bot: Bot, state: FSMContext):
     d = await state.get_data()
     bio = BytesIO()
-    bot = Bot.get_current()
     file_id = message.document.file_id
     await bot.download(file_id, destination=bio)
     b64 = base64.b64encode(bio.getvalue()).decode()
@@ -230,10 +227,9 @@ async def cb_correct(callback: CallbackQuery, state: FSMContext):
     )
 
 @router.message(CorrectFSM.file, F.document)
-async def proc_correct(message: Message, state: FSMContext):
+async def proc_correct(message: Message,  bot: Bot, state: FSMContext):
     d = await state.get_data()
     bio = BytesIO()
-    bot = Bot.get_current()
     file_id = message.document.file_id
     await bot.download(file_id, destination=bio)
     b64 = base64.b64encode(bio.getvalue()).decode()

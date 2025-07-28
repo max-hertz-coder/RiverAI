@@ -7,6 +7,12 @@ from aiogram.client.bot import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.redis import RedisStorage
 from aiogram.types import BotCommand
+from aiogram.types import (
+    BotCommandScopeDefault,
+    BotCommandScopeAllPrivateChats,
+    BotCommandScopeAllGroupChats,
+    BotCommandScopeAllChatAdministrators,
+)
 
 import bot_app
 from bot_app import config
@@ -36,17 +42,31 @@ async def consume_results():
             except Exception as e:
                 logging.error(f"Ошибка обработки сообщения из result_queue: {e}")
 
+
+from aiogram.types import BotCommand, BotCommandScopeDefault
+
 async def on_startup(bot_: Bot, dp: Dispatcher):
-    logging.info("🚀 Startup: регистрация команд и запуск очереди")
+    logging.info("🚀 Startup: удаляем ВСЕ старые команды")
+
+    # Удаляем ВСЕ команды — глобальные и для языков
+    await bot_.delete_my_commands(scope=BotCommandScopeDefault(), language_code="ru")
+    await bot_.delete_my_commands(scope=BotCommandScopeDefault(), language_code="en")
+    await bot_.delete_my_commands(scope=None)
+
+    # Ставим только нужные команды
+    await bot_.set_my_commands([
+        BotCommand("start", "Старт бота"),
+        BotCommand("back", "Завершить чат с GPT"),
+    ], language_code="ru")
 
     await bot_.set_my_commands([
-        BotCommand("show_students", "👤 Ученики"),
-        BotCommand("add_student", "➕ Добавить ученика"),
-        BotCommand("settings", "⚙️ Настройки"),
-        BotCommand("subscription", "💳 Оплата"),
-    ])
+        BotCommand("start", "Start bot"),
+        BotCommand("back", "End chat with GPT"),
+    ], language_code="en")
 
-    asyncio.create_task(consume_results())  # Фоновая подписка на очередь
+    logging.info("✅ Команды успешно обновлены")
+
+    asyncio.create_task(consume_results())
 
 async def on_shutdown(bot: Bot, dp: Dispatcher):
     logging.info("🔌 Shutdown: закрываем пул БД")
