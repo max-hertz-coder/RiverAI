@@ -27,8 +27,8 @@ async def process_task_message(task: dict) -> dict | None:
         if t == "check_homework":
             return await handle_check_homework(task)
 
-        if t == "refine_check":
-            return await handle_refine_check(task)
+        #if t == "refine_check":
+        #    return await handle_refine_check(task)
 
         if t in ("chat_gpt", "chat"):
             return await handle_chat_gpt(task)
