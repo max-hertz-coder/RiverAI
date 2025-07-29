@@ -98,7 +98,7 @@ async def handle_generate_tasks(task: dict) -> dict:
             "user_id": user_id,
             "student_id": student_id,
             "raw_tasks_text": raw_tasks_text,
-            "file_tasks": pdf_tasks_b64,
+            "file": pdf_tasks_b64,
             "file_solutions": pdf_solutions_b64
         }
 
