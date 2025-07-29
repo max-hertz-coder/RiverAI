@@ -12,7 +12,7 @@ from bot_app.keyboards.chat_menu import (
     result_check_kb
 )
 
-# В памяти бота храним последние raw-тексты задач по (user_id, student_id)
+# В памяти храним последний текст задач по (user_id, student_id)
 pending_tasks: dict[tuple[int, int], str] = {}
 
 async def process_result(message: IncomingMessage, bot: Bot):
@@ -52,11 +52,11 @@ async def process_result(message: IncomingMessage, bot: Bot):
 
         # — Tasks —
         if t == "tasks":
-            # Сохраняем raw-текст
+            # сохраняем чистый текст задач
             raw = data.get("tasks_text", "").strip()
             pending_tasks[(user_id, student_id)] = raw
 
-            # Отправляем текст + кнопки
+            # отправляем текст и кнопки
             await bot.send_message(
                 user_id,
                 f"📝 Задания:\n{raw}",
