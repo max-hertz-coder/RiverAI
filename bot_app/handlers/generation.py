@@ -114,7 +114,7 @@ async def cb_tasks_ok(callback: CallbackQuery):
     await callback.answer("👍 Отлично!")
     await callback.message.edit_reply_markup(None)
 
-from bot_app.redis_cache import get_raw_tasks
+from worker.redis_cache import get_raw_tasks
 
 @router.callback_query(F.data.startswith("refine_tasks:"))
 async def cb_refine_tasks(callback: CallbackQuery, state: FSMContext):
