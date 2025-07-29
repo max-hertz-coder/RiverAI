@@ -4,10 +4,10 @@ from typing import List
 from aiogram import types
 from aiogram.types import FSInputFile, InlineKeyboardMarkup, InlineKeyboardButton
 
-from ocr_service import ocr_openai_vision
-from generation_service import generate_raw_tasks, generate_raw_solutions
-from corrections_service import generate_corrected_tasks
-from pdf_utils import (
+from worker.services.ocr_service import ocr_openai_vision
+from worker.services.generation_service import generate_raw_tasks, generate_raw_solutions
+from worker.services.corrections_service import generate_corrected_tasks
+from worker.services.pdf_utils import (
     template_basic, template_solutions,
     sanitize_solutions, escape_latex, compile_latex_to_pdf
 )
