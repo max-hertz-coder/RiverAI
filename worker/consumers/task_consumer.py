@@ -1,11 +1,10 @@
 import logging
 
-from worker.services.ocr_service import handle_ocr
+from worker.services.ocr_service import handle_ocr, handle_ocr_and_generate
 from worker.services.plan_service import handle_plan
 from worker.services.tasks_service import handle_tasks
 from worker.tasks.check_homework import handle_check_homework
 from worker.services.chat_service import handle_chat
-from worker.services.ocr_service import handle_ocr_and_generate
 from worker import redis_cache
 
 async def process_task_message(task: dict) -> dict | None:
@@ -14,35 +13,30 @@ async def process_task_message(task: dict) -> dict | None:
     """
     user_id = task.get("user_id")
     student_id = task.get("student_id")
-    t = task.get("type")
+    task_type = task.get("type")
 
     try:
-
-        if t == "ocr_and_generate":
+        if task_type == "ocr_and_generate":
             return await handle_ocr_and_generate(task)
-        
-        if t == "ocr":
+
+        if task_type == "ocr":
             return await handle_ocr(task)
 
-        if t == "generate_plan":
+        if task_type == "generate_plan":
             return await handle_plan(task)
 
-        if t == "generate_tasks":
+        if task_type in ("generate_tasks", "generate_solutions"):
             return await handle_tasks(task)
 
-        if t in ("generate_solutions",):
-            return await handle_tasks(task)
-
-        if t == "check_homework":
+        if task_type == "check_homework":
             return await handle_check_homework(task)
 
-        if t in ("chat_gpt", "chat"):
+        if task_type in ("chat_gpt", "chat"):
             return await handle_chat(task)
 
-        if t == "end_chat":
-            # Очищаем историю диалога в Redis
+        if task_type == "end_chat":
+            # Очищаем историю диалога
             await redis_cache.clear_conversation(user_id, student_id)
-            # Возвращаем подтверждение очистки
             return {
                 "type": "chat",
                 "user_id": user_id,
@@ -50,7 +44,8 @@ async def process_task_message(task: dict) -> dict | None:
                 "answer": "🗑️ Диалог очищен."
             }
 
-        logging.warning("Unknown task type: %s", t)
+        logging.warning("Unknown task type: %s", task_type)
+
     except Exception:
         logging.exception("🔴 Error processing task %r", task)
         return {
