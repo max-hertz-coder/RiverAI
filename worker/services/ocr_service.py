@@ -8,8 +8,6 @@ from dotenv import load_dotenv
 import fitz  # PyMuPDF
 from openai import OpenAI
 
-from worker.services.tasks_service import handle_tasks
-
 load_dotenv()
 OPENAI_KEY = os.getenv("OPENAI_API_KEY")
 if not OPENAI_KEY:
@@ -18,11 +16,15 @@ if not OPENAI_KEY:
 client = OpenAI(api_key=OPENAI_KEY)
 logger = logging.getLogger(__name__)
 
+
 def sync_ocr(path_or_url: str) -> str:
     """
     Выполняет OCR через OpenAI Vision.
-    Поддерживает URL, локальные JPG/PNG и PDF (конвертация первой страницы).
-    Возвращает распознанный текст или пустую строку.
+    Поддерживает:
+      - URL изображений
+      - Локальные JPG/PNG файлы
+      - PDF-файлы (конвертирует первую страницу в PNG)
+    Возвращает текст или пустую строку при отказе.
     """
     if path_or_url.startswith("http"):
         image_data = {"url": path_or_url, "detail": "high"}
@@ -48,7 +50,7 @@ def sync_ocr(path_or_url: str) -> str:
             messages=[{
                 "role": "user",
                 "content": [
-                    {"type": "text", "text": "Извлеките весь текст (русский, цифры, формулы) из этого изображения."},
+                    {"type": "text",      "text": "Извлеките весь текст (русский, цифры, формулы) из этого изображения."},
                     {"type": "image_url", "image_url": image_data}
                 ]
             }]
@@ -63,35 +65,83 @@ def sync_ocr(path_or_url: str) -> str:
         logger.exception("Ошибка при OCR: %s", e)
         return ""
 
+
 async def ocr_openai_vision(path_or_url: str) -> str:
     """Асинхронная обёртка для sync_ocr."""
     return await asyncio.to_thread(sync_ocr, path_or_url)
 
+
+async def handle_ocr(task: dict) -> dict:
+    """
+    Сервис для чистого OCR:
+    принимает task с полями file_data, file_name, prompt
+    возвращает {'type':'ocr', 'user_id':..., 'student_id':..., 'text':..., 'prompt':...}
+    """
+    user_id    = task.get("user_id")
+    student_id = task.get("student_id")
+    prompt     = (task.get("prompt") or "").strip()
+
+    file_data = task.get("file_data")
+    if not file_data:
+        return {"type": "error", "user_id": user_id, "message": "Нет данных для OCR."}
+
+    try:
+        data = base64.b64decode(file_data)
+    except Exception as e:
+        logger.error("Ошибка base64 декодирования OCR-файла: %s", e)
+        return {"type": "error", "user_id": user_id, "message": "Невалидные данные файла."}
+
+    suffix = os.path.splitext(task.get("file_name", "file"))[1] or ".jpg"
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    tmp.write(data)
+    tmp.close()
+
+    try:
+        text = (await ocr_openai_vision(tmp.name) or "").strip()
+    except Exception:
+        logger.exception("OCR failure")
+        os.remove(tmp.name)
+        return {"type": "error", "user_id": user_id, "message": "Ошибка OCR-сервиса."}
+    finally:
+        if os.path.exists(tmp.name):
+            os.remove(tmp.name)
+
+    if not text:
+        return {"type": "error", "user_id": user_id, "message": "Не удалось распознать текст."}
+
+    return {
+        "type": "ocr",
+        "user_id": user_id,
+        "student_id": student_id,
+        "text": text,
+        "prompt": prompt
+    }
+
+
 async def handle_ocr_and_generate(task: dict) -> dict:
     """
-    Берёт base64-изображение из task["file_data"], выполняет OCR,
-    добавляет ваш caption из task["prompt"], формирует final_prompt,
-    а затем вызывает handle_tasks для генерации PDF.
-    Возвращает результат handle_tasks с добавленным полем "prompt".
+    Объединённый сервис OCR+генерации:
+    - делает OCR через ocr_openai_vision
+    - склеивает ваш caption из task['prompt'] с распознанным текстом
+    - вызывает handle_tasks для генерации PDF
+    - добавляет в ответ поле 'prompt' с финальным запросом
     """
     user_id     = task.get("user_id")
     student_id  = task.get("student_id")
     user_prompt = (task.get("prompt") or "").strip()
 
-    # 1) Декодируем файл
+    # Декодируем файл
     try:
         data = base64.b64decode(task["file_data"])
     except Exception as e:
         logger.error("OCR+Gen: ошибка декодирования: %s", e)
         return {"type": "error", "user_id": user_id, "message": "Ошибка обработки файла."}
 
-    # 2) Сохраняем в temp-файл
     suffix = os.path.splitext(task.get("file_name", ""))[1] or ".jpg"
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
     tmp.write(data)
     tmp.close()
 
-    # 3) Запускаем OCR
     try:
         ocr_text = (await ocr_openai_vision(tmp.name) or "").strip()
     except Exception:
@@ -105,10 +155,11 @@ async def handle_ocr_and_generate(task: dict) -> dict:
     if not ocr_text:
         return {"type": "error", "user_id": user_id, "message": "Не удалось распознать текст."}
 
-    # 4) Формируем финальный prompt
     final_prompt = f"{user_prompt}\n\n{ocr_text}" if user_prompt else ocr_text
 
-    # 5) Вызываем генерацию заданий
+    # Локальный импорт, чтобы не было циклической зависимости
+    from worker.services.tasks_service import handle_tasks
+
     gen_task = {
         "type": "generate_tasks",
         "user_id": user_id,
@@ -117,6 +168,6 @@ async def handle_ocr_and_generate(task: dict) -> dict:
     }
     result = await handle_tasks(gen_task)
 
-    # 6) Добавляем prompt в ответ, чтобы main.py мог его показать
+    # Передаём дальше финальный prompt, чтобы воркер его показал
     result["prompt"] = final_prompt
     return result
