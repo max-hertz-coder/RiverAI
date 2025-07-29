@@ -8,7 +8,7 @@ from pathlib import Path
 
 from worker.services.pdf_utils import compile_latex_to_pdf, escape_latex, sanitize_solutions, template_basic, template_solutions
 from worker.services.ocr_service import extract_text_from_file
-from worker.services.generation_module import generate_raw_tasks, generate_raw_solutions, generate_corrected_tasks
+from worker.services.generation_service import generate_raw_tasks, generate_raw_solutions, generate_corrected_tasks
 
 logger = logging.getLogger(__name__)
 
