@@ -114,13 +114,16 @@ async def cb_tasks_ok(callback: CallbackQuery):
     await callback.answer("👍 Отлично!")
     await callback.message.edit_reply_markup(None)
 
-# Уточнение заданий
+from bot_app.redis_cache import get_raw_tasks
+
 @router.callback_query(F.data.startswith("refine_tasks:"))
 async def cb_refine_tasks(callback: CallbackQuery, state: FSMContext):
-    # Захватываем raw_tasks из сообщения, на котором была нажата кнопка
-    raw = callback.message.reply_to_message.text if callback.message.reply_to_message else ""
-    sid = callback.data.split(":", 1)[1]
-    await state.update_data(student_id=sid, raw_tasks=raw)
+    """
+    Запускаем FSM: спрашиваем, что исправить.
+    Но raw-текст при этом мы возьмём из Redis.
+    """
+    student_id = int(callback.data.split(":",1)[1])
+    await state.update_data(student_id=student_id)
     await state.set_state(RefineTasksFSM.notes)
     await callback.message.edit_text(
         "✏️ Опишите, как изменить эти задания:",
@@ -129,21 +132,37 @@ async def cb_refine_tasks(callback: CallbackQuery, state: FSMContext):
 
 @router.message(RefineTasksFSM.notes)
 async def proc_refine_tasks(message: Message, state: FSMContext):
+    """
+    Получаем новый инструкционный текст, дополняем raw из Redis
+    и шлём в генерацию.
+    """
     data = await state.get_data()
-    refine_prompt = message.text.strip()
-    raw_tasks = data.get("raw_tasks", "")
-    combined = f"{refine_prompt}\n\n{raw_tasks}" if raw_tasks else refine_prompt
+    chat_id    = message.from_user.id
+    student_id = data.get("student_id")
+    instr      = message.text.strip()
 
-    await message.answer(f"🔄 Новый запрос для генерации:\n{combined}")
+    # Достаём сохранённый raw-текст
+    raw = await get_raw_tasks(chat_id, student_id) or ""
+    combined = f"{instr}\n\n{raw}" if raw else instr
+
+    # Показываем пользователю, какой финальный prompt уходит
+    await message.answer(
+        "📝 Отправляю в GPT следующий запрос:\n\n"
+        f"```{combined}```",
+        parse_mode="Markdown"
+    )
+
+    # И отправляем задачу
     task = {
         "type": "generate_tasks",
-        "user_id": message.from_user.id,
-        "student_id": data.get("student_id"),
-        "prompt": combined,
+        "user_id": chat_id,
+        "student_id": student_id,
+        "prompt": combined
     }
     await _send_task(task)
+
     await message.answer("🕔 Перегенерируем задания, ожидайте...")
-    # остаёмся в состоянии для новых уточнений
+    await state.clear()
 
 # Отмена
 @router.callback_query(F.data == "back:chat")

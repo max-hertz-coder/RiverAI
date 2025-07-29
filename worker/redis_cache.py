@@ -36,3 +36,23 @@ async def clear_conversation(user_id: int, student_id: int) -> None:
     client = _get_client()
     key = f"chat:{user_id}:{student_id}"
     await client.delete(key)
+
+# bot_app/redis_cache.py (поместите рядом с get_conversation и т.п.)
+
+async def save_raw_tasks(user_id: int, student_id: int, raw: str) -> None:
+    """
+    Сохраняет raw-текст сгенерированных заданий в Redis по ключу:
+      raw_tasks:{user_id}:{student_id}
+    """
+    client = _get_client()
+    key = f"raw_tasks:{user_id}:{student_id}"
+    # Сохраняем на 1 час
+    await client.set(key, raw, ex=3600)
+
+async def get_raw_tasks(user_id: int, student_id: int) -> str | None:
+    """
+    Забирает raw-текст заданий из Redis.
+    """
+    client = _get_client()
+    key = f"raw_tasks:{user_id}:{student_id}"
+    return await client.get(key)

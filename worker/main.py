@@ -10,6 +10,7 @@ import aiohttp
 
 from worker import config, db, redis_cache
 from worker.consumers import task_consumer
+from worker.redis_cache import save_raw_tasks
 
 async def handle_message(message: aio_pika.IncomingMessage) -> None:
     """
@@ -72,22 +73,26 @@ async def handle_message(message: aio_pika.IncomingMessage) -> None:
 
                 # === TASKS ===
                 elif result_type == "tasks":
-                    # 1) Собираем данные
-                    final_prompt = result.get("prompt", "").strip()
-                    raw = result.get("raw_tasks_text", "").strip()
+                    chat_id    = result["user_id"]
                     student_id = result.get("student_id")
+                    prompt     = result.get("prompt", "").strip()
+                    raw        = result.get("raw_tasks_text", "").strip()
 
-                    # 2) Формируем сообщение: сначала финальный prompt (если есть), затем сами задания, потом вопрос
+                    # 1) Сохраняем raw-текст в Redis (на час)
+                    if raw:
+                        await save_raw_tasks(chat_id, student_id, raw)
+
+                    # 2) Собираем единый текст сообщения
                     parts = []
-                    if final_prompt:
-                        parts.append(f"🔄 Финальный запрос для генерации:\n{final_prompt}")
+                    if prompt:
+                        parts.append(f"🔄 Финальный запрос для генерации:\n{prompt}")
                     if raw:
                         parts.append(f"📝 Задания:\n\n{raw}")
                     parts.append("❓ Всё ли устраивает?")
 
                     text = "\n\n".join(parts)
 
-                    # 3) Кнопки подтверждения / переделки
+                    # 3) Клавиатура «Всё норм» / «Переделать»
                     kb = {
                         "inline_keyboard": [[
                             {"text": "✅ Всё норм",    "callback_data": "tasks_ok"},
@@ -95,39 +100,33 @@ async def handle_message(message: aio_pika.IncomingMessage) -> None:
                         ]]
                     }
 
-                    # 4) Отправляем текст с кнопками
-                    await session.post(
-                        f"https://api.telegram.org/bot{config.BOT_TOKEN}/sendMessage",
-                        json={
-                            "chat_id":     user_id,
-                            "text":        text,
-                            "parse_mode":  "HTML",
-                            "reply_markup": kb
-                        }
+                    # 4) Отправляем его
+                    await bot.send_message(
+                        chat_id=chat_id,
+                        text=text,
+                        reply_markup=kb,
+                        parse_mode="HTML"
                     )
 
-                    # 5) Теперь отправляем PDF
+                    # 5) Затем отправляем PDF
                     file_b64 = result.get("file")
                     if file_b64:
                         pdf_bytes = base64.b64decode(file_b64)
-                        buf = BytesIO(pdf_bytes)
-                        buf.name = "Задания.pdf"
-                        form = aiohttp.FormData()
-                        form.add_field("chat_id", str(user_id))
-                        form.add_field("caption", "📎 Ваши задания в PDF")
-                        form.add_field("document", buf, filename=buf.name)
-                        await session.post(
-                            f"https://api.telegram.org/bot{config.BOT_TOKEN}/sendDocument",
-                            data=form
+                        fp = BytesIO(pdf_bytes)
+                        fp.name = "Задания.pdf"
+                        await bot.send_document(
+                            chat_id=chat_id,
+                            document=InputFile(fp),
+                            caption="📎 Ваши задания в PDF"
                         )
                     else:
-                        await session.post(
-                            f"https://api.telegram.org/bot{config.BOT_TOKEN}/sendMessage",
-                            json={
-                                "chat_id": user_id,
-                                "text":    "⚠️ Не удалось сгенерировать PDF с заданиями"
-                            }
+                        await bot.send_message(
+                            chat_id=chat_id,
+                            text="⚠️ Не удалось сгенерировать PDF с заданиями"
                         )
+
+                    # 6) Завершаем обработку
+                    return
                 # === ERROR ===
                 elif result_type == "error":
                     error_msg = result.get("message", "Неизвестная ошибка")
