@@ -72,7 +72,7 @@ async def handle_message(message: aio_pika.IncomingMessage) -> None:
 
                 # === TASKS ===
                 elif result_type == "tasks":
-                    # Если есть финальный prompt — показать его
+                    # 1) Показать финальный prompt, если он есть
                     final_prompt = result.get("prompt", "").strip()
                     if final_prompt:
                         await session.post(
@@ -82,7 +82,8 @@ async def handle_message(message: aio_pika.IncomingMessage) -> None:
                                 "text": f"🔄 Финальный запрос для генерации:\n{final_prompt}"
                             }
                         )
-                    # Отправка PDF
+
+                    # 2) Отправить PDF
                     file_b64 = result.get("file") or result.get("file_tasks")
                     if file_b64:
                         pdf_bytes = base64.b64decode(file_b64)
@@ -96,10 +97,29 @@ async def handle_message(message: aio_pika.IncomingMessage) -> None:
                             f"https://api.telegram.org/bot{config.BOT_TOKEN}/sendDocument",
                             data=form
                         )
+
+                        # 3) Спросить, все ли устраивает?
+                        kb = {
+                            "inline_keyboard": [
+                                [{"text": "✅ Всё норм", "callback_data": "tasks_ok"}],
+                                [{"text": "✏️ Переделать", "callback_data": "refine_tasks:None"}]
+                            ]
+                        }
+                        await session.post(
+                            f"https://api.telegram.org/bot{config.BOT_TOKEN}/sendMessage",
+                            json={
+                                "chat_id": user_id,
+                                "text": "Всё ли устраивает?",
+                                "reply_markup": kb
+                            }
+                        )
                     else:
                         await session.post(
                             f"https://api.telegram.org/bot{config.BOT_TOKEN}/sendMessage",
-                            json={"chat_id": user_id, "text": "⚠️ Не удалось сгенерировать PDF с заданиями"}
+                            json={
+                                "chat_id": user_id,
+                                "text": "⚠️ Не удалось сгенерировать PDF с заданиями"
+                            }
                         )
 
                 # === CHECK HOMEWORK ===
