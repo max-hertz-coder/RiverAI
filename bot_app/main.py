@@ -13,6 +13,7 @@ from aiogram.types import (
     BotCommandScopeAllGroupChats,
     BotCommandScopeAllChatAdministrators,
 )
+from bot_app.handlers.ocr_and_generate import router as ocr_and_generate_router
 
 import bot_app
 from bot_app import config
@@ -88,6 +89,7 @@ async def main():
 
     dp.include_router(start.router)
     dp.include_router(students.router)
+    dp.include_router(ocr_and_generate_router) 
     dp.include_router(generation.router)
     dp.include_router(chatgpt.router)
     dp.include_router(subscription.router)
