@@ -13,6 +13,9 @@ from bot_app.keyboards.main_menu import back_button
 
 router = Router()
 
+# Хранилище последних промптов для генерации заданий по chat_id
+pending_prompts: dict[int,str] = {}
+
 async def _send_task(task: dict):
     """Отправка задачи в RabbitMQ."""
     try:
@@ -38,15 +41,12 @@ async def _send_task(task: dict):
         router.logger.exception("Ошибка отправки задачи в очередь")
 
 
-# FSM для ручной генерации заданий по тексту
 class TasksFSM(StatesGroup):
     desc = State()
 
-# FSM для уточнения сгенерированных заданий
 class RefineTasksFSM(StatesGroup):
     notes = State()
 
-# Обработка кнопки ручной генерации
 @router.callback_query(F.data.startswith("generate_tasks:"))
 async def cb_tasks(callback: CallbackQuery, state: FSMContext):
     sid = int(callback.data.split(":", 1)[1])
@@ -60,7 +60,10 @@ async def cb_tasks(callback: CallbackQuery, state: FSMContext):
 @router.message(TasksFSM.desc)
 async def proc_tasks(message: Message, state: FSMContext):
     data = await state.get_data()
+    chat_id = message.chat.id
     prompt = message.text.strip()
+    # Сохраняем последний промпт
+    pending_prompts[chat_id] = prompt
     task = {
         "type": "generate_tasks",
         "user_id": message.from_user.id,
@@ -71,7 +74,6 @@ async def proc_tasks(message: Message, state: FSMContext):
     await message.answer("🕔 Генерируются задания, ожидайте...")
     await state.clear()
 
-# Обработка подтверждения и корректировки
 @router.callback_query(F.data == "tasks_ok")
 async def cb_tasks_ok(callback: CallbackQuery):
     await callback.answer("👍 Отлично!")
@@ -89,20 +91,20 @@ async def cb_refine_tasks(callback: CallbackQuery, state: FSMContext):
 @router.message(RefineTasksFSM.notes)
 async def proc_refine_tasks(message: Message, state: FSMContext):
     data = await state.get_data()
-    new_prompt = message.text.strip()
-    # user may refine multiple times
+    chat_id = message.chat.id
+    refine_prompt = message.text.strip()
+    prev = pending_prompts.get(chat_id, "")
+    combined = f"{refine_prompt}\n\n{prev}" if prev else refine_prompt
+    # Обновляем последний промпт
+    pending_prompts[chat_id] = combined
     task = {
         "type": "generate_tasks",
         "user_id": message.from_user.id,
         "student_id": data.get("student_id"),
-        "prompt": new_prompt,
+        "prompt": combined,
     }
+    # Показываем новый запрос
+    await message.answer(f"🔄 Новый запрос для генерации:\n{combined}")
     await _send_task(task)
-    await message.answer("🕔 Повторно генерируем задания по вашим комментариям, ожидайте...")
-    # остаёмся в том же состоянии, чтобы позволить ещё уточнения
-
-# Обработка отмены (возврат в меню чата)
-@router.callback_query(F.data == "back:chat")
-async def cb_back(callback: CallbackQuery):
-    # Возвращаем клавиатуру чата (реализовано в другом роутере)
-    await callback.message.edit_text("Возвращаюсь в главное меню.")
+    await message.answer("🕔 Перегенерируем задания, ожидайте...")
+    # Остаёмся в том же состоянии для возможных дальнейших уточнений
