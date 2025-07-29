@@ -12,42 +12,45 @@ from worker import config, db, redis_cache
 from worker.consumers import task_consumer
 
 async def handle_message(message: aio_pika.IncomingMessage) -> None:
+    """
+    Обрабатывает IncomingMessage из RabbitMQ,
+    вызывает соответствующий сервис и отправляет результат пользователю в Telegram.
+    """
     async with message.process():
-        # 1) Распаковываем задачу
+        # 1. Распаковать задачу
         try:
             task_data = json.loads(message.body)
         except json.JSONDecodeError as e:
             logging.error(f"🔴 Failed to decode task message: {e}")
             return
 
-        t = task_data.get("type")
-        user_id = task_data.get("user_id")
+        task_type  = task_data.get("type")
+        user_id    = task_data.get("user_id")
         student_id = task_data.get("student_id")
-        logging.info(f"▶ Received task: type={t}, user_id={user_id}, student_id={student_id}")
+        logging.info(f"▶ Received task: type={task_type}, user_id={user_id}, student_id={student_id}")
 
-        # 2) Обрабатываем её
+        # 2. Обработать задачу
         try:
             result = await task_consumer.process_task_message(task_data)
-            logging.info(f"✅ Processed task type={t}")
+            logging.info(f"✅ Task processed: type={task_type}")
         except Exception:
-            logging.exception(f"🔴 Error processing task type={t}")
+            logging.exception(f"🔴 Error processing task type={task_type}")
             return
 
         if not result:
-            logging.warning("⚠️ Handler returned None — skipping")
+            logging.warning("⚠️ Handler returned None — skipping message send")
             return
 
-        # 3) Готовим к отправке в Telegram
-        user_id = result.get("user_id")
+        # 3. Подготовить отправку в Telegram
+        user_id     = result.get("user_id")
         result_type = result.get("type")
         if not user_id or not result_type:
-            logging.warning("⚠️ Invalid result (missing user_id or type) — skipping")
+            logging.warning("⚠️ Invalid result (missing user_id or type) — skipping send")
             return
 
         try:
             async with aiohttp.ClientSession() as session:
-
-                # === Chat response ===
+                # === CHAT ===
                 if result_type == "chat":
                     text = result.get("answer", "(нет ответа)")
                     await session.post(
@@ -55,21 +58,21 @@ async def handle_message(message: aio_pika.IncomingMessage) -> None:
                         json={"chat_id": user_id, "text": text, "parse_mode": "HTML"}
                     )
 
-                # === Study plan ===
+                # === PLAN ===
                 elif result_type == "plan":
-                    plan = result.get("plan_text", "(пусто)")
+                    plan_text = result.get("plan_text", "(пусто)")
                     await session.post(
                         f"https://api.telegram.org/bot{config.BOT_TOKEN}/sendMessage",
                         json={
                             "chat_id": user_id,
-                            "text": f"📄 План:\n{plan}",
+                            "text": f"📄 План:\n{plan_text}",
                             "parse_mode": "HTML"
                         }
                     )
 
-                # === Generated tasks PDF ===
+                # === TASKS ===
                 elif result_type == "tasks":
-                    # Показываем финальный prompt, если он есть
+                    # Если есть финальный prompt — показать его
                     final_prompt = result.get("prompt", "").strip()
                     if final_prompt:
                         await session.post(
@@ -79,17 +82,11 @@ async def handle_message(message: aio_pika.IncomingMessage) -> None:
                                 "text": f"🔄 Финальный запрос для генерации:\n{final_prompt}"
                             }
                         )
-
-                    # Ищем файл под ключами file или file_tasks
+                    # Отправка PDF
                     file_b64 = result.get("file") or result.get("file_tasks")
-                    if not file_b64:
-                        await session.post(
-                            f"https://api.telegram.org/bot{config.BOT_TOKEN}/sendMessage",
-                            json={"chat_id": user_id, "text": "⚠️ Не удалось сгенерировать PDF с заданиями"}
-                        )
-                    else:
-                        pdf = base64.b64decode(file_b64)
-                        buf = BytesIO(pdf)
+                    if file_b64:
+                        pdf_bytes = base64.b64decode(file_b64)
+                        buf = BytesIO(pdf_bytes)
                         buf.name = "Задания.pdf"
                         form = aiohttp.FormData()
                         form.add_field("chat_id", str(user_id))
@@ -99,8 +96,13 @@ async def handle_message(message: aio_pika.IncomingMessage) -> None:
                             f"https://api.telegram.org/bot{config.BOT_TOKEN}/sendDocument",
                             data=form
                         )
+                    else:
+                        await session.post(
+                            f"https://api.telegram.org/bot{config.BOT_TOKEN}/sendMessage",
+                            json={"chat_id": user_id, "text": "⚠️ Не удалось сгенерировать PDF с заданиями"}
+                        )
 
-                # === Homework check ===
+                # === CHECK HOMEWORK ===
                 elif result_type == "check":
                     report = result.get("report_text", "(нет отчёта)")
                     await session.post(
@@ -113,8 +115,9 @@ async def handle_message(message: aio_pika.IncomingMessage) -> None:
                     )
                     file_b64 = result.get("file")
                     if file_b64:
-                        pdf = base64.b64decode(file_b64)
-                        buf = BytesIO(pdf); buf.name = "Homework_Report.pdf"
+                        pdf_bytes = base64.b64decode(file_b64)
+                        buf = BytesIO(pdf_bytes)
+                        buf.name = "Homework_Report.pdf"
                         form = aiohttp.FormData()
                         form.add_field("chat_id", str(user_id))
                         form.add_field("caption", "📎 Отчёт в PDF")
@@ -124,34 +127,37 @@ async def handle_message(message: aio_pika.IncomingMessage) -> None:
                             data=form
                         )
 
-                # === Error message ===
+                # === ERROR ===
                 elif result_type == "error":
-                    err = result.get("message", "Неизвестная ошибка")
+                    error_msg = result.get("message", "Неизвестная ошибка")
                     await session.post(
                         f"https://api.telegram.org/bot{config.BOT_TOKEN}/sendMessage",
-                        json={"chat_id": user_id, "text": f"⚠️ Ошибка: {err}"}
+                        json={"chat_id": user_id, "text": f"⚠️ Ошибка: {error_msg}"}
                     )
 
+                # === UNKNOWN ===
                 else:
                     logging.warning(f"❓ Unknown result type: {result_type}")
 
             logging.info(f"📨 Sent result to user={user_id}, type={result_type}")
 
         except Exception:
-            logging.exception("🔴 Error sending message via Telegram")
-
+            logging.exception("🔴 Error sending message to Telegram")
 
 async def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s | %(message)s")
 
-    # 1) Инициализируем DB pool
-    dsn = f"postgresql://{config.DB_USER}:{config.DB_PASSWORD}@{config.DB_HOST}:{config.DB_PORT}/{config.DB_NAME}"
+    # 1) DB init
+    dsn = (
+        f"postgresql://{config.DB_USER}:{config.DB_PASSWORD}"
+        f"@{config.DB_HOST}:{config.DB_PORT}/{config.DB_NAME}"
+    )
     await db.init_db_pool(dsn)
 
-    # 2) Redis для FSM/кэша
+    # 2) Redis init
     await redis_cache.init_redis_pool(config.REDIS_HOST, config.REDIS_PORT, config.REDIS_DB)
 
-    # 3) Подключаемся к RabbitMQ и подписываемся на очередь
+    # 3) RabbitMQ connect and consume
     connection = await aio_pika.connect_robust(
         host=config.RABBITMQ_HOST,
         port=config.RABBITMQ_PORT,
@@ -163,9 +169,9 @@ async def main() -> None:
     await channel.set_qos(prefetch_count=1)
     queue = await channel.declare_queue(config.TASK_QUEUE, durable=True)
     await queue.consume(handle_message)
-    logging.info(f"✅ Subscribed to queue '{config.TASK_QUEUE}', awaiting tasks...")
+    logging.info(f"✅ Subscribed to queue '{config.TASK_QUEUE}', awaiting tasks..." )
 
-    # 4) Ждём вечно
+    # 4) Keep running
     await asyncio.Future()
 
 if __name__ == "__main__":
