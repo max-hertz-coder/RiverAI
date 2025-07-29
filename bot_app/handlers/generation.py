@@ -8,9 +8,9 @@ from aiogram.types import CallbackQuery, Message
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 
-from bot_app import rabbit_channel, config
+from bot_app import config, rabbit_channel
 from bot_app.keyboards.main_menu import back_button
-from bot_app.rabbit import pending_tasks  # словарь из rabbit.py
+from bot_app.rabbit import pending_tasks  # Словарь из rabbit.py
 
 router = Router()
 
@@ -140,20 +140,21 @@ async def proc_refine_tasks(message: Message, state: FSMContext):
     student_id = data.get("student_id")
     instr      = message.text.strip()
 
-    # Берём raw-задачи из памяти
+    # Берём raw-текст из памяти
     raw = pending_tasks.get((chat_id, student_id), "")
     if not raw:
         return await message.answer("❌ Предыдущие задания не найдены.")
 
     combined = f"{instr}\n\n{raw}"
-    # Показываем пользователю, что отправим в GPT
+
+    # Показываем пользователю итоговый запрос
     await message.answer(
         "📝 Отправляю в GPT следующий запрос:\n\n"
         f"```{combined}```",
         parse_mode="Markdown"
     )
 
-    # И отправляем задачу на регенерацию
+    # Отправляем задачу на регенерацию
     task = {
         "type":       "generate_tasks",
         "user_id":    chat_id,
