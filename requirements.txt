@@ -10,3 +10,4 @@ bcrypt>=4.0,<5.0
 pillow
 pytesseract
 PyMuPDF
+jinja2
