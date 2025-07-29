@@ -81,47 +81,58 @@ async def ocr_openai_vision(path_or_url: str) -> str:
 import base64, os, tempfile, logging
 
 async def handle_ocr(task: dict) -> dict:
-    user_id = task.get("user_id")
-    # Determine input source
-    image_path = None
+    """
+    Принимает таск вида {
+        type: "ocr",
+        user_id: ...,
+        student_id: ...,
+        file_data: "<base64>",
+        file_name: "...",
+        prompt: "ваш промптом из подписи"
+    }
+    Выполняет OCR и возвращает dict с полем text и original prompt.
+    """
+    user_id    = task.get("user_id")
+    student_id = task.get("student_id")
+    prompt     = task.get("prompt", "").strip()
+
+    # декодируем файл
+    file_data = task.get("file_data")
+    if not file_data:
+        return {"type": "error", "user_id": user_id, "message": "Нет данных для OCR."}
+
     try:
-        if task.get("url"):
-            image_path = task["url"]
-        elif task.get("file_data"):
-            # Decode base64 file data
-            file_bytes = base64.b64decode(task["file_data"])
-            # Determine extension by simple signature inspection
-            ext = ".jpg"
-            if file_bytes[:4] == b"%PDF":
-                ext = ".pdf"
-            elif file_bytes[:4] == b"\x89PNG":
-                ext = ".png"
-            elif file_bytes[:2] == b"\xff\xd8":  # JPEG
-                ext = ".jpg"
-            # Write to temp file
-            tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
-            tmp_file.write(file_bytes)
-            tmp_file.close()
-            image_path = tmp_file.name
-        else:
-            return {"type": "error", "user_id": user_id, "message": "Нет изображения для OCR."}
-
-        # Perform OCR
-        text = await ocr_openai_vision(image_path)
-        # Clean up temp file if used
-        if image_path and not image_path.startswith("http"):
-            os.remove(image_path)
+        data = base64.b64decode(file_data)
     except Exception as e:
-        logging.exception("Ошибка OCR: %s", e)
-        return {"type": "error", "user_id": user_id, "message": "Ошибка при распознавании текста."}
+        logger.error("Ошибка base64 декодирования OCR-файла: %s", e)
+        return {"type": "error", "user_id": user_id, "message": "Невалидные данные файла."}
 
-    # If OCR yields no text (e.g., Vision API refusal or blank image)
-    if not text or text.strip() == "":
-        return {"type": "error", "user_id": user_id, "message": "Не удалось распознать текст на изображении."}
+    # сохраняем во временный файл
+    suffix = os.path.splitext(task.get("file_name", "file"))[1] or ".jpg"
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    tmp.write(data)
+    tmp.close()
 
-    # Success
+    # запускаем OCR
+    try:
+        text = await ocr_openai_vision(tmp.name)
+    except Exception as e:
+        logger.exception("OCR failure")
+        os.remove(tmp.name)
+        return {"type": "error", "user_id": user_id, "message": "Ошибка OCR-сервиса."}
+    finally:
+        if os.path.exists(tmp.name):
+            os.remove(tmp.name)
+
+    text = text.strip()
+    if not text:
+        return {"type": "error", "user_id": user_id, "message": "Не удалось распознать текст."}
+
+    # возвращаем вместе с исходным prompt
     return {
         "type": "ocr",
         "user_id": user_id,
-        "text": text.strip()
+        "student_id": student_id,
+        "text": text,
+        "prompt": prompt
     }
