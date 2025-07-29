@@ -12,16 +12,16 @@ from bot_app.keyboards.chat_menu import (
     result_check_kb
 )
 
-# В памяти храним последние raw-тексты задач для каждого (user_id, student_id)
+# Хранит последний raw-текст задач для каждого (user_id, student_id)
 pending_tasks: dict[tuple[int, int], str] = {}
 
 async def process_result(message: IncomingMessage, bot: Bot):
     async with message.process():
         try:
             data = json.loads(message.body)
-            logging.info(f"📥 Получен результат из очереди: {data}")
+            logging.info(f"📥 Результат из очереди: {data}")
         except Exception as e:
-            logging.error(f"❌ Ошибка при разборе JSON результата: {e}")
+            logging.error(f"❌ Не удалось разобрать JSON: {e}")
             return
 
         user_id    = data.get("user_id")
@@ -29,40 +29,43 @@ async def process_result(message: IncomingMessage, bot: Bot):
         student_id = data.get("student_id")
 
         if not user_id or not t:
-            logging.warning("⚠️ Результат не содержит user_id или type")
+            logging.warning("⚠️ Нет user_id или type в результате")
             return
 
-        # === Chat ===
+        # == Chat ==
         if t == "chat":
             await bot.send_message(
                 user_id,
                 data.get("answer", "(нет ответа)"),
                 reply_markup=chat_gpt_back_kb()
             )
+            return
 
-        # === Plan ===
-        elif t == "plan":
+        # == Plan ==
+        if t == "plan":
             await bot.send_message(
                 user_id,
                 f"📄 План:\n{data.get('plan_text', '(пусто)')}",
                 reply_markup=result_plan_kb(student_id)
             )
+            return
 
-        # === Tasks ===
-        elif t == "tasks":
-            # Сохраняем в памяти raw-текст заданий
+        # == Tasks ==
+        if t == "tasks":
+            # 1) Сохраняем raw-текст в памяти
             raw = data.get("tasks_text", "").strip()
             pending_tasks[(user_id, student_id)] = raw
 
-            # Отправляем текст и клавиатуру
+            # 2) Отправляем текст с кнопками
             await bot.send_message(
                 user_id,
                 f"📝 Задания:\n{raw}",
                 reply_markup=result_tasks_kb(student_id)
             )
+            return
 
-        # === Homework Check ===
-        elif t == "check":
+        # == Homework check ==
+        if t == "check":
             await bot.send_message(
                 user_id,
                 f"✔️ Результаты проверки:\n{data.get('report_text', '(нет отчёта)')}",
@@ -78,20 +81,22 @@ async def process_result(message: IncomingMessage, bot: Bot):
                     file_obj,
                     caption="📎 Отчёт в PDF"
                 )
+            return
 
-        # === OCR only ===
-        elif t == "ocr":
+        # == OCR only ==
+        if t == "ocr":
             await bot.send_message(
                 user_id,
                 f"🖼️ Распознанный текст:\n{data.get('text', '(пусто)')}"
             )
+            return
 
-        # === Error ===
-        elif t == "error":
+        # == Error ==
+        if t == "error":
             await bot.send_message(
                 user_id,
                 f"⚠️ Ошибка: {data.get('message', 'Неизвестная ошибка')}"
             )
+            return
 
-        else:
-            logging.warning(f"❓ Неизвестный тип результата: {t}")
+        logging.warning(f"❓ Неизвестный тип результата: {t}")

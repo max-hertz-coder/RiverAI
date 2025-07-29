@@ -10,7 +10,7 @@ from aiogram.fsm.state import StatesGroup, State
 
 from bot_app import config, rabbit_channel
 from bot_app.keyboards.main_menu import back_button
-from bot_app.rabbit import pending_tasks  # Словарь из rabbit.py
+from bot_app.rabbit import pending_tasks  # берём словарь из rabbit.py
 
 router = Router()
 
@@ -140,14 +140,14 @@ async def proc_refine_tasks(message: Message, state: FSMContext):
     student_id = data.get("student_id")
     instr      = message.text.strip()
 
-    # Берём raw-текст из памяти
+    # Берём raw-список из памяти
     raw = pending_tasks.get((chat_id, student_id), "")
     if not raw:
         return await message.answer("❌ Предыдущие задания не найдены.")
 
     combined = f"{instr}\n\n{raw}"
 
-    # Показываем пользователю итоговый запрос
+    # Показываем пользователю итоговый prompt
     await message.answer(
         "📝 Отправляю в GPT следующий запрос:\n\n"
         f"```{combined}```",
