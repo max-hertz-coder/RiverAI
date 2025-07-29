@@ -1,6 +1,6 @@
 import logging
 
-from worker.services.ocr_service import handle_ocr
+from worker.services.ocr_service import sync_ocr
 from worker.services.plan_service import handle_plan
 from worker.services.tasks_service import handle_tasks
 from worker.tasks.check_homework import handle_check_homework, handle_refine_check
@@ -13,7 +13,7 @@ async def process_task_message(task: dict) -> dict | None:
     t = task.get("type")
     try:
         if t == "ocr":
-            return await handle_ocr(task)
+            return await sync_ocr(task)
 
         if t == "generate_plan":
             return await handle_plan(task)
