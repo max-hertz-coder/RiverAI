@@ -132,15 +132,33 @@ async def handle_message(message: aio_pika.IncomingMessage) -> None:
                         }
                     )
                 elif result_type == "ocr":
-                    # Результат OCR-распознавания изображения
-                    text = result.get("text", "(пусто)")
-                    await session.post(
-                        f"https://api.telegram.org/bot{config.BOT_TOKEN}/sendMessage",
-                        json={
-                            "chat_id": user_id,
-                            "text": f"🖼️ Распознанный текст:\n{text}"
+                    text = result.get("text", "").strip()
+                    if not text:
+                        # если OCR вернул пустоту, уведомляем об ошибке
+                        await session.post(
+                            f"https://api.telegram.org/bot{config.BOT_TOKEN}/sendMessage",
+                            json={"chat_id": user_id, "text": "❌ Не удалось распознать текст на изображении."}
+                        )
+                    else:
+                        # 1) Публикуем новый таск generate_tasks с распознанным текстом
+                        new_task = {
+                            "type": "generate_tasks",
+                            "user_id": user_id,
+                            "student_id": result.get("student_id"),
+                            "prompt": text
                         }
-                    )
+                        await message.channel.default_exchange.publish(
+                            aio_pika.Message(body=json.dumps(new_task).encode("utf-8")),
+                            routing_key=config.TASK_QUEUE
+                        )
+                        # 2) Уведомляем пользователя, что началась генерация
+                        await session.post(
+                            f"https://api.telegram.org/bot{config.BOT_TOKEN}/sendMessage",
+                            json={
+                                "chat_id": user_id,
+                                "text": "🕔 Генерируются задания по распознанному тексту, ожидайте..."
+                            }
+                        )
                 else:
                     logging.warning(f"❓ Неизвестный тип результата: {result_type}")
             logging.info(f"📨 Результат отправлен напрямую пользователю {user_id} (type={result_type})")

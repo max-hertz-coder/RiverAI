@@ -52,7 +52,6 @@ async def _send_task(task: dict):
 @router.message(F.photo)
 async def handle_photo_ocr(message: Message, bot: Bot):
     bio = BytesIO()
-    # Загрузка фото через Bot API (aiogram v3)
     file_id = message.photo[-1].file_id
     await bot.download(file_id, destination=bio)
     b64 = base64.b64encode(bio.getvalue()).decode()
@@ -64,12 +63,12 @@ async def handle_photo_ocr(message: Message, bot: Bot):
         "file_name": "photo.jpg",
     }
     await _send_task(task)
-    await message.answer("🔍 Распознавание текста запущено, ожидайте результат...")
+    # Убрано: await message.answer("🔍 Распознавание текста запущено, ожидайте результат...")
+
 
 @router.message(F.document)
 async def handle_document_ocr(message: Message, bot: Bot):
     bio = BytesIO()
-    # Загрузка документа через Bot API
     file_id = message.document.file_id
     await bot.download(file_id, destination=bio)
     b64 = base64.b64encode(bio.getvalue()).decode()
@@ -81,7 +80,7 @@ async def handle_document_ocr(message: Message, bot: Bot):
         "file_name": message.document.file_name or "file",
     }
     await _send_task(task)
-    await message.answer("🔍 Распознавание текста запущено, ожидайте результат...")
+    # Убрано: await message.answer("🔍 Распознавание текста запущено, ожидайте результат...")
 
 #
 # FSM-состояния для последовательных действий
