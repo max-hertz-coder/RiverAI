@@ -72,23 +72,32 @@ async def handle_message(message: aio_pika.IncomingMessage) -> None:
 
                 # === TASKS ===
                 elif result_type == "tasks":
-                    # 1) Показать финальный prompt, если он есть
-                    final_prompt = result.get("prompt", "").strip()
-                    if final_prompt:
+                    # 1) Отправляем текст заданий
+                    raw = result.get("raw_tasks_text", "").strip()
+                    if raw:
+                        kb = {
+                            "inline_keyboard": [
+                                [{"text": "✅ Всё норм",    "callback_data": "tasks_ok"}],
+                                [{"text": "✏️ Переделать", "callback_data": f"refine_tasks:{student_id}"}]
+                            ]
+                        }
                         await session.post(
                             f"https://api.telegram.org/bot{config.BOT_TOKEN}/sendMessage",
                             json={
                                 "chat_id": user_id,
-                                "text": f"🔄 Финальный запрос для генерации:\n{final_prompt}"
+                                "text": f"📝 Задания:\n\n{raw}",
+                                "reply_markup": kb
                             }
                         )
+                    else:
+                        # fallback: если текста нет, просто показываем PDF
+                        pass
 
-                    # 2) Отправить PDF
-                    file_b64 = result.get("file") or result.get("file_tasks")
+                    # 2) Отправляем PDF
+                    file_b64 = result.get("file_tasks")
                     if file_b64:
-                        pdf_bytes = base64.b64decode(file_b64)
-                        buf = BytesIO(pdf_bytes)
-                        buf.name = "Задания.pdf"
+                        pdf = base64.b64decode(file_b64)
+                        buf = BytesIO(pdf); buf.name = "Задания.pdf"
                         form = aiohttp.FormData()
                         form.add_field("chat_id", str(user_id))
                         form.add_field("caption", "📎 Ваши задания в PDF")
@@ -97,54 +106,10 @@ async def handle_message(message: aio_pika.IncomingMessage) -> None:
                             f"https://api.telegram.org/bot{config.BOT_TOKEN}/sendDocument",
                             data=form
                         )
-
-                        # 3) Спросить, все ли устраивает?
-                        kb = {
-                            "inline_keyboard": [
-                                [{"text": "✅ Всё норм", "callback_data": "tasks_ok"}],
-                                [{"text": "✏️ Переделать", "callback_data": "refine_tasks:None"}]
-                            ]
-                        }
-                        await session.post(
-                            f"https://api.telegram.org/bot{config.BOT_TOKEN}/sendMessage",
-                            json={
-                                "chat_id": user_id,
-                                "text": "Всё ли устраивает?",
-                                "reply_markup": kb
-                            }
-                        )
                     else:
                         await session.post(
                             f"https://api.telegram.org/bot{config.BOT_TOKEN}/sendMessage",
-                            json={
-                                "chat_id": user_id,
-                                "text": "⚠️ Не удалось сгенерировать PDF с заданиями"
-                            }
-                        )
-
-                # === CHECK HOMEWORK ===
-                elif result_type == "check":
-                    report = result.get("report_text", "(нет отчёта)")
-                    await session.post(
-                        f"https://api.telegram.org/bot{config.BOT_TOKEN}/sendMessage",
-                        json={
-                            "chat_id": user_id,
-                            "text": f"✔️ Результаты проверки:\n{report}",
-                            "parse_mode": "HTML"
-                        }
-                    )
-                    file_b64 = result.get("file")
-                    if file_b64:
-                        pdf_bytes = base64.b64decode(file_b64)
-                        buf = BytesIO(pdf_bytes)
-                        buf.name = "Homework_Report.pdf"
-                        form = aiohttp.FormData()
-                        form.add_field("chat_id", str(user_id))
-                        form.add_field("caption", "📎 Отчёт в PDF")
-                        form.add_field("document", buf, filename=buf.name)
-                        await session.post(
-                            f"https://api.telegram.org/bot{config.BOT_TOKEN}/sendDocument",
-                            data=form
+                            json={"chat_id": user_id, "text": "⚠️ Не удалось сгенерировать PDF с заданиями"}
                         )
 
                 # === ERROR ===
