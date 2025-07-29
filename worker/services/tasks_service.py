@@ -32,7 +32,7 @@ async def handle_tasks(task: dict) -> dict:
         if task_type == "generate_tasks":
             if not prompt:
                 return {"type": "error", "user_id": user_id, "message": "Не указан запрос для генерации заданий."}
-            raw_tasks = await generation_services.generate_raw_tasks(prompt)
+            raw_tasks = await generation_service.generate_raw_tasks(prompt)
         elif task_type == "generate_solutions":
             if not raw_tasks_text:
                 return {"type": "error", "user_id": user_id, "message": "Текст заданий не предоставлен для генерации решений."}
@@ -51,13 +51,13 @@ async def handle_tasks(task: dict) -> dict:
         tasks_list = [m.group(2).strip() for m in split_re.finditer(cleaned)] or [cleaned]
 
         # 4. Generate solutions for the tasks
-        solutions_text = await generation_services.generate_raw_solutions(cleaned)
+        solutions_text = await generation_service.generate_raw_solutions(cleaned)
         solutions_list = [m.group(2).strip() for m in split_re.finditer(solutions_text)] or []
         # If the number of solutions doesn't match tasks, generate solutions for each task separately
         if len(solutions_list) != len(tasks_list):
             solutions_list = []
             for task_text in tasks_list:
-                sol = (await generation_services.generate_raw_solutions(task_text)).strip()
+                sol = (await generation_service.generate_raw_solutions(task_text)).strip()
                 solutions_list.append(sol if sol else "*(решение не получено)*")
 
         # 5. Sanitize solutions (remove any residual LaTeX list markers, if present)
