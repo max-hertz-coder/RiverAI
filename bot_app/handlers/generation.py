@@ -8,9 +8,8 @@ from aiogram import Router, F, Bot
 from aiogram.types import CallbackQuery, Message
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
-import bot_app
-from bot_app import config
 
+import bot_app
 from bot_app import config, rabbit_channel
 from bot_app.keyboards.chat_menu import chat_menu_kb
 from bot_app.keyboards.main_menu import back_button
@@ -23,13 +22,11 @@ async def _send_task(task: dict):
     """Универсальный метод отправки задачи в RabbitMQ."""
     try:
         if bot_app.rabbit_channel:
-            # Используем существующее соединение с RabbitMQ
             await bot_app.rabbit_channel.default_exchange.publish(
                 aio_pika.Message(body=json.dumps(task).encode("utf-8")),
                 routing_key=config.TASK_QUEUE
             )
         else:
-            # Если по какой-то причине нет готового канала, устанавливаем временное соединение
             conn = await aio_pika.connect_robust(
                 host=config.RABBITMQ_HOST,
                 port=config.RABBITMQ_PORT,
@@ -61,10 +58,10 @@ async def handle_photo_ocr(message: Message, bot: Bot):
         "student_id": None,
         "file_data": b64,
         "file_name": "photo.jpg",
+        "prompt": (message.caption or "").strip(),
     }
     await _send_task(task)
-    # Убрано: await message.answer("🔍 Распознавание текста запущено, ожидайте результат...")
-
+    await message.answer("🔍 Распознавание текста запущено, ожидайте результат...")
 
 @router.message(F.document)
 async def handle_document_ocr(message: Message, bot: Bot):
@@ -78,9 +75,10 @@ async def handle_document_ocr(message: Message, bot: Bot):
         "student_id": None,
         "file_data": b64,
         "file_name": message.document.file_name or "file",
+        "prompt": (message.caption or "").strip(),
     }
     await _send_task(task)
-    # Убрано: await message.answer("🔍 Распознавание текста запущено, ожидайте результат...")
+    await message.answer("🔍 Распознавание текста запущено, ожидайте результат...")
 
 #
 # FSM-состояния для последовательных действий
@@ -149,7 +147,7 @@ async def proc_tasks(message: Message, state: FSMContext):
         "type": "generate_tasks",
         "user_id": message.from_user.id,
         "student_id": d["student_id"],
-        "prompt": message.text.strip(),   # ← ключ renamed to prompt
+        "prompt": message.text.strip(),
     }
     await _send_task(task)
     await message.answer("🕔 Генерируются задания, ожидайте...")
@@ -195,7 +193,7 @@ async def cb_check(callback: CallbackQuery, state: FSMContext):
     )
 
 @router.message(CheckFSM.file, F.document)
-async def proc_check(message: Message,  bot: Bot, state: FSMContext):
+async def proc_check(message: Message, bot: Bot, state: FSMContext):
     d = await state.get_data()
     bio = BytesIO()
     file_id = message.document.file_id
@@ -213,7 +211,7 @@ async def proc_check(message: Message,  bot: Bot, state: FSMContext):
     await state.clear()
 
 #
-# Коррекция заданий (загрузка файла для корректировки заданий)
+# Коррекция заданий
 #
 @router.callback_query(F.data.startswith("correct_tasks:"))
 async def cb_correct(callback: CallbackQuery, state: FSMContext):
@@ -226,7 +224,7 @@ async def cb_correct(callback: CallbackQuery, state: FSMContext):
     )
 
 @router.message(CorrectFSM.file, F.document)
-async def proc_correct(message: Message,  bot: Bot, state: FSMContext):
+async def proc_correct(message: Message, bot: Bot, state: FSMContext):
     d = await state.get_data()
     bio = BytesIO()
     file_id = message.document.file_id
@@ -244,11 +242,10 @@ async def proc_correct(message: Message,  bot: Bot, state: FSMContext):
     await state.clear()
 
 #
-# Уточнение сгенерированных результатов (Refine функционал)
+# Refine функционал (доп. уточнения)
 #
 @router.callback_query(F.data.startswith("refine_plan:"))
 async def cb_refine_plan(callback: CallbackQuery, state: FSMContext):
-    """Начало процесса уточнения учебного плана."""
     sid = int(callback.data.split(":", 1)[1])
     await state.update_data(student_id=sid)
     await state.set_state(PlanFSM.desc)
@@ -256,11 +253,9 @@ async def cb_refine_plan(callback: CallbackQuery, state: FSMContext):
         "Опишите, как скорректировать учебный план:",
         reply_markup=back_button("← Отмена", "back:chat")
     )
-    # Пользователь введет новое описание, обработается в proc_plan
 
 @router.callback_query(F.data.startswith("refine_tasks:"))
 async def cb_refine_tasks(callback: CallbackQuery, state: FSMContext):
-    """Начало процесса уточнения сгенерированных заданий."""
     sid = int(callback.data.split(":", 1)[1])
     await state.update_data(student_id=sid)
     await state.set_state(TasksFSM.desc)
@@ -268,11 +263,9 @@ async def cb_refine_tasks(callback: CallbackQuery, state: FSMContext):
         "Опишите, как скорректировать задания:",
         reply_markup=back_button("← Отмена", "back:chat")
     )
-    # Далее ввод пользователя обработается в proc_tasks
 
 @router.callback_query(F.data.startswith("refine_check:"))
 async def cb_refine_check(callback: CallbackQuery, state: FSMContext):
-    """Начало процесса корректировки отчета проверки домашнего задания."""
     sid = int(callback.data.split(":", 1)[1])
     await state.update_data(student_id=sid)
     await state.set_state(RefineCheckFSM.notes)
@@ -283,7 +276,6 @@ async def cb_refine_check(callback: CallbackQuery, state: FSMContext):
 
 @router.message(RefineCheckFSM.notes)
 async def proc_refine_check(message: Message, state: FSMContext):
-    """Отправляет задачу refine_check с комментариями для повторной проверки ДЗ."""
     d = await state.get_data()
     notes = message.text.strip()
     task = {
@@ -297,24 +289,17 @@ async def proc_refine_check(message: Message, state: FSMContext):
     await state.clear()
 
 #
-# Отправка сгенерированных заданий в GPT-чат
+# Отправка заданий в GPT-чат
 #
 @router.callback_query(F.data.startswith("send_tasks:"))
 async def cb_send_tasks(callback: CallbackQuery, state: FSMContext):
-    """Отправляет сгенерированные задания в личный чат с GPT (контекст ученика)."""
     sid = int(callback.data.split(":", 1)[1])
-    # Получаем текст заданий из сообщения (после первой строки "📝 Задания:")
     tasks_text = ""
     if callback.message and callback.message.text:
         parts = callback.message.text.split("\n", 1)
-        if len(parts) > 1:
-            tasks_text = parts[1]
-        else:
-            tasks_text = parts[0]
-    # Активируем состояние чата для данного ученика
+        tasks_text = parts[1] if len(parts) > 1 else parts[0]
     await state.update_data(student_id=sid)
     await state.set_state(ChatState.active)
-    # Отправляем сообщение в очередь для GPT-чат воркера
     task = {
         "type": "chat",
         "user_id": callback.from_user.id,
@@ -329,19 +314,15 @@ async def cb_send_tasks(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer("💭 Задания отправлены ИИ, ожидайте ответ…", reply_markup=chat_menu_kb(sid))
 
 #
-# Сохранение результатов на Яндекс.Диск
+# Сохранение на Яндекс.Диск
 #
 @router.callback_query(F.data.startswith("save_plan:"))
 async def cb_save_plan(callback: CallbackQuery):
-    """Сохраняет сгенерированный учебный план на Я.Диске пользователя."""
     sid = int(callback.data.split(":", 1)[1])
     plan_text = ""
     if callback.message and callback.message.text:
         parts = callback.message.text.split("\n", 1)
-        if len(parts) > 1:
-            plan_text = parts[1]
-        else:
-            plan_text = parts[0]
+        plan_text = parts[1] if len(parts) > 1 else parts[0]
     task = {
         "type": "save_plan",
         "user_id": callback.from_user.id,
@@ -353,15 +334,11 @@ async def cb_save_plan(callback: CallbackQuery):
 
 @router.callback_query(F.data.startswith("save_tasks:"))
 async def cb_save_tasks(callback: CallbackQuery):
-    """Сохраняет сгенерированные задания в PDF на Я.Диске пользователя."""
     sid = int(callback.data.split(":", 1)[1])
     tasks_text = ""
     if callback.message and callback.message.text:
         parts = callback.message.text.split("\n", 1)
-        if len(parts) > 1:
-            tasks_text = parts[1]
-        else:
-            tasks_text = parts[0]
+        tasks_text = parts[1] if len(parts) > 1 else parts[0]
     task = {
         "type": "save_tasks",
         "user_id": callback.from_user.id,
@@ -373,15 +350,11 @@ async def cb_save_tasks(callback: CallbackQuery):
 
 @router.callback_query(F.data.startswith("save_check:"))
 async def cb_save_check(callback: CallbackQuery):
-    """Сохраняет отчет проверки ДЗ на Я.Диске пользователя."""
     sid = int(callback.data.split(":", 1)[1])
     report_text = ""
     if callback.message and callback.message.text:
         parts = callback.message.text.split("\n", 1)
-        if len(parts) > 1:
-            report_text = parts[1]
-        else:
-            report_text = parts[0]
+        report_text = parts[1] if len(parts) > 1 else parts[0]
     task = {
         "type": "save_check",
         "user_id": callback.from_user.id,
