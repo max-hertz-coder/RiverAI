@@ -76,3 +76,52 @@ def sync_ocr(path_or_url: str) -> str:
 async def ocr_openai_vision(path_or_url: str) -> str:
     """Асинхронная обёртка sync_ocr через asyncio.to_thread."""
     return await asyncio.to_thread(sync_ocr, path_or_url)
+
+
+import base64, os, tempfile, logging
+
+async def handle_ocr(task: dict) -> dict:
+    user_id = task.get("user_id")
+    # Determine input source
+    image_path = None
+    try:
+        if task.get("url"):
+            image_path = task["url"]
+        elif task.get("file_data"):
+            # Decode base64 file data
+            file_bytes = base64.b64decode(task["file_data"])
+            # Determine extension by simple signature inspection
+            ext = ".jpg"
+            if file_bytes[:4] == b"%PDF":
+                ext = ".pdf"
+            elif file_bytes[:4] == b"\x89PNG":
+                ext = ".png"
+            elif file_bytes[:2] == b"\xff\xd8":  # JPEG
+                ext = ".jpg"
+            # Write to temp file
+            tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
+            tmp_file.write(file_bytes)
+            tmp_file.close()
+            image_path = tmp_file.name
+        else:
+            return {"type": "error", "user_id": user_id, "message": "Нет изображения для OCR."}
+
+        # Perform OCR
+        text = await ocr_openai_vision(image_path)
+        # Clean up temp file if used
+        if image_path and not image_path.startswith("http"):
+            os.remove(image_path)
+    except Exception as e:
+        logging.exception("Ошибка OCR: %s", e)
+        return {"type": "error", "user_id": user_id, "message": "Ошибка при распознавании текста."}
+
+    # If OCR yields no text (e.g., Vision API refusal or blank image)
+    if not text or text.strip() == "":
+        return {"type": "error", "user_id": user_id, "message": "Не удалось распознать текст на изображении."}
+
+    # Success
+    return {
+        "type": "ocr",
+        "user_id": user_id,
+        "text": text.strip()
+    }

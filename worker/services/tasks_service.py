@@ -4,13 +4,10 @@ from typing import List
 from aiogram import types
 from aiogram.types import FSInputFile, InlineKeyboardMarkup, InlineKeyboardButton
 
-from worker.services.ocr_service import ocr_openai_vision
+from worker.services.ocr_service import ocr_openai_vision        # was ocr_module
 from worker.services.generation_service import generate_raw_tasks, generate_raw_solutions
 from worker.services.corrections_service import generate_corrected_tasks
-from worker.services.pdf_utils import (
-    template_basic, template_solutions,
-    sanitize_solutions, escape_latex, compile_latex_to_pdf
-)
+from worker.services.pdf_utils import template_basic, template_solutions, sanitize_solutions, escape_latex, compile_latex_to_pdf
 chat_mode: dict[int,str] = {}
 
 logger = logging.getLogger(__name__)
@@ -19,6 +16,80 @@ logger = logging.getLogger(__name__)
 pending_prompts: dict[int,str]     = {}
 last_raw_tasks: dict[int,str]      = {}
 pending_corrections: dict[int,str] = {}
+
+import re, base64, logging
+from worker.services import generation_services, corrections_service, pdf_utils
+
+async def handle_tasks(task: dict) -> dict:
+    user_id = task.get("user_id")
+    student_id = task.get("student_id")
+    task_type = task.get("type")
+    prompt = task.get("prompt", "").strip()
+    raw_tasks_text = task.get("tasks_text", "")
+
+    try:
+        # 1. Get raw tasks text
+        if task_type == "generate_tasks":
+            if not prompt:
+                return {"type": "error", "user_id": user_id, "message": "Не указан запрос для генерации заданий."}
+            raw_tasks = await generation_services.generate_raw_tasks(prompt)
+        elif task_type == "generate_solutions":
+            if not raw_tasks_text:
+                return {"type": "error", "user_id": user_id, "message": "Текст заданий не предоставлен для генерации решений."}
+            raw_tasks = raw_tasks_text.strip()
+        else:
+            return {"type": "error", "user_id": user_id, "message": f"Некорректный тип задачи: {task_type}"}
+
+        if not raw_tasks or raw_tasks.strip() == "":
+            return {"type": "error", "user_id": user_id, "message": "Генератор вернул пустой список заданий."}
+
+        # 2. Clean tasks text (remove any answer choices or unwanted text)
+        cleaned = re.sub(r'(?si)Варианты ответа:.*?(?=(?:\n\s*\d+\.\s)|\Z)', '', raw_tasks).strip()
+
+        # 3. Split into individual tasks using regex for enumerated list
+        split_re = re.compile(r'(?m)^\s*(\d+)\.\s*([\s\S]*?)(?=^\s*\d+\.|\Z)')
+        tasks_list = [m.group(2).strip() for m in split_re.finditer(cleaned)] or [cleaned]
+
+        # 4. Generate solutions for the tasks
+        solutions_text = await generation_services.generate_raw_solutions(cleaned)
+        solutions_list = [m.group(2).strip() for m in split_re.finditer(solutions_text)] or []
+        # If the number of solutions doesn't match tasks, generate solutions for each task separately
+        if len(solutions_list) != len(tasks_list):
+            solutions_list = []
+            for task_text in tasks_list:
+                sol = (await generation_services.generate_raw_solutions(task_text)).strip()
+                solutions_list.append(sol if sol else "*(решение не получено)*")
+
+        # 5. Sanitize solutions (remove any residual LaTeX list markers, if present)
+        solutions_list = pdf_utils.sanitize_solutions(solutions_list)
+
+        # 6. Escape LaTeX special chars in tasks and solutions and prepare \item items
+        items_tasks = "\n".join(f"\\item {pdf_utils.escape_latex(t)}" for t in tasks_list)
+        items_solutions = "\n".join(f"\\item {pdf_utils.escape_latex(s)}" for s in solutions_list)
+
+        # 7. Compile LaTeX into PDF (combined tasks + solutions)
+        latex = pdf_utils.template_solutions.render(content_tasks=items_tasks, content_solutions=items_solutions)
+        pdf_path, latex_log = pdf_utils.compile_latex_to_pdf(latex)
+        if not pdf_path:
+            # LaTeX compilation failed: return error with log snippet
+            logging.error("Ошибка компиляции LaTeX: %s", latex_log[:200])  # log first 200 chars of error
+            return {"type": "error", "user_id": user_id, "message": "Не удалось скомпилировать PDF с заданиями."}
+
+        # 8. Read PDF and encode in base64
+        with open(pdf_path, "rb") as f:
+            pdf_bytes = f.read()
+        os.remove(pdf_path)  # clean up temp file
+
+        file_b64 = base64.b64encode(pdf_bytes).decode('utf-8')
+        return {
+            "type": "tasks",
+            "user_id": user_id,
+            "student_id": student_id,
+            "file": file_b64
+        }
+    except Exception as e:
+        logging.exception("🔴 Exception in handle_tasks")
+        return {"type": "error", "user_id": user_id, "message": f"Ошибка при генерации заданий: {e}"}
 
 async def build_and_send(raw_tasks: str, msg: types.Message):
     cid = msg.chat.id

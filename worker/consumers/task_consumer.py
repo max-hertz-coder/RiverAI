@@ -1,19 +1,23 @@
 import logging
 
-from worker.services.ocr_service import sync_ocr
+from worker.services.ocr_service import handle_ocr
 from worker.services.plan_service import handle_plan
 from worker.services.tasks_service import handle_tasks
-from worker.tasks.check_homework import handle_check_homework, handle_refine_check
-from worker.tasks.chat_gpt import handle_chat_gpt, handle_end_chat
+from worker.tasks.check_homework import handle_check_homework
+from worker.services.chat_service import handle_chat
+from worker import redis_cache
 
 async def process_task_message(task: dict) -> dict | None:
     """
     Обрабатывает задачу из очереди task_queue и возвращает результат или None.
     """
+    user_id = task.get("user_id")
+    student_id = task.get("student_id")
     t = task.get("type")
+
     try:
         if t == "ocr":
-            return await sync_ocr(task)
+            return await handle_ocr(task)
 
         if t == "generate_plan":
             return await handle_plan(task)
@@ -27,17 +31,27 @@ async def process_task_message(task: dict) -> dict | None:
         if t == "check_homework":
             return await handle_check_homework(task)
 
-        #if t == "refine_check":
-        #    return await handle_refine_check(task)
-
         if t in ("chat_gpt", "chat"):
-            return await handle_chat_gpt(task)
+            return await handle_chat(task)
 
         if t == "end_chat":
-            await handle_end_chat(task)
-            return None
+            # Очищаем историю диалога в Redis
+            await redis_cache.clear_conversation(user_id, student_id)
+            # Возвращаем подтверждение очистки
+            return {
+                "type": "chat",
+                "user_id": user_id,
+                "student_id": student_id,
+                "answer": "🗑️ Диалог очищен."
+            }
 
         logging.warning("Unknown task type: %s", t)
     except Exception:
         logging.exception("🔴 Error processing task %r", task)
+        return {
+            "type": "error",
+            "user_id": user_id,
+            "message": "Внутренняя ошибка обработки задачи."
+        }
+
     return None

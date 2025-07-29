@@ -2,7 +2,7 @@
 # 📁 Новый файл: worker/services/
 
 import logging
-from worker.services.gpt_service import ask_gpt
+from worker.services.gpt_service import chat_with_gpt
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +19,7 @@ async def handle_chat(task: dict) -> dict:
         }
 
     try:
-        answer = await ask_gpt(messages)
+        answer = await chat_with_gpt(messages)
         return {
             "type": "chat",
             "user_id": user_id,
