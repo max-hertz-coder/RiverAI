@@ -145,12 +145,18 @@ async def build_and_send(raw_tasks: str, msg: types.Message):
 
 # Handlers
 
+# в файле worker/services/tasks_service.py
+
 async def handle_document(m: types.Message):
-    if chat_mode.get(m.chat.id) != "generate": return
+    if chat_mode.get(m.chat.id) != "generate":
+        return
+
     info = await m.bot.get_file(m.document.file_id)
     data = await m.bot.download_file(info.file_path)
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=Path(m.document.file_name).suffix)
-    tmp.write(data.read() if isinstance(data, io.BytesIO) else data); tmp.close()
+    suffix = Path(m.document.file_name).suffix
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    tmp.write(data.read() if isinstance(data, io.BytesIO) else data)
+    tmp.close()
 
     loader = await m.answer("⌛ Распознаю текст…")
     text = await ocr_openai_vision(tmp.name)
@@ -160,20 +166,25 @@ async def handle_document(m: types.Message):
         return await loader.edit_text("❌ Не удалось распознать текст.")
     await loader.delete()
 
-    cap = (m.caption or "").strip()
-    if cap:
-        await handle_text_inner(f"{cap}\n\n{text}", m)
-    else:
-        pending_prompts[m.chat.id] = text
-        await m.answer("📥 Текст распознан. Введите подпись для генерации:")
+    # Формируем единый запрос: если была подпись, добавляем её сверху, иначе просто текст
+    prompt = (m.caption or "").strip()
+    full = f"{prompt}\n\n{text}" if prompt else text
+
+    # Запускаем генерацию
+    await m.answer("🕔 Генерируются задания, ожидайте...")
+    await handle_text_inner(full, m)
+
 
 async def handle_photo(m: types.Message):
-    if chat_mode.get(m.chat.id) != "generate": return
+    if chat_mode.get(m.chat.id) != "generate":
+        return
+
     file_id = m.photo[-1].file_id
     info = await m.bot.get_file(file_id)
     data = await m.bot.download_file(info.file_path)
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
-    tmp.write(data.read() if isinstance(data, io.BytesIO) else data); tmp.close()
+    tmp.write(data.read() if isinstance(data, io.BytesIO) else data)
+    tmp.close()
 
     loader = await m.answer("⌛ Распознаю фото…")
     text = await ocr_openai_vision(tmp.name)
@@ -183,12 +194,11 @@ async def handle_photo(m: types.Message):
         return await loader.edit_text("❌ Не удалось распознать текст.")
     await loader.delete()
 
-    cap = (m.caption or "").strip()
-    if cap:
-        await handle_text_inner(f"{cap}\n\n{text}", m)
-    else:
-        pending_prompts[m.chat.id] = text
-        await m.answer("📥 Текст распознан. Введите подпись для генерации:")
+    prompt = (m.caption or "").strip()
+    full = f"{prompt}\n\n{text}" if prompt else text
+
+    await m.answer("🕔 Генерируются задания, ожидайте...")
+    await handle_text_inner(full, m)
 
 async def handle_text(m: types.Message):
     if chat_mode.get(m.chat.id) != "generate": return
