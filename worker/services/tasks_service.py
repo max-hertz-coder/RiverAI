@@ -4,14 +4,14 @@ from typing import List
 from aiogram import types
 from aiogram.types import FSInputFile, InlineKeyboardMarkup, InlineKeyboardButton
 
-from ocr_module import ocr_openai_vision
-from generation_module import generate_raw_tasks, generate_raw_solutions
-from corrections_module import generate_corrected_tasks
-from latex_utils import (
+from ocr_service import ocr_openai_vision
+from generation_service import generate_raw_tasks, generate_raw_solutions
+from corrections_service import generate_corrected_tasks
+from pdf_utils import (
     template_basic, template_solutions,
     sanitize_solutions, escape_latex, compile_latex_to_pdf
 )
-from commands import chat_mode
+chat_mode: dict[int,str] = {}
 
 logger = logging.getLogger(__name__)
 
