@@ -10,6 +10,7 @@ from aiogram.fsm.state import StatesGroup, State
 
 from bot_app import config, rabbit_channel
 from bot_app.keyboards.main_menu import back_button
+from bot_app.rabbit import pending_tasks  # общий словарь
 
 router = Router()
 
@@ -103,10 +104,10 @@ async def proc_tasks(message: Message, state: FSMContext):
     data   = await state.get_data()
     prompt = message.text.strip()
     task = {
-        "type": "generate_tasks",
-        "user_id": message.from_user.id,
+        "type":       "generate_tasks",
+        "user_id":    message.from_user.id,
         "student_id": data.get("student_id"),
-        "prompt": prompt,
+        "prompt":     prompt,
     }
     await _send_task(task)
     await message.answer("🕔 Генерируются задания, ожидайте...")
@@ -123,14 +124,9 @@ async def cb_tasks_ok(callback: CallbackQuery):
 # 5) Уточнение (Refine) заданий
 @router.callback_query(F.data.startswith("refine_tasks:"))
 async def cb_refine_tasks(callback: CallbackQuery, state: FSMContext):
-    # Из callback_data достаём student_id
     sid_str = callback.data.split(":", 1)[1]
     sid = int(sid_str) if sid_str.isdigit() else None
-    # Сохраняем student_id и raw из предыдущего сообщения
-    full = callback.message.text or ""
-    parts = full.split("\n", 1)
-    raw = parts[1].strip() if len(parts) > 1 else ""
-    await state.update_data(student_id=sid, raw_tasks=raw)
+    await state.update_data(student_id=sid)
     await state.set_state(RefineTasksFSM.notes)
     await callback.message.edit_text(
         "✏️ Опишите, как изменить эти задания:",
@@ -144,21 +140,21 @@ async def proc_refine_tasks(message: Message, state: FSMContext):
     student_id = data.get("student_id")
     instr      = message.text.strip()
 
-    # Берём raw-текст из state
-    raw = data.get("raw_tasks", "").strip()
+    # Берём последний raw-текст из памяти
+    raw = pending_tasks.get((chat_id, student_id))
     if not raw:
         return await message.answer("❌ Предыдущие задания не найдены.")
 
     combined = f"{instr}\n\n{raw}"
 
-    # Показываем пользователю итоговый prompt
+    # Показываем новый prompt
     await message.answer(
         "📝 Отправляю в GPT следующий запрос:\n\n"
         f"```{combined}```",
         parse_mode="Markdown"
     )
 
-    # Отправляем задачу на регенерацию
+    # Отправляем задачу
     task = {
         "type":       "generate_tasks",
         "user_id":    chat_id,

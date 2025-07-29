@@ -12,7 +12,7 @@ from bot_app.keyboards.chat_menu import (
     result_check_kb
 )
 
-# Хранит последний raw-текст задач для каждого (user_id, student_id)
+# В памяти бота храним последние raw-тексты задач по (user_id, student_id)
 pending_tasks: dict[tuple[int, int], str] = {}
 
 async def process_result(message: IncomingMessage, bot: Bot):
@@ -29,10 +29,10 @@ async def process_result(message: IncomingMessage, bot: Bot):
         student_id = data.get("student_id")
 
         if not user_id or not t:
-            logging.warning("⚠️ Нет user_id или type в результате")
+            logging.warning("⚠️ В результате нет user_id или type")
             return
 
-        # == Chat ==
+        # — Chat —
         if t == "chat":
             await bot.send_message(
                 user_id,
@@ -41,7 +41,7 @@ async def process_result(message: IncomingMessage, bot: Bot):
             )
             return
 
-        # == Plan ==
+        # — Plan —
         if t == "plan":
             await bot.send_message(
                 user_id,
@@ -50,13 +50,13 @@ async def process_result(message: IncomingMessage, bot: Bot):
             )
             return
 
-        # == Tasks ==
+        # — Tasks —
         if t == "tasks":
-            # 1) Сохраняем raw-текст в памяти
+            # Сохраняем raw-текст
             raw = data.get("tasks_text", "").strip()
             pending_tasks[(user_id, student_id)] = raw
 
-            # 2) Отправляем текст с кнопками
+            # Отправляем текст + кнопки
             await bot.send_message(
                 user_id,
                 f"📝 Задания:\n{raw}",
@@ -64,7 +64,7 @@ async def process_result(message: IncomingMessage, bot: Bot):
             )
             return
 
-        # == Homework check ==
+        # — Homework check —
         if t == "check":
             await bot.send_message(
                 user_id,
@@ -83,7 +83,7 @@ async def process_result(message: IncomingMessage, bot: Bot):
                 )
             return
 
-        # == OCR only ==
+        # — OCR only —
         if t == "ocr":
             await bot.send_message(
                 user_id,
@@ -91,7 +91,7 @@ async def process_result(message: IncomingMessage, bot: Bot):
             )
             return
 
-        # == Error ==
+        # — Error —
         if t == "error":
             await bot.send_message(
                 user_id,
