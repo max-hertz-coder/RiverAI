@@ -10,7 +10,6 @@ from aiogram.fsm.state import StatesGroup, State
 
 from bot_app import config, rabbit_channel
 from bot_app.keyboards.main_menu import back_button
-from bot_app.rabbit import pending_tasks  # берём словарь из rabbit.py
 
 router = Router()
 
@@ -104,10 +103,10 @@ async def proc_tasks(message: Message, state: FSMContext):
     data   = await state.get_data()
     prompt = message.text.strip()
     task = {
-        "type":       "generate_tasks",
-        "user_id":    message.from_user.id,
+        "type": "generate_tasks",
+        "user_id": message.from_user.id,
         "student_id": data.get("student_id"),
-        "prompt":     prompt,
+        "prompt": prompt,
     }
     await _send_task(task)
     await message.answer("🕔 Генерируются задания, ожидайте...")
@@ -124,9 +123,14 @@ async def cb_tasks_ok(callback: CallbackQuery):
 # 5) Уточнение (Refine) заданий
 @router.callback_query(F.data.startswith("refine_tasks:"))
 async def cb_refine_tasks(callback: CallbackQuery, state: FSMContext):
+    # Из callback_data достаём student_id
     sid_str = callback.data.split(":", 1)[1]
     sid = int(sid_str) if sid_str.isdigit() else None
-    await state.update_data(student_id=sid)
+    # Сохраняем student_id и raw из предыдущего сообщения
+    full = callback.message.text or ""
+    parts = full.split("\n", 1)
+    raw = parts[1].strip() if len(parts) > 1 else ""
+    await state.update_data(student_id=sid, raw_tasks=raw)
     await state.set_state(RefineTasksFSM.notes)
     await callback.message.edit_text(
         "✏️ Опишите, как изменить эти задания:",
@@ -140,8 +144,8 @@ async def proc_refine_tasks(message: Message, state: FSMContext):
     student_id = data.get("student_id")
     instr      = message.text.strip()
 
-    # Берём raw-список из памяти
-    raw = pending_tasks.get((chat_id, student_id), "")
+    # Берём raw-текст из state
+    raw = data.get("raw_tasks", "").strip()
     if not raw:
         return await message.answer("❌ Предыдущие задания не найдены.")
 
