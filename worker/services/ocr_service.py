@@ -136,3 +136,54 @@ async def handle_ocr(task: dict) -> dict:
         "text": text,
         "prompt": prompt
     }
+
+from worker.services.tasks_service import handle_tasks
+
+
+async def handle_ocr_and_generate(task: dict) -> dict:
+    """
+    Скачивает файл из task["file_data"], делает OCR, склеивает с task["prompt"]
+    и сразу вызывает handle_tasks для генерации PDF.
+    """
+    user_id    = task.get("user_id")
+    student_id = task.get("student_id")
+    user_prompt = task.get("prompt", "").strip()
+
+    # 1. Распаковываем base64
+    try:
+        data = base64.b64decode(task["file_data"])
+    except Exception as e:
+        logger.error("OCR+Gen: ошибка декодирования: %s", e)
+        return {"type": "error", "user_id": user_id, "message": "Ошибка обработки файла."}
+
+    # 2. Сохраняем во временный файл
+    suffix = os.path.splitext(task.get("file_name", ""))[1] or ".jpg"
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    tmp.write(data); tmp.close()
+
+    # 3. OCR
+    try:
+        text = await ocr_openai_vision(tmp.name)
+    except Exception as e:
+        logger.exception("OCR+Gen: ошибка OCR")
+        os.remove(tmp.name)
+        return {"type": "error", "user_id": user_id, "message": "Ошибка OCR."}
+    finally:
+        if os.path.exists(tmp.name):
+            os.remove(tmp.name)
+
+    text = (text or "").strip()
+    if not text:
+        return {"type": "error", "user_id": user_id, "message": "Не удалось распознать текст."}
+
+    # 4. Склеиваем финальный промпт
+    final_prompt = f"{user_prompt}\n\n{text}" if user_prompt else text
+
+    # 5. Вызываем генерацию напрямую
+    gen_task = {
+        "type": "generate_tasks",
+        "user_id": user_id,
+        "student_id": student_id,
+        "prompt": final_prompt
+    }
+    return await handle_tasks(gen_task)

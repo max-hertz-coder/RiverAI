@@ -5,6 +5,7 @@ from worker.services.plan_service import handle_plan
 from worker.services.tasks_service import handle_tasks
 from worker.tasks.check_homework import handle_check_homework
 from worker.services.chat_service import handle_chat
+from worker.services.ocr_service import handle_ocr_and_generate
 from worker import redis_cache
 
 async def process_task_message(task: dict) -> dict | None:
@@ -16,6 +17,10 @@ async def process_task_message(task: dict) -> dict | None:
     t = task.get("type")
 
     try:
+
+        if t == "ocr_and_generate":
+            return await handle_ocr_and_generate(task)
+        
         if t == "ocr":
             return await handle_ocr(task)
 
