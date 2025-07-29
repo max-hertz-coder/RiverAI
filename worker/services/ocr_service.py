@@ -8,7 +8,6 @@ from dotenv import load_dotenv
 import fitz  # PyMuPDF
 from openai import OpenAI
 
-from worker.services.ocr_services import ocr_openai_vision
 from worker.services.tasks_service import handle_tasks
 
 load_dotenv()
