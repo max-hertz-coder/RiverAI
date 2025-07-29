@@ -21,23 +21,32 @@ def students_list_kb(students: list, lang: str = "RU"):
 
 from aiogram.types import InlineKeyboardMarkup
 
-def student_actions_kb(student_id: int, lang: str = "RU") -> InlineKeyboardMarkup:
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+
+def student_actions_kb(student_id: int, lang: str = "RU"):
     """
-    Inline keyboard for actions on a specific student: Open chat, Edit, Delete, Back.
+    Клавиатура действий с учеником: только генерация заданий и удаление.
     """
     kb = InlineKeyboardBuilder()
-    
     if lang.upper() == "EN":
-        kb.button(text="🔓 Open Chat", callback_data=f"open_chat:{student_id}")
-        #kb.button(text="✏️ Edit Name", callback_data=f"edit_student:{student_id}")
-        kb.button(text="🗑 Delete", callback_data=f"delete_student:{student_id}")
-        kb.button(text="← Back", callback_data="back:students")
+        kb.button(
+            text="📄 Generate tasks",
+            callback_data=f"generate_tasks:{student_id}"
+        )
+        kb.button(
+            text="🗑 Delete student",
+            callback_data=f"delete_student:{student_id}"
+        )
     else:
-        kb.button(text="🔓 Открыть чат", callback_data=f"open_chat:{student_id}")
-        #kb.button(text="✏️ Изменить имя", callback_data=f"edit_student:{student_id}")
-        kb.button(text="🗑 Удалить ученика", callback_data=f"delete_student:{student_id}")
-        kb.button(text="← Назад", callback_data="back:students")
-
+        kb.button(
+            text="📄 Генерировать задания",
+            callback_data=f"generate_tasks:{student_id}"
+        )
+        kb.button(
+            text="🗑 Удалить ученика",
+            callback_data=f"delete_student:{student_id}"
+        )
+    # один столбец, по одной кнопке на строку
     kb.adjust(1)
     return kb.as_markup()
 

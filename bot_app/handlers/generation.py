@@ -150,7 +150,7 @@ async def proc_tasks(message: Message, state: FSMContext):
         "type": "generate_tasks",
         "user_id": message.from_user.id,
         "student_id": d["student_id"],
-        "description": message.text,
+        "prompt": message.text.strip(),   # ← ключ renamed to prompt
     }
     await _send_task(task)
     await message.answer("🕔 Генерируются задания, ожидайте...")
