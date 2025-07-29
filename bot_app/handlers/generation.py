@@ -10,6 +10,7 @@ from aiogram.fsm.state import StatesGroup, State
 
 from bot_app import rabbit_channel, config
 from bot_app.keyboards.main_menu import back_button
+from bot_app.rabbit import pending_tasks  # словарь из rabbit.py
 
 router = Router()
 
@@ -37,14 +38,16 @@ async def _send_task(task: dict):
     except Exception:
         router.logger.exception("Ошибка отправки задачи в очередь")
 
-# FSM состояния
+
+# FSM-состояния
 class TasksFSM(StatesGroup):
     desc = State()
 
 class RefineTasksFSM(StatesGroup):
     notes = State()
 
-# OCR + генерация из изображения
+
+# 1) OCR + генерация из фото
 @router.message(F.photo)
 async def photo_to_generate(message: Message, bot: Bot):
     caption = (message.caption or "").strip()
@@ -63,7 +66,8 @@ async def photo_to_generate(message: Message, bot: Bot):
     await _send_task(task)
     await message.answer("🕔 Распознаю и генерирую задания, ожидайте PDF…")
 
-# OCR + генерация из документа
+
+# 2) OCR + генерация из документа
 @router.message(F.document)
 async def doc_to_generate(message: Message, bot: Bot):
     caption = (message.caption or "").strip()
@@ -83,7 +87,8 @@ async def doc_to_generate(message: Message, bot: Bot):
     await _send_task(task)
     await message.answer("🕔 Распознаю и генерирую задания, ожидайте PDF…")
 
-# Ручная генерация заданий
+
+# 3) Ручная генерация заданий
 @router.callback_query(F.data.startswith("generate_tasks:"))
 async def cb_tasks(callback: CallbackQuery, state: FSMContext):
     sid = int(callback.data.split(":", 1)[1])
@@ -96,34 +101,32 @@ async def cb_tasks(callback: CallbackQuery, state: FSMContext):
 
 @router.message(TasksFSM.desc)
 async def proc_tasks(message: Message, state: FSMContext):
-    data = await state.get_data()
+    data   = await state.get_data()
     prompt = message.text.strip()
     task = {
-        "type": "generate_tasks",
-        "user_id": message.from_user.id,
+        "type":       "generate_tasks",
+        "user_id":    message.from_user.id,
         "student_id": data.get("student_id"),
-        "prompt": prompt,
+        "prompt":     prompt,
     }
     await _send_task(task)
     await message.answer("🕔 Генерируются задания, ожидайте...")
     await state.clear()
 
-# Подтверждение
+
+# 4) Подтверждение «Всё норм»
 @router.callback_query(F.data == "tasks_ok")
 async def cb_tasks_ok(callback: CallbackQuery):
     await callback.answer("👍 Отлично!")
     await callback.message.edit_reply_markup(None)
 
-from worker.redis_cache import get_raw_tasks
 
+# 5) Уточнение (Refine) заданий
 @router.callback_query(F.data.startswith("refine_tasks:"))
 async def cb_refine_tasks(callback: CallbackQuery, state: FSMContext):
-    """
-    Запускаем FSM: спрашиваем, что исправить.
-    Но raw-текст при этом мы возьмём из Redis.
-    """
-    student_id = int(callback.data.split(":",1)[1])
-    await state.update_data(student_id=student_id)
+    sid_str = callback.data.split(":", 1)[1]
+    sid = int(sid_str) if sid_str.isdigit() else None
+    await state.update_data(student_id=sid)
     await state.set_state(RefineTasksFSM.notes)
     await callback.message.edit_text(
         "✏️ Опишите, как изменить эти задания:",
@@ -132,39 +135,37 @@ async def cb_refine_tasks(callback: CallbackQuery, state: FSMContext):
 
 @router.message(RefineTasksFSM.notes)
 async def proc_refine_tasks(message: Message, state: FSMContext):
-    """
-    Получаем новый инструкционный текст, дополняем raw из Redis
-    и шлём в генерацию.
-    """
-    data = await state.get_data()
+    data       = await state.get_data()
     chat_id    = message.from_user.id
     student_id = data.get("student_id")
     instr      = message.text.strip()
 
-    # Достаём сохранённый raw-текст
-    raw = await get_raw_tasks(chat_id, student_id) or ""
-    combined = f"{instr}\n\n{raw}" if raw else instr
+    # Берём raw-задачи из памяти
+    raw = pending_tasks.get((chat_id, student_id), "")
+    if not raw:
+        return await message.answer("❌ Предыдущие задания не найдены.")
 
-    # Показываем пользователю, какой финальный prompt уходит
+    combined = f"{instr}\n\n{raw}"
+    # Показываем пользователю, что отправим в GPT
     await message.answer(
         "📝 Отправляю в GPT следующий запрос:\n\n"
         f"```{combined}```",
         parse_mode="Markdown"
     )
 
-    # И отправляем задачу
+    # И отправляем задачу на регенерацию
     task = {
-        "type": "generate_tasks",
-        "user_id": chat_id,
+        "type":       "generate_tasks",
+        "user_id":    chat_id,
         "student_id": student_id,
-        "prompt": combined
+        "prompt":     combined
     }
     await _send_task(task)
-
-    await message.answer("🕔 Перегенерируем задания, ожидайте...")
+    await message.answer("🕔 Перегенерируем задания, ожидайте…")
     await state.clear()
 
-# Отмена
+
+# 6) Отмена
 @router.callback_query(F.data == "back:chat")
 async def cb_back(callback: CallbackQuery):
     await callback.message.edit_text("Возвращаюсь в главное меню.")
