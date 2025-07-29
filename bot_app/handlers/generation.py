@@ -37,10 +37,14 @@ async def _send_task(task: dict):
     except Exception:
         router.logger.exception("Ошибка отправки задачи в очередь")
 
+# FSM состояния
+class TasksFSM(StatesGroup):
+    desc = State()
 
-#
-# 1) OCR + генерация заданий из изображения/документа
-#
+class RefineTasksFSM(StatesGroup):
+    notes = State()
+
+# OCR + генерация из изображения
 @router.message(F.photo)
 async def photo_to_generate(message: Message, bot: Bot):
     caption = (message.caption or "").strip()
@@ -59,7 +63,7 @@ async def photo_to_generate(message: Message, bot: Bot):
     await _send_task(task)
     await message.answer("🕔 Распознаю и генерирую задания, ожидайте PDF…")
 
-
+# OCR + генерация из документа
 @router.message(F.document)
 async def doc_to_generate(message: Message, bot: Bot):
     caption = (message.caption or "").strip()
@@ -79,17 +83,7 @@ async def doc_to_generate(message: Message, bot: Bot):
     await _send_task(task)
     await message.answer("🕔 Распознаю и генерирую задания, ожидайте PDF…")
 
-
-#
-# 2) Ручная генерация заданий по тексту и уточнения
-#
-class TasksFSM(StatesGroup):
-    desc = State()
-
-class RefineTasksFSM(StatesGroup):
-    notes = State()
-
-
+# Ручная генерация заданий
 @router.callback_query(F.data.startswith("generate_tasks:"))
 async def cb_tasks(callback: CallbackQuery, state: FSMContext):
     sid = int(callback.data.split(":", 1)[1])
@@ -99,7 +93,6 @@ async def cb_tasks(callback: CallbackQuery, state: FSMContext):
         "Введите текстовый запрос для генерации заданий:",
         reply_markup=back_button("← Отмена", "back:chat")
     )
-
 
 @router.message(TasksFSM.desc)
 async def proc_tasks(message: Message, state: FSMContext):
@@ -115,48 +108,44 @@ async def proc_tasks(message: Message, state: FSMContext):
     await message.answer("🕔 Генерируются задания, ожидайте...")
     await state.clear()
 
-
+# Подтверждение
 @router.callback_query(F.data == "tasks_ok")
 async def cb_tasks_ok(callback: CallbackQuery):
     await callback.answer("👍 Отлично!")
     await callback.message.edit_reply_markup(None)
 
-
+# Уточнение заданий
 @router.callback_query(F.data.startswith("refine_tasks:"))
 async def cb_refine_tasks(callback: CallbackQuery, state: FSMContext):
-    # Сохраняем текст предыдущих заданий
-    raw_tasks = callback.message.text or ""
-    await state.update_data(
-        student_id=callback.data.split(":", 1)[1],
-        raw_tasks=raw_tasks
-    )
+    # Захватываем raw_tasks из сообщения, на котором была нажата кнопка
+    raw = callback.message.reply_to_message.text if callback.message.reply_to_message else ""
+    sid = callback.data.split(":", 1)[1]
+    await state.update_data(student_id=sid, raw_tasks=raw)
     await state.set_state(RefineTasksFSM.notes)
     await callback.message.edit_text(
         "✏️ Опишите, как изменить эти задания:",
         reply_markup=back_button("← Отмена", "back:chat")
     )
 
-
 @router.message(RefineTasksFSM.notes)
 async def proc_refine_tasks(message: Message, state: FSMContext):
     data = await state.get_data()
     refine_prompt = message.text.strip()
     raw_tasks = data.get("raw_tasks", "")
-    # Комбинируем уточнение и текст предыдущих заданий
-    combined = f"{refine_prompt}\n\n{raw_tasks}"
+    combined = f"{refine_prompt}\n\n{raw_tasks}" if raw_tasks else refine_prompt
+
+    await message.answer(f"🔄 Новый запрос для генерации:\n{combined}")
     task = {
         "type": "generate_tasks",
         "user_id": message.from_user.id,
         "student_id": data.get("student_id"),
         "prompt": combined,
     }
-    # Показываем финальный уточняющий запрос
-    await message.answer(f"🔄 Новый запрос для генерации:\n{combined}")
     await _send_task(task)
     await message.answer("🕔 Перегенерируем задания, ожидайте...")
-    # остаёмся в RefineTasksFSM.notes, чтобы можно было ещё уточнить
+    # остаёмся в состоянии для новых уточнений
 
-# Обработка отмены — возврат в главное меню чата
+# Отмена
 @router.callback_query(F.data == "back:chat")
 async def cb_back(callback: CallbackQuery):
     await callback.message.edit_text("Возвращаюсь в главное меню.")
