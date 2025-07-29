@@ -18,7 +18,7 @@ last_raw_tasks: dict[int,str]      = {}
 pending_corrections: dict[int,str] = {}
 
 import re, base64, logging
-from worker.services import generation_services, corrections_service, pdf_utils
+from worker.services import generation_service, corrections_service, pdf_utils
 
 async def handle_tasks(task: dict) -> dict:
     user_id = task.get("user_id")
