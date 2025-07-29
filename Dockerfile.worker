@@ -1,38 +1,43 @@
 # Dockerfile.worker
 
-# 1. Базовый Python
+# 1. Базовый образ
 FROM python:3.10-slim
 
-# 2. Установка системных библиотек, шрифтов и LaTeX с поддержкой Unicode и кириллицы
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# 2. Отключаем интерактивные подсказки APT
+ENV DEBIAN_FRONTEND=noninteractive \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app
+
+# 3. Устанавливаем системные зависимости, Tesseract и полный LaTeX со шрифтами для кириллицы
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
     build-essential \
     python3-dev \
     libffi-dev \
     libpq-dev \
     tesseract-ocr \
     texlive-xetex \
-    texlive-fonts-recommended \
     texlive-latex-recommended \
     texlive-latex-extra \
+    texlive-fonts-recommended \
+    texlive-lang-cyrillic \
     fonts-freefont-ttf \
     fonts-dejavu \
     lmodern \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
+ && rm -rf /var/lib/apt/lists/*
 
-# 3. Рабочая директория
+# 4. Рабочая директория
 WORKDIR /app
 
-# 4. Копируем зависимости и устанавливаем их
+# 5. Копируем и устанавливаем Python-зависимости
 COPY requirements.txt .
 RUN pip install --upgrade pip setuptools wheel \
-    && pip install --no-cache-dir -r requirements.txt
+ && pip install --no-cache-dir -r requirements.txt
 
-# 5. Копируем весь проект в контейнер
+# 6. Копируем весь код
 COPY . .
 
-# 6. Настройка окружения
-ENV PYTHONPATH=/app
-ENV PYTHONUNBUFFERED=1
-
-# 7. Запуск воркера
+# 7. Точка входа — запускаем воркер
 CMD ["python", "-u", "-m", "worker.main"]
