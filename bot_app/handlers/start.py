@@ -6,6 +6,7 @@ from aiogram import F
 from bot_app.keyboards.main_menu import main_menu_kb, bottom_menu_kb
 from bot_app.keyboards.settings import yandex_prompt_kb
 from bot_app import database
+from bot_app.utils.encryption import decrypt_str
 
 router = Router()
 
@@ -30,7 +31,7 @@ async def cmd_start(message: Message):
     await message.answer("⬇ Меню под полем ввода:", reply_markup=bottom_menu_kb(lang))
 
     # 3. Предложение подключить Яндекс.Диск
-    if user and not user.get("yandex_token") and not user.get("hide_disk_prompt"):
+    if user and not decrypt_str(user.get("ydisk_token_enc", "")) and not user.get("hide_disk_prompt"):
         prompt_text = (
             "📦 Вы ещё не подключили Яндекс.Диск!\n"
             "Подключите, чтобы сохранять PDF-документы и отчёты в облако."

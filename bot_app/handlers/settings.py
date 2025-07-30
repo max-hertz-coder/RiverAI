@@ -73,3 +73,7 @@ async def process_edit_token(message: Message, state: FSMContext):
     lang = user["language"] if user else "RU"
     text = "Настройки профиля:" if lang == "RU" else "Profile Settings:"
     await message.answer(text, reply_markup=settings_kb.settings_menu_kb(lang))
+
+@router.message(F.text.lower() == "настройки")
+async def msg_settings_menu(message: Message):
+    await cb_settings(message)

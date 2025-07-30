@@ -36,3 +36,7 @@ async def cb_upgrade(callback: CallbackQuery):
 async def cb_history(callback: CallbackQuery):
     text = "История платежей:\n(пока нет данных)"
     await callback.message.edit_text(text, reply_markup=back_button("← Назад","back:main"))
+
+@router.message(F.text.lower() == "подписка")
+async def msg_subscription(message: Message):
+    await cb_subscription(message)
