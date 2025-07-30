@@ -46,12 +46,12 @@ async def msg_show_students(message: Message):
 # --- Начало добавления ученика
 @router.callback_query(F.data == "add_student")
 @router.message(F.text == "➕ Добавить ученика")
-async def start_add_student(event, state: FSMContext):
-    user = event.from_user
+async def start_add_student(message: Message, state: FSMContext):
+    user = message.from_user
     await _ensure_user(user.id, user.first_name or "")
     await state.clear()
     await state.set_state(AddStudentFSM.name)
-    await event.answer("Введите ассоциацию с учеником (например: «девочка 7 класс», «мальчик по физике»):")
+    await message.answer("Введите ассоциацию с учеником (например: «девочка 7 класс», «мальчик по физике»):")
 
 # --- FSM шаги добавления
 @router.message(AddStudentFSM.name)
@@ -179,7 +179,7 @@ async def cb_edit_student(callback: CallbackQuery, state: FSMContext):
         return await callback.answer("Ученик не найден.", show_alert=True)
     await state.set_state(EditStudentFSM.name)
     await state.update_data(student_id=sid)
-    await callback.message.edit_text("Введите новое имя ученика:")
+    await callback.message.edit_text("Введите ассоциацию с учеником (например: «девочка 7 класс», «мальчик по физике»):")
 
 @router.message(EditStudentFSM.name)
 async def process_edit_name(message: Message, state: FSMContext):
@@ -187,7 +187,7 @@ async def process_edit_name(message: Message, state: FSMContext):
     sid = data.get("student_id")
     new_name = message.text.strip()
     if not new_name:
-        return await message.reply("Имя не может быть пустым.")
+        return await message.reply("ассоциация не может быть пустой.")
     await db.update_student(student_id=sid, name=new_name)
     await state.clear()
     student = await db.get_student(sid)
