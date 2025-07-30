@@ -23,6 +23,7 @@ from bot_app.handlers.generation import router as generation_router
 from bot_app.handlers.chatgpt import router as chatgpt_router
 from bot_app.handlers.subscription import router as subscription_router
 from bot_app.handlers.settings import router as settings_router
+from bot_app.handlers.subscription import router as subscription_router
 
 
 async def consume_results(bot: Bot):
@@ -111,7 +112,8 @@ async def main():
     dp.include_router(chatgpt_router)
     dp.include_router(subscription_router)
     dp.include_router(settings_router)
-
+    dp.include_router(subscription_router)
+    
     # Запуск polling
     await dp.start_polling(
         bot,

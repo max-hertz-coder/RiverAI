@@ -1,5 +1,6 @@
 import asyncpg
 from bot_app.utils import encryption
+from datetime import datetime, timedelta  # ← добавь timedelta
 
 _pool: asyncpg.Pool = None
 

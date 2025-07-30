@@ -45,3 +45,8 @@ def confirm_delete_kb(student_id: int, lang: str = "RU"):
     kb.button(text=no_text, callback_data=f"confirm_delete:{student_id}:no")
     kb.adjust(2)
     return kb.as_markup()
+
+def back_button(text: str = "← Назад", callback: str = "back:main") -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(text=text, callback_data=callback)
+    return kb.as_markup()
