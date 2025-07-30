@@ -48,7 +48,9 @@ async def start_add_student(event, state: FSMContext):
     await _ensure_user(user.id, user.first_name or "")
     await state.clear()
     await state.set_state(AddStudentFSM.name)
-    await (event.message if isinstance(event, CallbackQuery) else event).answer("Введите имя ученика:")
+    await (event.message if isinstance(event, CallbackQuery) else event).answer(
+            "Введите ассоциацию с учеником (например: «девочка 7 класс», «мальчик по физике»):"
+        )
 
 # Шаги FSM добавления
 @router.message(AddStudentFSM.name)

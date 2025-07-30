@@ -3,18 +3,25 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 def settings_menu_kb(lang: str = "RU"):
     kb = InlineKeyboardBuilder()
     if lang.upper() == "EN":
-        #kb.button(text="🔤 Change Name", callback_data="change_name")
+        kb.button(text="🔗 Connect Yandex.Disk", callback_data="set_ydisk_token")
+        kb.button(text="✏️ Replace API Yandex.Disk", callback_data="edit_ydisk_token")
+        kb.button(text="🗑 Delete Account", callback_data="delete_account")
         kb.button(text="← Back",        callback_data="back:main")
     else:
-        #kb.button(text="🔤 Изменить имя", callback_data="change_name")
-        kb.button(text="← Назад",         callback_data="back:main")
+        kb.button(text="🔗 Подключить Яндекс.Диск", callback_data="set_ydisk_token")
+        kb.button(text="✏️ Изменить токен Я.Диска", callback_data="edit_ydisk_token")
+        kb.button(text="🗑 Удалить аккаунт", callback_data="delete_account")
+        kb.button(text="← Назад", callback_data="back:main")
     kb.adjust(1)
     return kb.as_markup()
 
-def language_choice_kb():
-    """Inline keyboard for choosing language (RU/EN)."""
+def yandex_prompt_kb(lang: str = "RU"):
     kb = InlineKeyboardBuilder()
-    kb.button(text="RU 🇷🇺", callback_data="lang:RU")
-    kb.button(text="EN 🇺🇸", callback_data="lang:EN")
+    if lang.upper() == "EN":
+        kb.button(text="🔗 Connect", callback_data="set_ydisk_token")
+        kb.button(text="❌ Don't show again", callback_data="dismiss_disk_prompt")
+    else:
+        kb.button(text="🔗 Подключить диск", callback_data="set_ydisk_token")
+        kb.button(text="❌ Не напоминать", callback_data="dismiss_disk_prompt")
     kb.adjust(2)
     return kb.as_markup()
