@@ -18,7 +18,7 @@ async def get_user_by_tg_id(telegram_id: int):
     pool = _get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow("""
-            SELECT telegram_id, name_enc, plan, usage_count,
+            SELECT telegram_id, name_enc, plan, usage_count, usage_limit,
                    tokens_prompt_total, tokens_gen_total,
                    language, notifications, password_hash,
                    ydisk_token_enc, hide_disk_prompt
@@ -26,10 +26,12 @@ async def get_user_by_tg_id(telegram_id: int):
         """, telegram_id)
         return row
 
+
 async def create_user(telegram_id: int, name: str):
     pool = _get_pool()
     name_enc = encryption.encrypt_str(name) if name else ""
     plan = "basic"
+    usage_limit = 200
     usage_count = 0
     language = "RU"
     notifications = True
@@ -41,17 +43,18 @@ async def create_user(telegram_id: int, name: str):
     async with pool.acquire() as conn:
         await conn.execute("""
             INSERT INTO users (
-                telegram_id, name_enc, plan, usage_count,
+                telegram_id, name_enc, plan, usage_count, usage_limit,
                 tokens_prompt_total, tokens_gen_total,
                 language, notifications, password_hash,
                 ydisk_token_enc, hide_disk_prompt
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
             ON CONFLICT (telegram_id) DO NOTHING
-        """, telegram_id, name_enc, plan, usage_count,
+        """, telegram_id, name_enc, plan, usage_count, usage_limit,
              tokens_prompt_total, tokens_gen_total,
              language, notifications, password_hash,
              ydisk_token_enc, hide_disk_prompt)
         return await get_user_by_tg_id(telegram_id)
+
 
 async def update_user_name(user_id: int, new_name: str):
     pool = _get_pool()
@@ -186,7 +189,12 @@ async def increment_student_token_usage(student_id: int, prompt_tokens: int, gen
             WHERE id=$3
         """, prompt_tokens, gen_tokens, student_id)
 
-async def set_plan(user_id: int, plan: str):
+async def set_plan(user_id: int, plan: str, new_limit: int = None):
     pool = _get_pool()
     async with pool.acquire() as conn:
-        await conn.execute("UPDATE users SET plan=$1 WHERE telegram_id=$2", plan, user_id)
+        if new_limit is not None:
+            await conn.execute("UPDATE users SET plan=$1, usage_limit=$2 WHERE telegram_id=$3", plan, new_limit, user_id)
+        else:
+            # по умолчанию ставим лимит в зависимости от плана
+            default_limit = 1000 if plan == "premium" else 200
+            await conn.execute("UPDATE users SET plan=$1, usage_limit=$2 WHERE telegram_id=$3", plan, default_limit, user_id)

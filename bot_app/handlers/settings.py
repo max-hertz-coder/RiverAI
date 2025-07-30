@@ -22,7 +22,15 @@ async def cb_settings(callback: CallbackQuery):
 @router.callback_query(F.data == "set_ydisk_token")
 async def cb_set_token(callback: CallbackQuery, state: FSMContext):
     await state.set_state(YandexTokenFSM.waiting_for_token)
-    await callback.message.edit_text("Введите токен Яндекс.Диска:")
+    await callback.message.edit_text("🔐 *Подключение Яндекс.Диска*\n\n"
+        "Чтобы подключить Яндекс.Диск и загружать туда материалы, выполните следующие шаги:\n\n"
+        "Ты можешь прямо сейчас получить OAuth токен на сайте Яндекса:\n"
+        "🔗 https://yandex.ru/dev/disk/poligon/ \n"
+        "Перейди по ссылке.\n"
+        "Нажми Получить OAuth-токен\n"
+        "Авторизуйся под своей учёткой.\n"
+        "Скопируй токен — и вставь в бота\n"
+        "⚠️ Такой токен действителен до его отзыва вручную.\n")
 
 @router.message(StateFilter(YandexTokenFSM.waiting_for_token))
 async def process_token(message: Message, state: FSMContext):
@@ -34,7 +42,7 @@ async def process_token(message: Message, state: FSMContext):
 @router.callback_query(F.data == "dismiss_disk_prompt")
 async def cb_dismiss_prompt(callback: CallbackQuery):
     await database.db.set_user_disk_prompt_disabled(callback.from_user.id)
-    await callback.answer("Ок, больше не будем напоминать.", show_alert=False)
+    await callback.answer("Ок, больше не будем напоминать.\nНо знайте что всегда можете добавить его в соответствующем меню настроек", show_alert=False)
 
 @router.callback_query(F.data == "delete_account")
 async def cb_delete_account(callback: CallbackQuery):
@@ -44,7 +52,15 @@ async def cb_delete_account(callback: CallbackQuery):
 @router.callback_query(F.data == "edit_ydisk_token")
 async def cb_edit_token(callback: CallbackQuery, state: FSMContext):
     await state.set_state(YandexTokenFSM.editing_token)
-    await callback.message.edit_text("Введите новый токен Яндекс.Диска:")
+    await callback.message.edit_text("🔐 *Подключение Яндекс.Диска*\n\n"
+        "Чтобы подключить Яндекс.Диск и загружать туда материалы, выполните следующие шаги:\n\n"
+        "Ты можешь прямо сейчас получить OAuth токен на сайте Яндекса:\n"
+        "🔗 https://yandex.ru/dev/disk/poligon/ \n"
+        "Перейди по ссылке.\n"
+        "Нажми Получить OAuth-токен\n"
+        "Авторизуйся под своей учёткой.\n"
+        "Скопируй токен — и вставь в бота\n"
+        "⚠️ Такой токен действителен до его отзыва вручную.\n")
 
 @router.message(StateFilter(YandexTokenFSM.editing_token))
 async def process_edit_token(message: Message, state: FSMContext):
