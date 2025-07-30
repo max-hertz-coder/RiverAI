@@ -3,7 +3,7 @@ from aiogram.types import CallbackQuery
 from bot_app.database import db
 from bot_app.keyboards.main_menu import back_button
 from aiogram.types import Message
-from aiogram.filters import Text
+from aiogram import F
 
 router = Router()
 
@@ -40,6 +40,8 @@ async def cb_history(callback: CallbackQuery):
     await callback.message.edit_text(text, reply_markup=back_button("← Назад","back:main"))
 
 
-@router.message(Text("💳 Подписка"))
+
+
+@router.message(F.text == "💳 Подписка")
 async def msg_subscription(message: Message):
     await cb_subscription(message)
