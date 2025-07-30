@@ -2,6 +2,7 @@ from aiogram import Router, F
 from aiogram.types import CallbackQuery
 from bot_app.database import db
 from bot_app.keyboards.main_menu import back_button
+from aiogram.types import Message
 
 router = Router()
 
