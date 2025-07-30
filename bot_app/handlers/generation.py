@@ -1,6 +1,7 @@
 import json
 import base64
 from io import BytesIO
+from datetime import datetime
 
 import aio_pika
 from aiogram import Router, F, Bot
@@ -9,13 +10,26 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 
 from bot_app import config, rabbit_channel
+from bot_app.rabbit import pending_tasks
 from bot_app.keyboards.main_menu import back_button
-from bot_app.rabbit import pending_tasks  # общий словарь
+from bot_app.database import db
 
 router = Router()
 
+
+# --- Проверка подписки ---
+async def has_active_sub(user_id: int) -> bool:
+    user = await db.get_user_by_tg_id(user_id)
+    if not user:
+        return False
+    expiry = user.get("subscription_expires")
+    if not expiry:
+        return False
+    return datetime.fromisoformat(str(expiry)) > datetime.now()
+
+
+# --- Отправка задачи ---
 async def _send_task(task: dict):
-    """Отправка задачи в RabbitMQ."""
     try:
         if rabbit_channel:
             await rabbit_channel.default_exchange.publish(
@@ -47,9 +61,12 @@ class RefineTasksFSM(StatesGroup):
     notes = State()
 
 
-# 1) OCR + генерация из фото
+# --- Генерация из фото ---
 @router.message(F.photo)
 async def photo_to_generate(message: Message, bot: Bot):
+    if not await has_active_sub(message.from_user.id):
+        return await message.answer("❌ У вас нет активной подписки. Перейдите в 💳 Подписка и оформите доступ.")
+
     caption = (message.caption or "").strip()
     bio = BytesIO()
     await bot.download(message.photo[-1].file_id, destination=bio)
@@ -67,9 +84,13 @@ async def photo_to_generate(message: Message, bot: Bot):
     await message.answer("🕔 Распознаю и генерирую задания, ожидайте PDF…")
 
 
-# 2) OCR + генерация из документа
+
+# --- Генерация из документа ---
 @router.message(F.document)
 async def doc_to_generate(message: Message, bot: Bot):
+    if not await has_active_sub(message.from_user.id):
+        return await message.answer("❌ У вас нет активной подписки. Перейдите в 💳 Подписка и оформите доступ.")
+
     caption = (message.caption or "").strip()
     bio = BytesIO()
     await bot.download(message.document.file_id, destination=bio)
@@ -88,7 +109,7 @@ async def doc_to_generate(message: Message, bot: Bot):
     await message.answer("🕔 Распознаю и генерирую задания, ожидайте PDF…")
 
 
-# 3) Ручная генерация заданий
+# --- Кнопка генерации ---
 @router.callback_query(F.data.startswith("generate_tasks:"))
 async def cb_tasks(callback: CallbackQuery, state: FSMContext):
     sid = int(callback.data.split(":", 1)[1])
@@ -101,7 +122,10 @@ async def cb_tasks(callback: CallbackQuery, state: FSMContext):
 
 @router.message(TasksFSM.desc)
 async def proc_tasks(message: Message, state: FSMContext):
-    data   = await state.get_data()
+    if not await has_active_sub(message.from_user.id):
+        return await message.answer("❌ У вас нет активной подписки. Перейдите в 💳 Подписка и оформите доступ.")
+
+    data = await state.get_data()
     prompt = message.text.strip()
     task = {
         "type":       "generate_tasks",
@@ -114,14 +138,7 @@ async def proc_tasks(message: Message, state: FSMContext):
     await state.clear()
 
 
-# 4) Подтверждение «Всё норм»
-@router.callback_query(F.data == "tasks_ok")
-async def cb_tasks_ok(callback: CallbackQuery):
-    await callback.answer("👍 Отлично!")
-    await callback.message.edit_reply_markup(None)
-
-
-# 5) Уточнение (Refine) заданий
+# --- Refine (уточнение) ---
 @router.callback_query(F.data.startswith("refine_tasks:"))
 async def cb_refine_tasks(callback: CallbackQuery, state: FSMContext):
     sid_str = callback.data.split(":", 1)[1]
@@ -135,26 +152,26 @@ async def cb_refine_tasks(callback: CallbackQuery, state: FSMContext):
 
 @router.message(RefineTasksFSM.notes)
 async def proc_refine_tasks(message: Message, state: FSMContext):
-    data       = await state.get_data()
-    chat_id    = message.from_user.id
-    student_id = data.get("student_id")
-    instr      = message.text.strip()
+    if not await has_active_sub(message.from_user.id):
+        return await message.answer("❌ У вас нет активной подписки. Перейдите в 💳 Подписка и оформите доступ.")
 
-    # Берём последний raw-текст из памяти
+    data = await state.get_data()
+    chat_id = message.from_user.id
+    student_id = data.get("student_id")
+    instr = message.text.strip()
+
     raw = pending_tasks.get((chat_id, student_id))
     if not raw:
         return await message.answer("❌ Предыдущие задания не найдены.")
 
     combined = f"{instr}\n\n{raw}"
 
-    # Показываем новый prompt
     await message.answer(
         "📝 Отправляю в GPT следующий запрос:\n\n"
         f"```{combined}```",
         parse_mode="Markdown"
     )
 
-    # Отправляем задачу
     task = {
         "type":       "generate_tasks",
         "user_id":    chat_id,
@@ -165,8 +182,14 @@ async def proc_refine_tasks(message: Message, state: FSMContext):
     await message.answer("🕔 Перегенерируем задания, ожидайте…")
     await state.clear()
 
+# --- Подтверждение ---
+@router.callback_query(F.data == "tasks_ok")
+async def cb_tasks_ok(callback: CallbackQuery):
+    await callback.answer("👍 Отлично!")
+    await callback.message.edit_reply_markup(None)
 
-# 6) Отмена
+
+# --- Отмена ---
 @router.callback_query(F.data == "back:chat")
 async def cb_back(callback: CallbackQuery):
     await callback.message.edit_text("Возвращаюсь в главное меню.")

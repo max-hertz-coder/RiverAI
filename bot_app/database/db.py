@@ -204,3 +204,62 @@ async def delete_user(user_id: int):
     pool = _get_pool()
     async with pool.acquire() as conn:
         await conn.execute("DELETE FROM users WHERE telegram_id=$1", user_id)
+
+# ---------- Usage & Stats Tracking ----------
+
+import asyncpg
+from bot_app.utils import encryption
+from datetime import datetime
+
+_pool: asyncpg.Pool = None
+
+async def init_db_pool(dsn: str):
+    global _pool
+    _pool = await asyncpg.create_pool(dsn)
+
+def _get_pool():
+    if _pool is None:
+        raise RuntimeError("Database pool is not initialized")
+    return _pool
+
+# --- Основной доступ
+async def get_user_by_tg_id(telegram_id: int):
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT * FROM users WHERE telegram_id=$1", telegram_id)
+        return dict(row) if row else None
+
+async def create_user(telegram_id: int, name: str):
+    pool = _get_pool()
+    now = datetime.now()
+    trial_end = now + timedelta(days=14)
+    async with pool.acquire() as conn:
+        await conn.execute("""
+            INSERT INTO users (telegram_id, name_enc, plan, usage_count, usage_limit, language, notifications, password_hash, ydisk_token_enc, subscription_expires, trial_used)
+            VALUES ($1, $2, 'standard', 0, 200, 'RU', true, '', '', $3, false)
+            ON CONFLICT (telegram_id) DO NOTHING
+        """, telegram_id, encryption.encrypt_str(name), trial_end)
+
+# --- Подписка
+async def set_subscription(user_id: int, plan: str, students: int, until_date):
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("""
+            UPDATE users
+            SET plan=$1, students_limit=$2, subscription_expires=$3
+            WHERE telegram_id=$4
+        """, plan, students, until_date, user_id)
+
+async def has_active_subscription(user_id: int) -> bool:
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchval("SELECT subscription_expires FROM users WHERE telegram_id=$1", user_id)
+        if row:
+            return datetime.fromisoformat(str(row)) > datetime.now()
+        return False
+
+# --- Пробный период
+async def mark_trial_used(user_id: int):
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("UPDATE users SET trial_used=true WHERE telegram_id=$1", user_id)
