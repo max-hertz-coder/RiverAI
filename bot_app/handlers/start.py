@@ -24,7 +24,7 @@ async def cmd_start(message: Message):
     )
 
     await message.reply(welcome, reply_markup=main_menu_kb(lang))
-    await message.answer(" ", reply_markup=bottom_menu_kb(lang))  # удалена точка
+    await message.answer(reply_markup=bottom_menu_kb(lang))
 
     if user and not user.get("yandex_token") and not user.get("hide_disk_prompt"):
         prompt_text = (
