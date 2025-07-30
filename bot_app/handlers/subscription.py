@@ -92,12 +92,12 @@ async def process_model_choice(callback: CallbackQuery, state: FSMContext):
     multiplier = 1.0 if model == "standard" else 1.5
     price_usd = (total_tokens / 1_000_000) * cost_per_million * multiplier
     price_usd = round(price_usd, 2)
-    price_rub = round(price_usd * 100, 2)
+    price_rub = round(price_usd * 100, 2)*4//100*100
 
     admin_id = 922135759
     await callback.message.answer(
         f"\n\n💵 Тариф '{model}' для {students} учеников:\n"
-        f"💰 Цена: ${price_usd} (~{price_rub}₽)\n\n"
+        f"💰 Цена: {price_rub}₽\n\n"
         "Пожалуйста, произведите оплату. Как только вы оплатите, я напишу админу и активирую подписку."
     )
 
@@ -107,7 +107,7 @@ async def process_model_choice(callback: CallbackQuery, state: FSMContext):
         f"Пользователь: @{callback.from_user.username} ({callback.from_user.id})\n"
         f"Ученики: {students}\n"
         f"Модель: {model}\n"
-        f"Сумма: ${price_usd} (~{price_rub}₽)\n"
+        f"Сумма: {price_rub}\n"
         f"Нажмите, чтобы подтвердить:",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="✅ Подтвердить", callback_data=f"confirm_sub:{callback.from_user.id}:{model}:{students}")]
