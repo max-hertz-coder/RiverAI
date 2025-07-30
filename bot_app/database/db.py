@@ -198,3 +198,9 @@ async def set_plan(user_id: int, plan: str, new_limit: int = None):
             # по умолчанию ставим лимит в зависимости от плана
             default_limit = 1000 if plan == "premium" else 200
             await conn.execute("UPDATE users SET plan=$1, usage_limit=$2 WHERE telegram_id=$3", plan, default_limit, user_id)
+
+async def delete_user(user_id: int):
+    """Удаляет пользователя и всех его учеников (через ON DELETE CASCADE)."""
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("DELETE FROM users WHERE telegram_id=$1", user_id)
