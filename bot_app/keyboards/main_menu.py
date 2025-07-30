@@ -18,6 +18,12 @@ def main_menu_kb(lang: str = "RU") -> InlineKeyboardMarkup:
     kb.adjust(1)
     return kb.as_markup()
 
+def back_button(text: str = "← Назад", cb_data: str = "back:main") -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(text=text, callback_data=cb_data)
+    kb.adjust(1)
+    return kb.as_markup()
+
 def bottom_menu_kb(lang: str = "RU") -> ReplyKeyboardMarkup:
     labels = (
         ["👤 Students", "➕ Add Student", "⚙️ Settings", "💳 Payment"]
