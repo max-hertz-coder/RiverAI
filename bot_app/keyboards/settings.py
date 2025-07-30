@@ -5,12 +5,12 @@ def settings_menu_kb(lang: str = "RU"):
     if lang.upper() == "EN":
         kb.button(text="🔗 Connect Yandex.Disk", callback_data="set_ydisk_token")
         kb.button(text="✏️ Replace API Yandex.Disk", callback_data="edit_ydisk_token")
-        kb.button(text="🗑 Delete Account", callback_data="delete_account")
+        #kb.button(text="🗑 Delete Account", callback_data="delete_account")
         kb.button(text="← Back",        callback_data="back:main")
     else:
         kb.button(text="🔗 Подключить Яндекс.Диск", callback_data="set_ydisk_token")
         kb.button(text="✏️ Изменить токен Я.Диска", callback_data="edit_ydisk_token")
-        kb.button(text="🗑 Удалить аккаунт", callback_data="delete_account")
+        #kb.button(text="🗑 Удалить аккаунт", callback_data="delete_account")
         kb.button(text="← Назад", callback_data="back:main")
     kb.adjust(1)
     return kb.as_markup()

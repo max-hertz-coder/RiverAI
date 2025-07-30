@@ -31,14 +31,21 @@ async def cmd_start(message: Message):
     await message.answer("⬇ Меню под полем ввода:", reply_markup=bottom_menu_kb(lang))
 
     # 3. Предложение подключить Яндекс.Диск
-    if user and not decrypt_str(user.get("ydisk_token_enc", "")) and not user.get("hide_disk_prompt"):
-        prompt_text = (
-            "📦 Вы ещё не подключили Яндекс.Диск!\n"
-            "Подключите, чтобы сохранять PDF-документы и отчёты в облако."
-            if lang == "RU"
-            else "📦 You haven't connected Yandex.Disk yet!\nConnect it to store PDF reports in the cloud."
-        )
-        await message.answer(prompt_text, reply_markup=yandex_prompt_kb(lang))
+    if user:
+        token_enc = user.get("ydisk_token_enc", "")
+        try:
+            token = decrypt_str(token_enc)
+        except Exception:
+            token = ""
+
+        if not token and not user.get("hide_disk_prompt"):
+            prompt_text = (
+                "📦 Вы ещё не подключили Яндекс.Диск!\n"
+                "Подключите, чтобы сохранять PDF-документы и отчёты в облако."
+                if lang == "RU"
+                else "📦 You haven't connected Yandex.Disk yet!\nConnect it to store PDF reports in the cloud."
+            )
+            await message.answer(prompt_text, reply_markup=yandex_prompt_kb(lang))
 
 
 @router.callback_query(F.data == "back:main")
