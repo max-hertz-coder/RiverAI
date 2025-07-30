@@ -1,5 +1,7 @@
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, Message
+from aiogram.filters import Text
+
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.filters.state import StateFilter
@@ -74,6 +76,7 @@ async def process_edit_token(message: Message, state: FSMContext):
     text = "Настройки профиля:" if lang == "RU" else "Profile Settings:"
     await message.answer(text, reply_markup=settings_kb.settings_menu_kb(lang))
 
-@router.message(F.text.lower() == "⚙️ Настройки")
+
+@router.message(Text("⚙️ Настройки"))
 async def msg_settings_menu(message: Message):
     await cb_settings(message)
