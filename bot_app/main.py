@@ -58,6 +58,11 @@ async def consume_results(bot: Bot):
 
 async def on_startup(bot_: Bot, dp: Dispatcher):
     logging.info("🚀 Startup: очищаем команды и инициализируем сервисы")
+    logging.info("🔧 Проверяем конфигурацию RabbitMQ:")
+    logging.info(f"  RABBITMQ_HOST: {app_config.RABBITMQ_HOST}")
+    logging.info(f"  RABBITMQ_PORT: {app_config.RABBITMQ_PORT}")
+    logging.info(f"  RABBITMQ_USER: {app_config.RABBITMQ_USER}")
+    logging.info(f"  RESULT_QUEUE: {app_config.RESULT_QUEUE}")
 
     # Удаляем все старые команды
     await bot_.delete_my_commands(scope=BotCommandScopeDefault(), language_code="ru")
@@ -74,14 +79,8 @@ async def on_startup(bot_: Bot, dp: Dispatcher):
         BotCommand("back",  "End chat with GPT"),
     ], language_code="en")
 
-    # Запускаем фоновую задачу обработки результатов из RabbitMQ
-    logging.info("🚀 Запускаем обработчик результатов из RabbitMQ...")
-    try:
-        task = asyncio.create_task(consume_results(bot_))
-        logging.info("✅ Обработчик результатов запущен")
-    except Exception as e:
-        logging.error(f"🔴 Ошибка запуска обработчика результатов: {e}")
-        raise
+    # Обработчик результатов запускается в main()
+    logging.info("✅ Startup завершен")
 
 
 async def on_shutdown(bot_: Bot, dp: Dispatcher):
@@ -130,13 +129,23 @@ async def main():
     dp.include_router(subscription_router)
     dp.include_router(settings_router)
     
-    # Запуск polling
-    await dp.start_polling(
-        bot,
-        skip_updates=True,
-        on_startup=on_startup,
-        on_shutdown=on_shutdown
+    # Запускаем polling в отдельной задаче
+    polling_task = asyncio.create_task(
+        dp.start_polling(
+            bot,
+            skip_updates=True,
+            on_startup=on_startup,
+            on_shutdown=on_shutdown
+        )
     )
+    
+    # Запускаем обработчик результатов из RabbitMQ
+    logging.info("🚀 Запускаем обработчик результатов из RabbitMQ...")
+    consume_task = asyncio.create_task(consume_results(bot))
+    logging.info("✅ Обработчик результатов запущен")
+    
+    # Ждём завершения polling (это блокирует выполнение)
+    await polling_task
 
 
 if __name__ == "__main__":
