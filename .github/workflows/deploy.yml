@@ -10,41 +10,34 @@ jobs:
     strategy:
       matrix:
         include:
-          - name: очередь (RU)
+          - name: очередь_RU
             host: 176.123.160.130
-            secret_key: SSH_PRIVATE_KEY_QUEUE
+            secret_key: SSH_KEY_QUEUE
             role: queue
-            username: user1
-          - name: основной (RU)
+          - name: основной_RU
             host: 176.123.160.14
-            secret_key: SSH_PRIVATE_KEY_MAIN
+            secret_key: SSH_KEY_BASED
             role: app
-            username: user1
-          - name: очередь (NL)
+          - name: очередь
             host: 185.200.176.96
             secret_key: SSH_KEY_QUEUE
             role: queue
-            username: root
-          - name: основной (NL)
+          - name: основной
             host: 185.200.176.99
             secret_key: SSH_KEY_BASED
             role: app
-            username: root
-          - name: резервный (NL)
+          - name: резервный
             host: 185.200.176.97
             secret_key: SSH_KEY_RESERVE
             role: app
-            username: root
           - name: воркер1
             host: 185.200.176.95
             secret_key: SSH_KEY_WORKER
             role: app
-            username: root
           - name: воркер2
             host: 185.200.176.98
             secret_key: SSH_KEY_WORKER
             role: app
-            username: root
 
     steps:
       - name: Checkout repository
@@ -59,41 +52,29 @@ jobs:
         uses: appleboy/ssh-action@v1.2.2
         with:
           host: ${{ matrix.host }}
-          username: ${{ matrix.username }}
+          username: root
           key: ${{ secrets[matrix.secret_key] }}
           script: |
-            echo "--- DEPLOY START ---"
-            set -e
-            mkdir -p /opt/RiverAI
-
-            # Проверка наличия репозитория
+            # 1. Клонирование репозитория (если не было) или обновление кода
             if [ ! -d /opt/RiverAI/.git ]; then
-              git clone https://github.com/max-hertz-coder/RiverAI.git /opt/RiverAI
+              git clone git@github.com:max-hertz-coder/RiverAI.git /opt/RiverAI
             fi
             cd /opt/RiverAI
+            # В случае локальных изменений или новых файлов: сбросим незамеченные файлы чтобы pull не прерывался
+            git pull origin main || { git fetch origin main && git reset --hard origin/main && git clean -fd; }
 
-            # Жёсткий сброс и обновление
-            git fetch origin main
-            git reset --hard origin/main
-            git clean -fd
-
-            # Логирование
-            mkdir -p logs
-            exec > >(tee -a logs/deploy.log) 2>&1
+            # 2. Логирование в файл /opt/RiverAI/deploy.log
+            mkdir -p /opt/RiverAI  # на случай, если каталог ещё не существует
+            exec > >(tee -a /opt/RiverAI/deploy.log) 2>&1
             echo "$(date +'%F %T') — Начало деплоя на сервере ${{ matrix.name }}"
 
-            # Переход в папку очереди, если нужно
+            # 3. Переход в нужную папку с docker-compose 
             if [ "${{ matrix.role }}" = "queue" ]; then
+              # для сервера очереди используем compose-файл из каталога queue
               cd queue
             fi
 
-            # Универсальный вызов docker-compose
-            if command -v docker compose &> /dev/null; then
-              docker compose up -d --build --remove-orphans
-            else
-              docker-compose up -d --build --remove-orphans
-            fi
+            # 4. Запуск/обновление контейнеров
+            docker compose up -d --build --remove-orphans
 
             echo "$(date +'%F %T') — Деплой успешно завершён на сервере ${{ matrix.name }}"
-            echo "--- DEPLOY END ---"
-
