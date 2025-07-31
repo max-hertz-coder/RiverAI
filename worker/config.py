@@ -31,10 +31,6 @@ if not OPENAI_API_KEYS:
     raise RuntimeError("OPENAI_API_KEYS not set")
 
 
-# Чтение токена Telegram-бота для прямой отправки результатов
-BOT_TOKEN = os.getenv("BOT_TOKEN", "")
-
-
 # Encryption key (hex-строка 64 символа → 32 байта)
 _key_str = os.getenv("ENCRYPTION_KEY")
 if not _key_str:

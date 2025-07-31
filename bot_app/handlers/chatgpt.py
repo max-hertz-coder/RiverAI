@@ -7,8 +7,8 @@ from aiogram.fsm.state import StatesGroup, State
 
 import bot_app
 from bot_app import config
-from bot_app import config
 from bot_app.keyboards.chat_menu import chat_menu_kb
+from bot_app.utils.task_utils import create_task_with_context
 
 
 router = Router()
@@ -43,9 +43,12 @@ async def cb_chat_msg(message: Message, state: FSMContext):
     }
 
     try:
+        # Создаем задачу с контекстом
+        task_with_context = await create_task_with_context(task)
+        
         if bot_app.rabbit_channel:
             await bot_app.rabbit_channel.default_exchange.publish(
-                aio_pika.Message(body=json.dumps(task).encode("utf-8")),
+                aio_pika.Message(body=json.dumps(task_with_context).encode("utf-8")),
                 routing_key=config.TASK_QUEUE
             )
         else:
@@ -57,7 +60,7 @@ async def cb_chat_msg(message: Message, state: FSMContext):
             )
             ch = await conn.channel()
             await ch.default_exchange.publish(
-                aio_pika.Message(body=json.dumps(task).encode("utf-8")),
+                aio_pika.Message(body=json.dumps(task_with_context).encode("utf-8")),
                 routing_key=config.TASK_QUEUE
             )
             await conn.close()

@@ -5,14 +5,18 @@ async def handle_check_homework(task: dict) -> dict:
     """
     Проверка домашнего задания — отправка текста на ревью.
     """
-    user_id = task["user_id"]
-    student_id = task["student_id"]
+    task_id = task.get("task_id")
     text = task.get("text", "").strip()
+
+    if not task_id:
+        return {
+            "type": "error",
+            "message": "Отсутствует task_id."
+        }
 
     if not text:
         return {
             "type": "error",
-            "user_id": user_id,
             "message": "❌ Не передан текст для проверки"
         }
 
@@ -32,14 +36,11 @@ async def handle_check_homework(task: dict) -> dict:
         )
         return {
             "type": "check",
-            "user_id": user_id,
-            "student_id": student_id,
             "report_text": answer
         }
     except Exception as e:
         logging.exception("Ошибка в check_homework")
         return {
             "type": "error",
-            "user_id": user_id,
             "message": f"GPT error: {e}"
         }

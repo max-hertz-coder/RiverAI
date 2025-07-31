@@ -9,6 +9,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 
 from bot_app import rabbit_channel, config
+from bot_app.utils.task_utils import create_task_with_context
 
 router = Router()
 
@@ -18,9 +19,12 @@ class OCRGenFSM(StatesGroup):
 async def _send_task(task: dict):
     """Универсальная отправка задачи в RabbitMQ."""
     try:
+        # Создаем задачу с контекстом
+        task_with_context = await create_task_with_context(task)
+        
         if rabbit_channel:
             await rabbit_channel.default_exchange.publish(
-                aio_pika.Message(body=json.dumps(task).encode()),
+                aio_pika.Message(body=json.dumps(task_with_context).encode()),
                 routing_key=config.TASK_QUEUE
             )
         else:
@@ -32,7 +36,7 @@ async def _send_task(task: dict):
             )
             ch = await conn.channel()
             await ch.default_exchange.publish(
-                aio_pika.Message(body=json.dumps(task).encode()),
+                aio_pika.Message(body=json.dumps(task_with_context).encode()),
                 routing_key=config.TASK_QUEUE
             )
             await conn.close()

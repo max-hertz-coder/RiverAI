@@ -7,6 +7,7 @@ import asyncio
 from dotenv import load_dotenv
 import fitz  # PyMuPDF
 from openai import OpenAI
+from common.redis_utils import get_context_by_task_id
 
 load_dotenv()
 OPENAI_KEY = os.getenv("OPENAI_API_KEY")
@@ -75,21 +76,23 @@ async def handle_ocr(task: dict) -> dict:
     """
     Сервис для чистого OCR:
     принимает task с полями file_data, file_name, prompt
-    возвращает {'type':'ocr', 'user_id':..., 'student_id':..., 'text':..., 'prompt':...}
+    возвращает {'type':'ocr', 'text':..., 'prompt':...}
     """
-    user_id    = task.get("user_id")
-    student_id = task.get("student_id")
-    prompt     = (task.get("prompt") or "").strip()
+    task_id = task.get("task_id")
+    prompt = (task.get("prompt") or "").strip()
+
+    if not task_id:
+        return {"type": "error", "message": "Отсутствует task_id."}
 
     file_data = task.get("file_data")
     if not file_data:
-        return {"type": "error", "user_id": user_id, "message": "Нет данных для OCR."}
+        return {"type": "error", "message": "Нет данных для OCR."}
 
     try:
         data = base64.b64decode(file_data)
     except Exception as e:
         logger.error("Ошибка base64 декодирования OCR-файла: %s", e)
-        return {"type": "error", "user_id": user_id, "message": "Невалидные данные файла."}
+        return {"type": "error", "message": "Невалидные данные файла."}
 
     suffix = os.path.splitext(task.get("file_name", "file"))[1] or ".jpg"
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
@@ -101,18 +104,16 @@ async def handle_ocr(task: dict) -> dict:
     except Exception:
         logger.exception("OCR failure")
         os.remove(tmp.name)
-        return {"type": "error", "user_id": user_id, "message": "Ошибка OCR-сервиса."}
+        return {"type": "error", "message": "Ошибка OCR-сервиса."}
     finally:
         if os.path.exists(tmp.name):
             os.remove(tmp.name)
 
     if not text:
-        return {"type": "error", "user_id": user_id, "message": "Не удалось распознать текст."}
+        return {"type": "error", "message": "Не удалось распознать текст."}
 
     return {
         "type": "ocr",
-        "user_id": user_id,
-        "student_id": student_id,
         "text": text,
         "prompt": prompt
     }
@@ -126,16 +127,18 @@ async def handle_ocr_and_generate(task: dict) -> dict:
     - вызывает handle_tasks для генерации PDF
     - добавляет в ответ поле 'prompt' с финальным запросом
     """
-    user_id     = task.get("user_id")
-    student_id  = task.get("student_id")
+    task_id = task.get("task_id")
     user_prompt = (task.get("prompt") or "").strip()
+
+    if not task_id:
+        return {"type": "error", "message": "Отсутствует task_id."}
 
     # Декодируем файл
     try:
         data = base64.b64decode(task["file_data"])
     except Exception as e:
         logger.error("OCR+Gen: ошибка декодирования: %s", e)
-        return {"type": "error", "user_id": user_id, "message": "Ошибка обработки файла."}
+        return {"type": "error", "message": "Ошибка обработки файла."}
 
     suffix = os.path.splitext(task.get("file_name", ""))[1] or ".jpg"
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
@@ -147,13 +150,13 @@ async def handle_ocr_and_generate(task: dict) -> dict:
     except Exception:
         logger.exception("OCR+Gen: ошибка OCR")
         os.remove(tmp.name)
-        return {"type": "error", "user_id": user_id, "message": "Ошибка OCR."}
+        return {"type": "error", "message": "Ошибка OCR."}
     finally:
         if os.path.exists(tmp.name):
             os.remove(tmp.name)
 
     if not ocr_text:
-        return {"type": "error", "user_id": user_id, "message": "Не удалось распознать текст."}
+        return {"type": "error", "message": "Не удалось распознать текст."}
 
     final_prompt = f"{user_prompt}\n\n{ocr_text}" if user_prompt else ocr_text
 
@@ -161,9 +164,8 @@ async def handle_ocr_and_generate(task: dict) -> dict:
     from worker.services.tasks_service import handle_tasks
 
     gen_task = {
+        "task_id": task_id,
         "type": "generate_tasks",
-        "user_id": user_id,
-        "student_id": student_id,
         "prompt": final_prompt
     }
     result = await handle_tasks(gen_task)

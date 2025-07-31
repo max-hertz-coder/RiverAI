@@ -6,7 +6,6 @@ logger = logging.getLogger(__name__)
 
 async def handle_tasks(task: dict) -> None:
     task_id     = task.get("task_id")
-    student_id  = task.get("student_id")
     task_type   = task.get("type")
     prompt      = task.get("prompt", "").strip()
     raw_tasks   = task.get("tasks_text", "")

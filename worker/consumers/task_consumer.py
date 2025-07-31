@@ -5,15 +5,18 @@ from worker.services.plan_service import handle_plan
 from worker.services.tasks_service import handle_tasks
 from worker.tasks.check_homework import handle_check_homework
 from worker.services.chat_service import handle_chat
-from worker import redis_cache
+from common.redis_utils import clear_conversation
 
 async def process_task_message(task: dict) -> dict | None:
     """
     Обрабатывает задачу из очереди task_queue и возвращает результат или None.
     """
-    user_id = task.get("user_id")
-    student_id = task.get("student_id")
+    task_id = task.get("task_id")
     task_type = task.get("type")
+
+    if not task_id:
+        logging.error("🔴 Task missing task_id")
+        return None
 
     try:
         if task_type == "ocr_and_generate":
@@ -36,11 +39,20 @@ async def process_task_message(task: dict) -> dict | None:
 
         if task_type == "end_chat":
             # Очищаем историю диалога
-            await redis_cache.clear_conversation(user_id, student_id)
+            # Получаем контекст из Redis для получения user_id и student_id
+            from common.redis_utils import get_context_by_task_id
+            context = await get_context_by_task_id(task_id)
+            if context:
+                user_id = context.get("user_id")
+                student_id = context.get("student_id")
+                if user_id and student_id:
+                    await clear_conversation(user_id, student_id)
+                    return {
+                        "type": "chat",
+                        "answer": "🗑️ Диалог очищен."
+                    }
             return {
                 "type": "chat",
-                "user_id": user_id,
-                "student_id": student_id,
                 "answer": "🗑️ Диалог очищен."
             }
 
@@ -50,7 +62,6 @@ async def process_task_message(task: dict) -> dict | None:
         logging.exception("🔴 Error processing task %r", task)
         return {
             "type": "error",
-            "user_id": user_id,
             "message": "Внутренняя ошибка обработки задачи."
         }
 

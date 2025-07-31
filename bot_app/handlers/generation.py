@@ -13,6 +13,7 @@ from bot_app import config, rabbit_channel
 from bot_app.rabbit import pending_tasks
 from bot_app.keyboards.main_menu import back_button
 from bot_app.database import db
+from bot_app.utils.task_utils import create_task_with_context
 
 router = Router()
 
@@ -31,9 +32,12 @@ async def has_active_sub(user_id: int) -> bool:
 # --- Отправка задачи ---
 async def _send_task(task: dict):
     try:
+        # Создаем задачу с контекстом
+        task_with_context = await create_task_with_context(task)
+        
         if rabbit_channel:
             await rabbit_channel.default_exchange.publish(
-                aio_pika.Message(body=json.dumps(task).encode()),
+                aio_pika.Message(body=json.dumps(task_with_context).encode()),
                 routing_key=config.TASK_QUEUE
             )
         else:
@@ -45,7 +49,7 @@ async def _send_task(task: dict):
             )
             ch = await conn.channel()
             await ch.default_exchange.publish(
-                aio_pika.Message(body=json.dumps(task).encode()),
+                aio_pika.Message(body=json.dumps(task_with_context).encode()),
                 routing_key=config.TASK_QUEUE
             )
             await conn.close()
@@ -106,7 +110,7 @@ async def doc_to_generate(message: Message, bot: Bot):
         "prompt": caption,
     }
     await _send_task(task)
-    await message.answer("🕔 Распознаю и генерирую задания, ожидайте PDF…")
+    await message.answer("�� Распознаю и генерирую задания, ожидайте PDF…")
 
 
 # --- Кнопка генерации ---

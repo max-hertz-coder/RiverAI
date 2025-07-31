@@ -3,6 +3,7 @@
 import os
 import asyncio
 from openai import OpenAI
+from common.redis_utils import get_context_by_task_id
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
@@ -33,29 +34,30 @@ def _sync_generate_plan(prompt: str) -> str:
     return text
 
 async def handle_plan(task: dict) -> dict:
-    user_id = task.get("user_id")
-    student_id = task.get("student_id")
-    prompt = task.get("prompt", "").strip()
+    task_id = task.get("task_id")
+    description = task.get("description", "").strip()
 
-    if not prompt:
+    if not task_id:
         return {
             "type": "error",
-            "user_id": user_id,
+            "message": "Отсутствует task_id."
+        }
+
+    if not description:
+        return {
+            "type": "error",
             "message": "Описание плана не указано."
         }
 
     try:
-        plan_text = await asyncio.to_thread(_sync_generate_plan, prompt)
+        plan_text = await asyncio.to_thread(_sync_generate_plan, description)
     except Exception as e:
         return {
             "type": "error",
-            "user_id": user_id,
             "message": f"Ошибка при генерации плана: {e}"
         }
 
     return {
         "type": "plan",
-        "user_id": user_id,
-        "student_id": student_id,
         "plan_text": plan_text.strip()
     }
