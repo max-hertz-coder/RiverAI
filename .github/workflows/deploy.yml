@@ -11,33 +11,40 @@ jobs:
       matrix:
         include:
           - name: очередь (RU)
-            host: ${{ secrets.HOST_QUEUE_RU }}
+            host: 176.123.160.130
             secret_key: SSH_PRIVATE_KEY_QUEUE
             role: queue
+            username: user1
           - name: основной (RU)
-            host: ${{ secrets.HOST_MAIN_RU }}
+            host: 176.123.160.14
             secret_key: SSH_PRIVATE_KEY_MAIN
             role: app
+            username: user1
           - name: очередь (NL)
             host: 185.200.176.96
             secret_key: SSH_KEY_QUEUE
             role: queue
+            username: root
           - name: основной (NL)
             host: 185.200.176.99
             secret_key: SSH_KEY_BASED
             role: app
+            username: root
           - name: резервный (NL)
             host: 185.200.176.97
             secret_key: SSH_KEY_RESERVE
             role: app
+            username: root
           - name: воркер1
             host: 185.200.176.95
             secret_key: SSH_KEY_WORKER
             role: app
+            username: root
           - name: воркер2
             host: 185.200.176.98
             secret_key: SSH_KEY_WORKER
             role: app
+            username: root
 
     steps:
       - name: Checkout repository
@@ -52,26 +59,40 @@ jobs:
         uses: appleboy/ssh-action@v1.2.2
         with:
           host: ${{ matrix.host }}
-          username: user1
+          username: ${{ matrix.username }}
           key: ${{ secrets[matrix.secret_key] }}
           script: |
+            echo "--- DEPLOY START ---"
+            set -e
             mkdir -p /opt/RiverAI
-            cd /opt
 
-            if [ ! -d RiverAI/.git ]; then
-              git clone git@github.com:max-hertz-coder/RiverAI.git RiverAI
+            # Проверка наличия репозитория
+            if [ ! -d /opt/RiverAI/.git ]; then
+              git clone https://github.com/max-hertz-coder/RiverAI.git /opt/RiverAI
             fi
-            cd RiverAI
-            git pull origin main || { git fetch origin main && git reset --hard origin/main && git clean -fd; }
+            cd /opt/RiverAI
 
-            mkdir -p /opt/RiverAI/logs
-            exec > >(tee -a /opt/RiverAI/logs/deploy.log) 2>&1
+            # Жёсткий сброс и обновление
+            git fetch origin main
+            git reset --hard origin/main
+            git clean -fd
+
+            # Логирование
+            mkdir -p logs
+            exec > >(tee -a logs/deploy.log) 2>&1
             echo "$(date +'%F %T') — Начало деплоя на сервере ${{ matrix.name }}"
 
+            # Переход в папку очереди, если нужно
             if [ "${{ matrix.role }}" = "queue" ]; then
               cd queue
             fi
 
-            docker compose up -d --build --remove-orphans
+            # Универсальный вызов docker-compose
+            if command -v docker compose &> /dev/null; then
+              docker compose up -d --build --remove-orphans
+            else
+              docker-compose up -d --build --remove-orphans
+            fi
 
             echo "$(date +'%F %T') — Деплой успешно завершён на сервере ${{ matrix.name }}"
+            echo "--- DEPLOY END ---"
