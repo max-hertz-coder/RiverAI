@@ -35,3 +35,19 @@ async def get_raw_tasks(user_id: int, student_id: int) -> str | None:
     """
     key = f"raw_tasks:{user_id}:{student_id}"
     return await _get_client().get(key)
+
+
+import json
+
+async def save_context(task_id: str, context: dict):
+    key = f"task_context:{task_id}"
+    await _get_client().set(key, json.dumps(context), ex=3600)
+
+async def get_context_by_task_id(task_id: str) -> dict | None:
+    key = f"task_context:{task_id}"
+    data = await _get_client().get(key)
+    return json.loads(data) if data else None
+
+async def delete_context_by_task_id(task_id: str) -> None:
+    key = f"task_context:{task_id}"
+    await _get_client().delete(key)
