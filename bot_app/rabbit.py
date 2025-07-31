@@ -1,10 +1,11 @@
+### ✅ ОБНОВЛЕННЫЙ ФАЙЛ: bot_app/rabbit.py
+
 import json
 import logging
 from io import BytesIO
 import base64
-
-from aio_pika import IncomingMessage
 from aiogram import Bot
+from bot_app.redis_cache import get_context_by_task_id, delete_context_by_task_id
 from bot_app.keyboards.chat_menu import (
     chat_gpt_back_kb,
     result_plan_kb,
@@ -12,10 +13,9 @@ from bot_app.keyboards.chat_menu import (
     result_check_kb
 )
 
-# В памяти храним последний текст задач по (user_id, student_id)
 pending_tasks: dict[tuple[int, int], str] = {}
 
-async def process_result(message: IncomingMessage, bot: Bot):
+async def process_result(message, bot: Bot):
     async with message.process():
         try:
             data = json.loads(message.body)
@@ -24,79 +24,50 @@ async def process_result(message: IncomingMessage, bot: Bot):
             logging.error(f"❌ Не удалось разобрать JSON: {e}")
             return
 
-        user_id    = data.get("user_id")
-        t          = data.get("type")
-        student_id = data.get("student_id")
+        task_id = data.get("task_id")
+        if not task_id:
+            logging.warning("⚠️ В результате нет task_id")
+            return
+
+        context = await get_context_by_task_id(task_id)
+        if not context:
+            logging.warning(f"⚠️ Контекст не найден для task_id={task_id}")
+            return
+
+        user_id = context.get("user_id")
+        student_id = context.get("student_id")
+        t = data.get("type")
 
         if not user_id or not t:
             logging.warning("⚠️ В результате нет user_id или type")
             return
 
-        # — Chat —
-        if t == "chat":
-            await bot.send_message(
-                user_id,
-                data.get("answer", "(нет ответа)"),
-                reply_markup=chat_gpt_back_kb()
-            )
-            return
-
-        # — Plan —
-        if t == "plan":
-            await bot.send_message(
-                user_id,
-                f"📄 План:\n{data.get('plan_text', '(пусто)')}",
-                reply_markup=result_plan_kb(student_id)
-            )
-            return
-
         # — Tasks —
         if t == "tasks":
-            # сохраняем чистый текст задач
             raw = data.get("tasks_text", "").strip()
             pending_tasks[(user_id, student_id)] = raw
 
-            # отправляем текст и кнопки
             await bot.send_message(
                 user_id,
                 f"📝 Задания:\n{raw}",
                 reply_markup=result_tasks_kb(student_id)
             )
-            return
 
-        # — Homework check —
-        if t == "check":
-            await bot.send_message(
-                user_id,
-                f"✔️ Результаты проверки:\n{data.get('report_text', '(нет отчёта)')}",
-                reply_markup=result_check_kb(student_id)
-            )
-            file_b64 = data.get("file")
-            if file_b64:
-                file_bytes = base64.b64decode(file_b64)
+            file_tasks_b64 = data.get("file_tasks")
+            file_solutions_b64 = data.get("file_solutions")
+
+            if file_tasks_b64:
+                file_bytes = base64.b64decode(file_tasks_b64)
                 file_obj = BytesIO(file_bytes)
-                file_obj.name = "Homework_Report.pdf"
-                await bot.send_document(
-                    user_id,
-                    file_obj,
-                    caption="📎 Отчёт в PDF"
-                )
-            return
+                file_obj.name = "Tasks.pdf"
+                await bot.send_document(user_id, file_obj, caption="📎 PDF: Задания")
 
-        # — OCR only —
-        if t == "ocr":
-            await bot.send_message(
-                user_id,
-                f"🖼️ Распознанный текст:\n{data.get('text', '(пусто)')}"
-            )
-            return
+            if file_solutions_b64:
+                file_bytes = base64.b64decode(file_solutions_b64)
+                file_obj = BytesIO(file_bytes)
+                file_obj.name = "Solutions.pdf"
+                await bot.send_document(user_id, file_obj, caption="📎 PDF: Решения")
 
-        # — Error —
-        if t == "error":
-            await bot.send_message(
-                user_id,
-                f"⚠️ Ошибка: {data.get('message', 'Неизвестная ошибка')}"
-            )
-            return
+            logging.info(f"✅ Отправлено пользователю {user_id} по task_id={task_id}")
 
-        logging.warning(f"❓ Неизвестный тип результата: {t}")
+        await delete_context_by_task_id(task_id)
