@@ -19,7 +19,7 @@ async def process_result(message, bot: Bot):
     async with message.process():
         try:
             data = json.loads(message.body)
-            logging.info(f"📥 Результат из очереди: {data}")
+            logging.info(f"📥 Получен результат из очереди: task_id={data.get('task_id')}, type={data.get('type')}")
         except Exception as e:
             logging.error(f"❌ Не удалось разобрать JSON: {e}")
             return

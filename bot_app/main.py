@@ -26,6 +26,12 @@ from bot_app.handlers.settings import router as settings_router
 
 
 async def consume_results(bot: Bot):
+    logging.info(f"🔧 Подключение к RabbitMQ для result_queue:")
+    logging.info(f"  Host: {app_config.RABBITMQ_HOST}")
+    logging.info(f"  Port: {app_config.RABBITMQ_PORT}")
+    logging.info(f"  User: {app_config.RABBITMQ_USER}")
+    logging.info(f"  Queue: {app_config.RESULT_QUEUE}")
+    
     connection = await aio_pika.connect_robust(
         host=app_config.RABBITMQ_HOST,
         port=app_config.RABBITMQ_PORT,
@@ -35,6 +41,8 @@ async def consume_results(bot: Bot):
     channel = await connection.channel()
     await channel.set_qos(prefetch_count=5)
     queue = await channel.declare_queue(app_config.RESULT_QUEUE, durable=True)
+    
+    logging.info(f"✅ Подписались на очередь '{app_config.RESULT_QUEUE}', ожидаем результаты...")
 
     async with queue.iterator() as queue_iter:
         async for message in queue_iter:
