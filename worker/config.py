@@ -26,6 +26,13 @@ RABBITMQ_PASS = os.getenv("RABBITMQ_PASS")
 TASK_QUEUE   = os.getenv("RABBITMQ_TASK_QUEUE",   "task_queue")
 RESULT_QUEUE = os.getenv("RABBITMQ_RESULT_QUEUE", "result_queue")
 
+# Отладочная информация
+print(f"🔧 Worker config loaded:")
+print(f"  RABBITMQ_HOST: {RABBITMQ_HOST}")
+print(f"  RABBITMQ_PORT: {RABBITMQ_PORT}")
+print(f"  RABBITMQ_USER: {RABBITMQ_USER}")
+print(f"  RESULT_QUEUE: {RESULT_QUEUE}")
+
 OPENAI_API_KEYS = [k.strip() for k in os.getenv("OPENAI_API_KEYS", "").split(",") if k.strip()]
 if not OPENAI_API_KEYS:
     raise RuntimeError("OPENAI_API_KEYS not set")

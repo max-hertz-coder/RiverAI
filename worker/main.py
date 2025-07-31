@@ -39,6 +39,12 @@ async def handle_message(message: aio_pika.IncomingMessage) -> None:
             # Добавляем task_id к результату
             result["task_id"] = task_id
             
+            logging.info(f"📤 Отправляем результат в RabbitMQ:")
+            logging.info(f"  Host: {config.RABBITMQ_HOST}")
+            logging.info(f"  Port: {config.RABBITMQ_PORT}")
+            logging.info(f"  User: {config.RABBITMQ_USER}")
+            logging.info(f"  Queue: {config.RESULT_QUEUE}")
+            
             connection = await aio_pika.connect_robust(
                 host=config.RABBITMQ_HOST,
                 port=config.RABBITMQ_PORT,
@@ -62,13 +68,16 @@ async def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s | %(message)s")
 
     # 1) Инициализация Redis
+    logging.info(f"🔧 Инициализация Redis: {config.REDIS_HOST}:{config.REDIS_PORT}")
     await init_redis_pool(config.REDIS_HOST, config.REDIS_PORT, config.REDIS_DB)
 
     # 2) Инициализация PostgreSQL
+    logging.info(f"🔧 Инициализация PostgreSQL: {config.DB_HOST}:{config.DB_PORT}")
     dsn = f"postgresql://{config.DB_USER}:{config.DB_PASSWORD}@{config.DB_HOST}:{config.DB_PORT}/{config.DB_NAME}"
     await db.init_db_pool(dsn)
 
     # 3) Подключение к RabbitMQ и подписка
+    logging.info(f"🔧 Подключение к RabbitMQ: {config.RABBITMQ_HOST}:{config.RABBITMQ_PORT}")
     connection = await aio_pika.connect_robust(
         host=config.RABBITMQ_HOST,
         port=config.RABBITMQ_PORT,
