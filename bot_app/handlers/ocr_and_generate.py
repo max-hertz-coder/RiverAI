@@ -1,5 +1,6 @@
 import json
 import base64
+import logging
 from io import BytesIO
 
 import aio_pika
@@ -41,7 +42,7 @@ async def _send_task(task: dict):
             )
             await conn.close()
     except Exception:
-        router.logger.exception("Ошибка отправки задачи в очередь")
+        logging.exception("Ошибка отправки задачи в очередь")
 
 
 @router.message(F.photo)

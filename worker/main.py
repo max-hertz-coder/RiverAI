@@ -5,7 +5,8 @@ import json
 
 import aio_pika
 
-from worker import config, db, redis_cache
+from worker import config, db
+from common.redis_utils import init_redis_pool
 from worker.consumers import task_consumer
 
 async def handle_message(message: aio_pika.IncomingMessage) -> None:
@@ -60,12 +61,12 @@ async def handle_message(message: aio_pika.IncomingMessage) -> None:
 async def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s | %(message)s")
 
-    # 1) Инициализация PostgreSQL
+    # 1) Инициализация Redis
+    await init_redis_pool(config.REDIS_HOST, config.REDIS_PORT, config.REDIS_DB)
+
+    # 2) Инициализация PostgreSQL
     dsn = f"postgresql://{config.DB_USER}:{config.DB_PASSWORD}@{config.DB_HOST}:{config.DB_PORT}/{config.DB_NAME}"
     await db.init_db_pool(dsn)
-
-    # 2) Инициализация Redis
-    await redis_cache.init_redis_pool(config.REDIS_HOST, config.REDIS_PORT, config.REDIS_DB)
 
     # 3) Подключение к RabbitMQ и подписка
     connection = await aio_pika.connect_robust(

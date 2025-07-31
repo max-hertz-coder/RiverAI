@@ -1,5 +1,6 @@
 import json
 import base64
+import logging
 from io import BytesIO
 from datetime import datetime
 
@@ -54,7 +55,7 @@ async def _send_task(task: dict):
             )
             await conn.close()
     except Exception:
-        router.logger.exception("Ошибка отправки задачи в очередь")
+        logging.exception("Ошибка отправки задачи в очередь")
 
 
 # FSM-состояния
@@ -110,7 +111,7 @@ async def doc_to_generate(message: Message, bot: Bot):
         "prompt": caption,
     }
     await _send_task(task)
-    await message.answer("�� Распознаю и генерирую задания, ожидайте PDF…")
+    await message.answer("🕔 Распознаю и генерирую задания, ожидайте PDF…")
 
 
 # --- Кнопка генерации ---

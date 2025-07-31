@@ -11,7 +11,7 @@ from aiogram.types import BotCommand, BotCommandScopeDefault
 
 import bot_app.config as app_config
 import worker.config as worker_config
-from worker import redis_cache
+from common.redis_utils import init_redis_pool
 from bot_app.database import db
 from bot_app.rabbit import process_result
 from bot_app.middlewares.auth import AuthMiddleware
@@ -62,13 +62,6 @@ async def on_startup(bot_: Bot, dp: Dispatcher):
         BotCommand("back",  "End chat with GPT"),
     ], language_code="en")
 
-    # Инициализация Redis (для raw_tasks и FSM, если нужно)
-    await redis_cache.init_redis_pool(
-        worker_config.REDIS_HOST,
-        worker_config.REDIS_PORT,
-        worker_config.REDIS_DB
-    )
-
     # Запускаем фоновую задачу обработки результатов из RabbitMQ
     asyncio.create_task(consume_results(bot_))
 
@@ -82,14 +75,21 @@ async def on_shutdown(bot_: Bot, dp: Dispatcher):
 async def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 
-    # 1) Инициализация PostgreSQL
+    # 1) Инициализация Redis (должна быть первой!)
+    await init_redis_pool(
+        worker_config.REDIS_HOST,
+        worker_config.REDIS_PORT,
+        worker_config.REDIS_DB
+    )
+
+    # 2) Инициализация PostgreSQL
     dsn = (
         f"postgresql://{app_config.DB_USER}:{app_config.DB_PASSWORD}"
         f"@{app_config.DB_HOST}:{app_config.DB_PORT}/{app_config.DB_NAME}"
     )
     await db.init_db_pool(dsn)
 
-    # 2) Настройка Bot и Dispatcher
+    # 3) Настройка Bot и Dispatcher
     bot = Bot(
         token=app_config.BOT_TOKEN,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML)
