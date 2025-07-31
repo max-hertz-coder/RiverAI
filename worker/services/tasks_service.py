@@ -49,6 +49,12 @@ async def handle_tasks(task: dict) -> dict:
         pdf_t_path, log_t = pdf_utils.compile_latex_to_pdf(latex_tasks)
         pdf_s_path, log_s = pdf_utils.compile_latex_to_pdf(latex_solutions)
 
+        logger.info(f"🔧 PDF компиляция:")
+        logger.info(f"  Tasks PDF: {pdf_t_path}")
+        logger.info(f"  Solutions PDF: {pdf_s_path}")
+        logger.info(f"  Tasks log: {log_t}")
+        logger.info(f"  Solutions log: {log_s}")
+
         if not pdf_t_path or not pdf_s_path:
             return {"task_id": task_id, "type": "error", "message": "Ошибка PDF-компиляции"}
 

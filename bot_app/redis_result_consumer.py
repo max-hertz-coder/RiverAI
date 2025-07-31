@@ -40,6 +40,12 @@ async def process_redis_result(result_data: dict, bot: Bot):
             prompt = result_data.get("prompt", "").strip()
             raw = result_data.get("tasks_text", "").strip()
 
+            logging.info(f"🔧 Обрабатываем tasks результат:")
+            logging.info(f"  Has file_tasks: {bool(result_data.get('file_tasks'))}")
+            logging.info(f"  Has file_solutions: {bool(result_data.get('file_solutions'))}")
+            logging.info(f"  file_tasks length: {len(result_data.get('file_tasks', ''))}")
+            logging.info(f"  file_solutions length: {len(result_data.get('file_solutions', ''))}")
+
             # Собираем единое сообщение
             parts = []
             if prompt:
@@ -64,16 +70,28 @@ async def process_redis_result(result_data: dict, bot: Bot):
             file_solutions_b64 = result_data.get("file_solutions")
 
             if file_tasks_b64:
-                file_bytes = base64.b64decode(file_tasks_b64)
-                file_obj = BytesIO(file_bytes)
-                file_obj.name = "Tasks.pdf"
-                await bot.send_document(user_id, file_obj, caption="📎 PDF: Задания")
+                try:
+                    file_bytes = base64.b64decode(file_tasks_b64)
+                    file_obj = BytesIO(file_bytes)
+                    file_obj.name = "Tasks.pdf"
+                    await bot.send_document(user_id, file_obj, caption="📎 PDF: Задания")
+                    logging.info(f"✅ PDF Tasks отправлен пользователю {user_id}")
+                except Exception as e:
+                    logging.error(f"🔴 Ошибка отправки PDF Tasks: {e}")
+            else:
+                logging.warning(f"⚠️ file_tasks отсутствует в результате")
 
             if file_solutions_b64:
-                file_bytes = base64.b64decode(file_solutions_b64)
-                file_obj = BytesIO(file_bytes)
-                file_obj.name = "Solutions.pdf"
-                await bot.send_document(user_id, file_obj, caption="📎 PDF: Решения")
+                try:
+                    file_bytes = base64.b64decode(file_solutions_b64)
+                    file_obj = BytesIO(file_bytes)
+                    file_obj.name = "Solutions.pdf"
+                    await bot.send_document(user_id, file_obj, caption="📎 PDF: Решения")
+                    logging.info(f"✅ PDF Solutions отправлен пользователю {user_id}")
+                except Exception as e:
+                    logging.error(f"🔴 Ошибка отправки PDF Solutions: {e}")
+            else:
+                logging.warning(f"⚠️ file_solutions отсутствует в результате")
 
         # === Chat response ===
         elif result_type == "chat":
