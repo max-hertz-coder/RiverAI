@@ -26,30 +26,34 @@ from bot_app.handlers.settings import router as settings_router
 
 
 async def consume_results(bot: Bot):
-    logging.info(f"🔧 Подключение к RabbitMQ для result_queue:")
-    logging.info(f"  Host: {app_config.RABBITMQ_HOST}")
-    logging.info(f"  Port: {app_config.RABBITMQ_PORT}")
-    logging.info(f"  User: {app_config.RABBITMQ_USER}")
-    logging.info(f"  Queue: {app_config.RESULT_QUEUE}")
-    
-    connection = await aio_pika.connect_robust(
-        host=app_config.RABBITMQ_HOST,
-        port=app_config.RABBITMQ_PORT,
-        login=app_config.RABBITMQ_USER,
-        password=app_config.RABBITMQ_PASS,
-    )
-    channel = await connection.channel()
-    await channel.set_qos(prefetch_count=5)
-    queue = await channel.declare_queue(app_config.RESULT_QUEUE, durable=True)
-    
-    logging.info(f"✅ Подписались на очередь '{app_config.RESULT_QUEUE}', ожидаем результаты...")
+    try:
+        logging.info(f"🔧 Подключение к RabbitMQ для result_queue:")
+        logging.info(f"  Host: {app_config.RABBITMQ_HOST}")
+        logging.info(f"  Port: {app_config.RABBITMQ_PORT}")
+        logging.info(f"  User: {app_config.RABBITMQ_USER}")
+        logging.info(f"  Queue: {app_config.RESULT_QUEUE}")
+        
+        connection = await aio_pika.connect_robust(
+            host=app_config.RABBITMQ_HOST,
+            port=app_config.RABBITMQ_PORT,
+            login=app_config.RABBITMQ_USER,
+            password=app_config.RABBITMQ_PASS,
+        )
+        channel = await connection.channel()
+        await channel.set_qos(prefetch_count=5)
+        queue = await channel.declare_queue(app_config.RESULT_QUEUE, durable=True)
+        
+        logging.info(f"✅ Подписались на очередь '{app_config.RESULT_QUEUE}', ожидаем результаты...")
 
-    async with queue.iterator() as queue_iter:
-        async for message in queue_iter:
-            try:
-                await process_result(message, bot)
-            except Exception as e:
-                logging.error(f"Ошибка обработки result_queue: {e}")
+        async with queue.iterator() as queue_iter:
+            async for message in queue_iter:
+                try:
+                    await process_result(message, bot)
+                except Exception as e:
+                    logging.error(f"Ошибка обработки result_queue: {e}")
+    except Exception as e:
+        logging.error(f"🔴 Критическая ошибка в consume_results: {e}")
+        raise
 
 
 async def on_startup(bot_: Bot, dp: Dispatcher):
@@ -70,8 +74,14 @@ async def on_startup(bot_: Bot, dp: Dispatcher):
         BotCommand("back",  "End chat with GPT"),
     ], language_code="en")
 
-    # Обработчик результатов уже запущен в main()
-    logging.info("✅ Startup завершен")
+    # Запускаем фоновую задачу обработки результатов из RabbitMQ
+    logging.info("🚀 Запускаем обработчик результатов из RabbitMQ...")
+    try:
+        task = asyncio.create_task(consume_results(bot_))
+        logging.info("✅ Обработчик результатов запущен")
+    except Exception as e:
+        logging.error(f"🔴 Ошибка запуска обработчика результатов: {e}")
+        raise
 
 
 async def on_shutdown(bot_: Bot, dp: Dispatcher):
@@ -120,11 +130,6 @@ async def main():
     dp.include_router(subscription_router)
     dp.include_router(settings_router)
     
-    # Запускаем обработчик результатов из RabbitMQ ПЕРЕД запуском polling
-    logging.info("🚀 Запускаем обработчик результатов из RabbitMQ...")
-    consume_task = asyncio.create_task(consume_results(bot))
-    logging.info("✅ Обработчик результатов запущен")
-
     # Запуск polling
     await dp.start_polling(
         bot,
