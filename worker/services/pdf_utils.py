@@ -47,6 +47,8 @@ def compile_latex_to_pdf(latex: str) -> tuple[str | None, str]:
         tex = Path(td) / "out.tex"
         pdf = Path(td) / "out.pdf"
         tex.write_text(latex, encoding="utf-8")
+        
+        # Используем pdflatex для поддержки кириллицы
         proc = subprocess.run(
             ["pdflatex", "-interaction=nonstopmode", tex.name],
             cwd=td,
@@ -55,33 +57,50 @@ def compile_latex_to_pdf(latex: str) -> tuple[str | None, str]:
             timeout=20
         )
         log = proc.stdout.decode("utf-8", errors="ignore")
+        
         if proc.returncode != 0 or not pdf.exists():
             return None, log
+        
         out = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
         out.write(pdf.read_bytes())
         out.flush()
         return out.name, ""
 
 def sanitize_solutions(sols_list: List[str]) -> List[str]:
+    """
+    Убирает из каждого элемента списка любых оболочек itemize и сами команды \item,
+    возвращая «чистый» текст решения, который потом упакуем в \\item.
+    """
     sanitized = []
     for sol in sols_list:
+        # 1) удаляем \begin{itemize} и \end{itemize}
         clean = re.sub(r'\\begin\{itemize\}|\\end\{itemize\}', '', sol)
+        # 2) удаляем все \item и возможные пробелы после
         clean = re.sub(r'\\item\s*', '', clean)
-        sanitized.append(clean.strip())
+        # 3) обрезаем по краям пробелы и пустые строки
+        clean = clean.strip()
+        sanitized.append(clean)
     return sanitized
 
 def escape_latex(text: str) -> str:
-    math_pat = re.compile(r'(\$\$.*?\$\$|\$.*?\$|\\\[.*?\\\]|\\\(.*?\\\))', flags=re.DOTALL)
+    # Паттерн для math-режимов: $…$, $$…$$, \[…\], \(…\)
+    math_pat = re.compile(
+        r'(\$\$.*?\$\$|\$.*?\$|\\\[.*?\\\]|\\\(.*?\\\))',
+        flags=re.DOTALL
+    )
     parts = math_pat.split(text)
     safe = []
     for part in parts:
         if math_pat.fullmatch(part):
+            # оставляем math-режим нетронутым
             safe.append(part)
         else:
+            # экранируем всё, что может сломать TeX
             part = part.replace('\\', r'\textbackslash{}')
             for ch, esc in {
-                '&': r'\&', '%': r'\%', '$': r'\$', '#': r'\#',
-                '_': r'\_', '{': r'\{', '}': r'\}', '~': r'\~{}', '^': r'\^{}'
+                '&': r'\&', '%': r'\%', '$': r'\$',
+                '#': r'\#', '_': r'\_', '{': r'\{',
+                '}': r'\}', '~': r'\~{}', '^': r'\^{}',
             }.items():
                 part = part.replace(ch, esc)
             safe.append(part)
