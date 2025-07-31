@@ -34,34 +34,24 @@ async def handle_message(message: aio_pika.IncomingMessage) -> None:
             logging.warning("⚠️ Handler returned None — skipping")
             return
 
-        # 3) Отправляем результат в очередь
+        # 3) Сохраняем результат в Redis
         try:
             # Добавляем task_id к результату
             result["task_id"] = task_id
             
-            logging.info(f"📤 Отправляем результат в RabbitMQ:")
-            logging.info(f"  Host: {config.RABBITMQ_HOST}")
-            logging.info(f"  Port: {config.RABBITMQ_PORT}")
-            logging.info(f"  User: {config.RABBITMQ_USER}")
-            logging.info(f"  Queue: {config.RESULT_QUEUE}")
-            
-            connection = await aio_pika.connect_robust(
-                host=config.RABBITMQ_HOST,
-                port=config.RABBITMQ_PORT,
-                login=config.RABBITMQ_USER,
-                password=config.RABBITMQ_PASS,
-            )
-            channel = await connection.channel()
-            await channel.default_exchange.publish(
-                aio_pika.Message(body=json.dumps(result).encode()),
-                routing_key=config.RESULT_QUEUE
-            )
-            await connection.close()
-            
-            logging.info(f"📤 Result sent to queue: task_id={task_id}, type={result.get('type')}")
+            logging.info(f"📤 Сохраняем результат в Redis:")
+            logging.info(f"  Task ID: {task_id}")
+            logging.info(f"  Type: {result.get('type')}")
+
+            from common.redis_utils import _get_client
+            client = _get_client()
+            result_key = f"result:{task_id}"
+            await client.set(result_key, json.dumps(result), ex=3600)  # Истекает через час
+
+            logging.info(f"📤 Result saved to Redis: task_id={task_id}, type={result.get('type')}")
 
         except Exception:
-            logging.exception("🔴 Error sending result to queue")
+            logging.exception("🔴 Error saving result to Redis")
 
 
 async def main() -> None:

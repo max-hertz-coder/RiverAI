@@ -139,9 +139,10 @@ async def main():
         )
     )
     
-    # Запускаем обработчик результатов из RabbitMQ
-    logging.info("🚀 Запускаем обработчик результатов из RabbitMQ...")
-    consume_task = asyncio.create_task(consume_results(bot))
+    # Запускаем обработчик результатов из Redis
+    logging.info("🚀 Запускаем обработчик результатов из Redis...")
+    from bot_app.redis_result_consumer import consume_redis_results
+    consume_task = asyncio.create_task(consume_redis_results(bot))
     logging.info("✅ Обработчик результатов запущен")
     
     # Ждём завершения polling (это блокирует выполнение)
