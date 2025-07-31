@@ -70,8 +70,8 @@ async def on_startup(bot_: Bot, dp: Dispatcher):
         BotCommand("back",  "End chat with GPT"),
     ], language_code="en")
 
-    # Запускаем фоновую задачу обработки результатов из RabbitMQ
-    asyncio.create_task(consume_results(bot_))
+    # Обработчик результатов уже запущен в main()
+    logging.info("✅ Startup завершен")
 
 
 async def on_shutdown(bot_: Bot, dp: Dispatcher):
@@ -120,6 +120,10 @@ async def main():
     dp.include_router(subscription_router)
     dp.include_router(settings_router)
     
+    # Запускаем обработчик результатов из RabbitMQ ПЕРЕД запуском polling
+    logging.info("🚀 Запускаем обработчик результатов из RabbitMQ...")
+    consume_task = asyncio.create_task(consume_results(bot))
+    logging.info("✅ Обработчик результатов запущен")
 
     # Запуск polling
     await dp.start_polling(
