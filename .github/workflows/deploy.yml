@@ -96,3 +96,4 @@ jobs:
 
             echo "$(date +'%F %T') — Деплой успешно завершён на сервере ${{ matrix.name }}"
             echo "--- DEPLOY END ---"
+
