@@ -4,7 +4,7 @@ from worker.services.result_publisher import publish_result
 
 logger = logging.getLogger(__name__)
 
-async def handle_tasks(task: dict) -> None:
+async def handle_tasks(task: dict) -> dict:
     task_id     = task.get("task_id")
     task_type   = task.get("type")
     prompt      = task.get("prompt", "").strip()
@@ -13,20 +13,16 @@ async def handle_tasks(task: dict) -> None:
     try:
         if task_type == "generate_tasks":
             if not prompt:
-                await publish_result({"task_id": task_id, "type": "error", "message": "Нет запроса."})
-                return
+                return {"task_id": task_id, "type": "error", "message": "Нет запроса."}
             raw_tasks = await generation_service.generate_raw_tasks(prompt)
         elif task_type == "generate_solutions":
             if not raw_tasks:
-                await publish_result({"task_id": task_id, "type": "error", "message": "Нет текста заданий."})
-                return
+                return {"task_id": task_id, "type": "error", "message": "Нет текста заданий."}
         else:
-            await publish_result({"task_id": task_id, "type": "error", "message": f"Некорректный тип: {task_type}"})
-            return
+            return {"task_id": task_id, "type": "error", "message": f"Некорректный тип: {task_type}"}
 
         if not raw_tasks or raw_tasks.strip() == "":
-            await publish_result({"task_id": task_id, "type": "error", "message": "Генератор вернул пусто."})
-            return
+            return {"task_id": task_id, "type": "error", "message": "Генератор вернул пусто."}
 
         cleaned = re.sub(r'(?si)Варианты ответа:.*?(?=(?:\n\s*\d+\.\s)|\Z)', '', raw_tasks).strip()
         split_re = re.compile(r'(?m)^\s*(\d+)\.\s*([\s\S]*?)(?=^\s*\d+\.|\Z)')
@@ -54,21 +50,20 @@ async def handle_tasks(task: dict) -> None:
         pdf_s_path, log_s = pdf_utils.compile_latex_to_pdf(latex_solutions)
 
         if not pdf_t_path or not pdf_s_path:
-            await publish_result({"task_id": task_id, "type": "error", "message": "Ошибка PDF-компиляции"})
-            return
+            return {"task_id": task_id, "type": "error", "message": "Ошибка PDF-компиляции"}
 
         with open(pdf_t_path, "rb") as f_t, open(pdf_s_path, "rb") as f_s:
             pdf_tasks_b64 = base64.b64encode(f_t.read()).decode()
             pdf_solutions_b64 = base64.b64encode(f_s.read()).decode()
 
-        await publish_result({
+        return {
             "task_id": task_id,
             "type": "tasks",
             "tasks_text": "\n\n".join(f"{i+1}. {t}" for i, t in enumerate(tasks_list)),
             "file_tasks": pdf_tasks_b64,
             "file_solutions": pdf_solutions_b64
-        })
+        }
 
     except Exception as e:
         logger.exception("🔴 Exception in handle_tasks")
-        await publish_result({"task_id": task_id, "type": "error", "message": f"Ошибка генерации: {e}"})
+        return {"task_id": task_id, "type": "error", "message": f"Ошибка генерации: {e}"}

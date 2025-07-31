@@ -29,7 +29,10 @@ async def process_task_message(task: dict) -> dict | None:
             return await handle_plan(task)
 
         if task_type in ("generate_tasks", "generate_solutions"):
-            return await handle_tasks(task)
+            logging.info(f"🔧 Вызываем handle_tasks для task_id={task_id}")
+            result = await handle_tasks(task)
+            logging.info(f"🔧 handle_tasks вернул: {type(result)} - {result}")
+            return result
 
         if task_type == "check_homework":
             return await handle_check_homework(task)

@@ -30,6 +30,14 @@ POSTGRES_DB = os.getenv("POSTGRES_DB", "")
 POSTGRES_USER = os.getenv("POSTGRES_USER", "")
 POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "")
 
+# Отладочная информация
+print(f"🔧 Bot App config loaded:")
+print(f"  POSTGRES_HOST: {POSTGRES_HOST}")
+print(f"  POSTGRES_PORT: {POSTGRES_PORT}")
+print(f"  POSTGRES_DB: {POSTGRES_DB}")
+print(f"  POSTGRES_USER: {POSTGRES_USER}")
+print(f"  RABBITMQ_HOST: {os.getenv('RABBITMQ_HOST')}")
+print(f"  REDIS_HOST: {os.getenv('REDIS_HOST')}")
 
 # ——————————————
 # RabbitMQ
