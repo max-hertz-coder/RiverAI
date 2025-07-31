@@ -66,7 +66,7 @@ def compile_latex_to_pdf(latex: str) -> tuple[str | None, str]:
         out.flush()
         return out.name, ""
 
-def compile_and_send_pdfs(latex_tasks: str, latex_solutions: str, bot, user_id: int):
+async def compile_and_send_pdfs(latex_tasks: str, latex_solutions: str, bot, user_id: int):
     """Компилирует LaTeX в PDF и отправляет пользователю"""
     try:
         # Компилируем PDF с задачами
