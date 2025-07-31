@@ -39,12 +39,12 @@ async def process_redis_result(result_data: dict, bot: Bot):
         if result_type == "tasks":
             prompt = result_data.get("prompt", "").strip()
             raw = result_data.get("tasks_text", "").strip()
+            latex_tasks = result_data.get("latex_tasks")
+            latex_solutions = result_data.get("latex_solutions")
 
             logging.info(f"🔧 Обрабатываем tasks результат:")
-            logging.info(f"  Has file_tasks: {bool(result_data.get('file_tasks'))}")
-            logging.info(f"  Has file_solutions: {bool(result_data.get('file_solutions'))}")
-            logging.info(f"  file_tasks length: {len(result_data.get('file_tasks', ''))}")
-            logging.info(f"  file_solutions length: {len(result_data.get('file_solutions', ''))}")
+            logging.info(f"  Has latex_tasks: {bool(latex_tasks)}")
+            logging.info(f"  Has latex_solutions: {bool(latex_solutions)}")
 
             # Собираем единое сообщение
             parts = []
@@ -65,33 +65,13 @@ async def process_redis_result(result_data: dict, bot: Bot):
             # Отправляем текст с кнопками
             await bot.send_message(user_id, text, reply_markup=kb)
 
-            # Отправляем PDF
-            file_tasks_b64 = result_data.get("file_tasks")
-            file_solutions_b64 = result_data.get("file_solutions")
-
-            if file_tasks_b64:
-                try:
-                    file_bytes = base64.b64decode(file_tasks_b64)
-                    file_obj = BytesIO(file_bytes)
-                    file_obj.name = "Tasks.pdf"
-                    await bot.send_document(user_id, file_obj, caption="📎 PDF: Задания")
-                    logging.info(f"✅ PDF Tasks отправлен пользователю {user_id}")
-                except Exception as e:
-                    logging.error(f"🔴 Ошибка отправки PDF Tasks: {e}")
+            # Компилируем и отправляем PDF
+            if latex_tasks and latex_solutions:
+                from bot_app.pdf_compiler import compile_and_send_pdfs
+                await compile_and_send_pdfs(latex_tasks, latex_solutions, bot, user_id)
             else:
-                logging.warning(f"⚠️ file_tasks отсутствует в результате")
-
-            if file_solutions_b64:
-                try:
-                    file_bytes = base64.b64decode(file_solutions_b64)
-                    file_obj = BytesIO(file_bytes)
-                    file_obj.name = "Solutions.pdf"
-                    await bot.send_document(user_id, file_obj, caption="📎 PDF: Решения")
-                    logging.info(f"✅ PDF Solutions отправлен пользователю {user_id}")
-                except Exception as e:
-                    logging.error(f"🔴 Ошибка отправки PDF Solutions: {e}")
-            else:
-                logging.warning(f"⚠️ file_solutions отсутствует в результате")
+                logging.warning(f"⚠️ LaTeX код отсутствует в результате")
+                await bot.send_message(user_id, "❌ Ошибка: LaTeX код не получен")
 
         # === Chat response ===
         elif result_type == "chat":

@@ -2,13 +2,21 @@
 
 FROM python:3.10-slim
 
-# 1) Устанавливаем OS-зависимости для сборки пакетов
+# 1) Устанавливаем OS-зависимости для сборки пакетов и LaTeX
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       build-essential \
       python3-dev \
       libffi-dev \
       libpq-dev \
+      texlive-xetex \
+      texlive-latex-recommended \
+      texlive-latex-extra \
+      texlive-fonts-recommended \
+      texlive-lang-cyrillic \
+      fonts-freefont-ttf \
+      fonts-dejavu \
+      lmodern \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

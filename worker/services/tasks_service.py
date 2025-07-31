@@ -46,28 +46,13 @@ async def handle_tasks(task: dict) -> dict:
             content_tasks=items_tasks, content_solutions=items_solutions
         )
 
-        pdf_t_path, log_t = pdf_utils.compile_latex_to_pdf(latex_tasks)
-        pdf_s_path, log_s = pdf_utils.compile_latex_to_pdf(latex_solutions)
-
-        logger.info(f"🔧 PDF компиляция:")
-        logger.info(f"  Tasks PDF: {pdf_t_path}")
-        logger.info(f"  Solutions PDF: {pdf_s_path}")
-        logger.info(f"  Tasks log: {log_t}")
-        logger.info(f"  Solutions log: {log_s}")
-
-        if not pdf_t_path or not pdf_s_path:
-            return {"task_id": task_id, "type": "error", "message": "Ошибка PDF-компиляции"}
-
-        with open(pdf_t_path, "rb") as f_t, open(pdf_s_path, "rb") as f_s:
-            pdf_tasks_b64 = base64.b64encode(f_t.read()).decode()
-            pdf_solutions_b64 = base64.b64encode(f_s.read()).decode()
-
+        # Возвращаем LaTeX код вместо PDF
         return {
             "task_id": task_id,
             "type": "tasks",
             "tasks_text": "\n\n".join(f"{i+1}. {t}" for i, t in enumerate(tasks_list)),
-            "file_tasks": pdf_tasks_b64,
-            "file_solutions": pdf_solutions_b64
+            "latex_tasks": latex_tasks,
+            "latex_solutions": latex_solutions
         }
 
     except Exception as e:
