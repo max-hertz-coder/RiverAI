@@ -1,16 +1,15 @@
-
-
 services:
   bot:
     build:
-      context: ../..       # корень репо с Dockerfile.bot
+      context: ../..
       dockerfile: Dockerfile.bot
+    container_name: riverai-bot
     env_file:
-      - ../../.env         # подтянет DB_HOST, REDIS_HOST, RABBITMQ_HOST и т.д.
+      - ../../.env
     restart: unless-stopped
     networks:
-      - internal
+      - riverai-network
 
 networks:
-  internal:
-    driver: bridge
+  riverai-network:
+    external: true

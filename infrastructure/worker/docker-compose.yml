@@ -6,13 +6,10 @@ services:
       dockerfile: Dockerfile.worker
     restart: unless-stopped
     env_file:
-      - ../../.env       # подтянет все переменные (RABBITMQ_*, REDIS_*, POSTGRES_*)
+      - ../../.env
     networks:
-      - internal  # Имя сети точно такое же, как создано в очереди
-
+      - riverai-network
 
 networks:
   riverai-network:
     external: true
-
-
