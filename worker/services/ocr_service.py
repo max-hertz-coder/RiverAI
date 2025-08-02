@@ -79,10 +79,12 @@ def sync_ocr(path_or_url: str) -> str:
             messages=[{
                 "role": "user",
                 "content": [
-                    {"type": "text",      "text": "Извлеките весь текст (русский, цифры, формулы) из этого изображения."},
+                    {"type": "text", "text": "Извлеките весь текст из этого изображения. Если изображение содержит математические формулы, запишите их в текстовом виде. Если изображение не содержит читаемого текста, ответьте 'НЕТЕКСТ'."},
                     {"type": "image_url", "image_url": image_data}
                 ]
-            }]
+            }],
+            max_tokens=2000,
+            temperature=0.0
         )
         text = resp.choices[0].message.content.strip()
         low = text.lower()

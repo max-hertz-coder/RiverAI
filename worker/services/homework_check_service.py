@@ -59,6 +59,7 @@ async def check_homework(homework_text: str) -> str:
 8. НЕ используйте звездочки (*) в названиях разделов
 9. Используйте только латинские буквы в названиях разделов
 10. НЕ используйте фигурные скобки в тексте, только в командах
+11. Избегайте сложных конструкций
 
 Структура ответа:
 \\section*{Obshchaya ocenka}
@@ -103,9 +104,26 @@ def clean_latex_for_check(text: str) -> str:
 
 def escape_latex(text: str) -> str:
     """
-    Экранирует специальные символы для LaTeX.
+    Экранирует специальные символы для LaTeX, но сохраняет LaTeX команды.
     """
-    # Экранируем только специальные символы, НЕ трогаем обратные слеши
+    # Сначала защищаем LaTeX команды
+    import re
+    
+    # Временные маркеры для LaTeX команд
+    latex_commands = []
+    command_counter = 0
+    
+    def protect_latex_command(match):
+        nonlocal command_counter
+        placeholder = f"__LATEX_COMMAND_{command_counter}__"
+        latex_commands.append((placeholder, match.group(0)))
+        command_counter += 1
+        return placeholder
+    
+    # Защищаем LaTeX команды (начинающиеся с \)
+    text = re.sub(r'\\[a-zA-Z*]+(\{[^}]*\})?', protect_latex_command, text)
+    
+    # Теперь экранируем специальные символы
     replacements = {
         '&': '\\&',
         '%': '\\%',
@@ -120,6 +138,10 @@ def escape_latex(text: str) -> str:
     
     for old, new in replacements.items():
         text = text.replace(old, new)
+    
+    # Восстанавливаем LaTeX команды
+    for placeholder, command in latex_commands:
+        text = text.replace(placeholder, command)
     
     return text
 
