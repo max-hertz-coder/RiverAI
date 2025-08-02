@@ -37,8 +37,6 @@ async def process_redis_result(result_data: dict, bot: Bot):
 
         # === Generated tasks ===
         if result_type == "tasks":
-            prompt = result_data.get("prompt", "").strip()
-            raw = result_data.get("tasks_text", "").strip()
             latex_tasks = result_data.get("latex_tasks")
             latex_solutions = result_data.get("latex_solutions")
 
@@ -46,32 +44,23 @@ async def process_redis_result(result_data: dict, bot: Bot):
             logging.info(f"  Has latex_tasks: {bool(latex_tasks)}")
             logging.info(f"  Has latex_solutions: {bool(latex_solutions)}")
 
-            # Собираем единое сообщение
-            parts = []
-            if prompt:
-                parts.append(f"🔄 Финальный запрос для генерации:\n{prompt}")
-            if raw:
-                parts.append(f"📝 Задания:\n\n{raw}")
-            parts.append("❓ Всё ли устраивает?")
-            text = "\n\n".join(parts)
-
             kb = {
                 "inline_keyboard": [[
-                    {"text": "✅ Всё норм",    "callback_data": "tasks_ok"},
+                    {"text": "✅ Всё отлично",    "callback_data": "tasks_ok"},
                     {"text": "✏️ Переделать", "callback_data": f"refine_tasks:{student_id}"}
                 ]]
             }
 
-            # Отправляем текст с кнопками
-            await bot.send_message(user_id, text, reply_markup=kb)
-
-            # Компилируем и отправляем PDF
+            # Сначала отправляем PDF
             if latex_tasks and latex_solutions:
                 from bot_app.pdf_compiler import compile_and_send_pdfs
                 await compile_and_send_pdfs(latex_tasks, latex_solutions, bot, user_id)
             else:
                 logging.warning(f"⚠️ LaTeX код отсутствует в результате")
                 await bot.send_message(user_id, "❌ Ошибка: LaTeX код не получен")
+
+            # Затем задаём вопрос
+            await bot.send_message(user_id, "❓ Всё ли устраивает?", reply_markup=kb)
 
         # === Chat response ===
         elif result_type == "chat":
@@ -115,31 +104,27 @@ async def process_redis_result(result_data: dict, bot: Bot):
 async def consume_redis_results(bot: Bot):
     """Проверяет Redis на наличие результатов каждые 2 секунды"""
     from common.redis_utils import _get_client
-    
+
     logging.info("🔧 Запускаем проверку результатов в Redis...")
     
     while True:
         try:
-            # Получаем все ключи результатов
             client = _get_client()
             result_keys = await client.keys("result:*")
-            
+
             for key in result_keys:
                 try:
-                    # Получаем результат
                     result_json = await client.get(key)
                     if result_json:
                         result_data = json.loads(result_json)
                         await process_redis_result(result_data, bot)
-                        # Удаляем обработанный результат
                         await client.delete(key)
                         logging.info(f"✅ Обработан результат из Redis: {key}")
                 except Exception as e:
                     logging.error(f"🔴 Ошибка обработки результата из Redis {key}: {e}")
-            
-            # Ждём 2 секунды перед следующей проверкой
+
             await asyncio.sleep(2)
-            
+
         except Exception as e:
             logging.error(f"🔴 Ошибка в consume_redis_results: {e}")
-            await asyncio.sleep(5) 
+            await asyncio.sleep(5)

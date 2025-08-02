@@ -198,3 +198,39 @@ async def cb_tasks_ok(callback: CallbackQuery):
 @router.callback_query(F.data == "back:chat")
 async def cb_back(callback: CallbackQuery):
     await callback.message.edit_text("Возвращаюсь в главное меню.")
+
+
+@router.message(RefineTasksFSM.notes)
+async def proc_refine_tasks(message: Message, state: FSMContext):
+    if not await has_active_sub(message.from_user.id):
+        return await message.answer("❌ У вас нет активной подписки. Перейдите в 💳 Подписка и оформите доступ.")
+
+    data = await state.get_data()
+    chat_id = message.from_user.id
+    student_id = data.get("student_id")
+    prompt = message.text.strip()
+
+    # Используем последнее отправленное Solutions.pdf
+    if not message.reply_to_message or not message.reply_to_message.document:
+        return await message.answer("📎 Пожалуйста, отправьте новый текст в ответ на Solutions.pdf.")
+
+    doc = message.reply_to_message.document
+    file_name = doc.file_name or "file.pdf"
+
+    from io import BytesIO
+    bio = BytesIO()
+    await message.bot.download(doc.file_id, destination=bio)
+    b64 = base64.b64encode(bio.getvalue()).decode()
+
+    task = {
+        "type": "ocr_and_generate",
+        "user_id": chat_id,
+        "student_id": student_id,
+        "file_data": b64,
+        "file_name": file_name,
+        "prompt": prompt,
+        "refine": True
+    }
+    await _send_task(task)
+    await message.answer("📝 Переделываем задания по новым инструкциям…")
+    await state.clear()
