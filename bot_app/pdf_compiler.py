@@ -3,6 +3,8 @@ import subprocess
 import logging
 from pathlib import Path
 from jinja2 import Template
+from io import BytesIO
+from aiogram.types import BufferedInputFile
 
 # Шаблоны LaTeX (те же, что и в worker)
 BASIC_TEMPLATE = r"""\documentclass[12pt]{article}
@@ -73,10 +75,9 @@ async def compile_and_send_pdfs(latex_tasks: str, latex_solutions: str, bot, use
         pdf_t_path, log_t = compile_latex_to_pdf(latex_tasks)
         if pdf_t_path:
             with open(pdf_t_path, "rb") as f:
-                from io import BytesIO
-                file_obj = BytesIO(f.read())
-                file_obj.name = "Tasks.pdf"
-                await bot.send_document(user_id, file_obj, caption="📎 PDF: Задания")
+                file_bytes = f.read()
+                document = BufferedInputFile(file_bytes, filename="Tasks.pdf")
+                await bot.send_document(user_id, document, caption="📎 PDF: Задания")
             logging.info(f"✅ PDF Tasks отправлен пользователю {user_id}")
         else:
             logging.error(f"🔴 Ошибка компиляции PDF Tasks: {log_t}")
@@ -86,10 +87,9 @@ async def compile_and_send_pdfs(latex_tasks: str, latex_solutions: str, bot, use
         pdf_s_path, log_s = compile_latex_to_pdf(latex_solutions)
         if pdf_s_path:
             with open(pdf_s_path, "rb") as f:
-                from io import BytesIO
-                file_obj = BytesIO(f.read())
-                file_obj.name = "Solutions.pdf"
-                await bot.send_document(user_id, file_obj, caption="📎 PDF: Решения")
+                file_bytes = f.read()
+                document = BufferedInputFile(file_bytes, filename="Solutions.pdf")
+                await bot.send_document(user_id, document, caption="📎 PDF: Решения")
             logging.info(f"✅ PDF Solutions отправлен пользователю {user_id}")
         else:
             logging.error(f"🔴 Ошибка компиляции PDF Solutions: {log_s}")
@@ -97,4 +97,4 @@ async def compile_and_send_pdfs(latex_tasks: str, latex_solutions: str, bot, use
 
     except Exception as e:
         logging.exception(f"🔴 Ошибка отправки PDF: {e}")
-        await bot.send_message(user_id, f"❌ Ошибка отправки PDF: {e}") 
+        await bot.send_message(user_id, f"❌ Ошибка отправки PDF: {str(e)}", parse_mode=None)
