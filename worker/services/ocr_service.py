@@ -70,7 +70,7 @@ def sync_ocr(path_or_url: str) -> str:
         b64 = base64.b64encode(img_bytes).decode("utf-8")
         data_uri = f"data:image/{mime};base64,{b64}"
         image_data = {"url": data_uri, "detail": "high"}
-        logger.info("🔧 sync_ocr: изображение подготовлено для отправки в OpenAI")
+        logger.info(f"🔧 sync_ocr: изображение подготовлено для отправки в OpenAI, размер: {len(img_bytes)} байт, MIME: {mime}")
 
     try:
         logger.info("🔧 sync_ocr: отправляем запрос в OpenAI Vision API")
@@ -79,7 +79,7 @@ def sync_ocr(path_or_url: str) -> str:
             messages=[{
                 "role": "user",
                 "content": [
-                    {"type": "text", "text": "Извлеките весь текст из этого изображения. Если изображение содержит математические формулы, запишите их в текстовом виде."},
+                    {"type": "text", "text": "Что написано на этом изображении?"},
                     {"type": "image_url", "image_url": image_data}
                 ]
             }],
