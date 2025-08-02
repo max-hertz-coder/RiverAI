@@ -8,11 +8,11 @@ services:
     env_file:
       - ../../.env       # подтянет все переменные (RABBITMQ_*, REDIS_*, POSTGRES_*)
     networks:
-      - internal   # Имя сети точно такое же, как создано в очереди
+      - internal  # Имя сети точно такое же, как создано в очереди
 
 
 networks:
-  internal:
-    driver: bridge
+  riverai-network:
+    external: true
 
 
