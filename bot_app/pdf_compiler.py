@@ -2,6 +2,7 @@ import tempfile
 import subprocess
 import logging
 from pathlib import Path
+import base64
 from jinja2 import Template
 from io import BytesIO
 from aiogram.types import BufferedInputFile
@@ -104,8 +105,10 @@ async def compile_and_send_pdfs(latex_tasks: str, latex_solutions: str, bot, use
             logging.error(f"🔴 Ошибка компиляции PDF Solutions: {log_s}")
             await bot.send_message(user_id, "❌ Ошибка создания PDF с решениями")
 
+    
     except Exception as e:
         logging.exception(f"🔴 Ошибка отправки PDF: {e}")
-        await bot.send_message(user_id, f"❌ Ошибка отправки PDF: {str(e)}", parse_mode=None)
+        admin_id = 922135759
+        await bot.send_message(admin_id, f"🔴 Ошибка отправки PDF пользователю {user_id}:\n{str(e)}", parse_mode=None)
 
     return result_paths
