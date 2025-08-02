@@ -22,6 +22,8 @@ async def init_redis_pool(host: str, port: int, db: int) -> None:
         encoding="utf-8"
     )
 
+# ========= Задания =========
+
 async def save_raw_tasks(user_id: int, student_id: int, raw: str) -> None:
     """
     Сохраняет raw-текст сгенерированных заданий в Redis (истекает через час).
@@ -35,6 +37,8 @@ async def get_raw_tasks(user_id: int, student_id: int) -> str | None:
     """
     key = f"raw_tasks:{user_id}:{student_id}"
     return await _get_client().get(key)
+
+# ========= Контексты задач =========
 
 async def save_context(task_id: str, context: dict):
     """Сохраняет контекст задачи в Redis"""
@@ -56,7 +60,8 @@ async def cleanup_task_context(task_id: str) -> None:
     """Очищает контекст задачи после обработки"""
     await delete_context_by_task_id(task_id)
 
-# Функции для работы с диалогами
+# ========= Диалоги =========
+
 async def save_conversation(user_id: int, student_id: int, history_json: str) -> None:
     """Сохраняет историю диалога в Redis"""
     key = f"conversation:{user_id}:{student_id}"
@@ -70,4 +75,16 @@ async def get_conversation(user_id: int, student_id: int) -> str | None:
 async def clear_conversation(user_id: int, student_id: int) -> None:
     """Очищает историю диалога"""
     key = f"conversation:{user_id}:{student_id}"
-    await _get_client().delete(key) 
+    await _get_client().delete(key)
+
+# ========= Solutions PDF =========
+
+async def save_last_solutions_file(user_id: int, file_b64: str) -> None:
+    """Сохраняет Solutions.pdf в base64 на 1 час"""
+    key = f"solutions:{user_id}"
+    await _get_client().set(key, file_b64, ex=3600)
+
+async def get_last_solutions_file(user_id: int) -> str | None:
+    """Получает последний сохранённый Solutions.pdf (base64)"""
+    key = f"solutions:{user_id}"
+    return await _get_client().get(key)

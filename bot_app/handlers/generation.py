@@ -157,35 +157,47 @@ async def cb_refine_tasks(callback: CallbackQuery, state: FSMContext):
 
 @router.message(RefineTasksFSM.notes)
 async def proc_refine_tasks(message: Message, state: FSMContext):
+    from common.redis_utils import get_last_solutions_file  # новый импорт
+
     if not await has_active_sub(message.from_user.id):
-        return await message.answer("❌ У вас нет активной подписки. Перейдите в 💳 Подписка и оформите доступ.")
+        return await message.answer("❌ У вас нет активной подписки.")
 
     data = await state.get_data()
     chat_id = message.from_user.id
     student_id = data.get("student_id")
-    instr = message.text.strip()
+    prompt = message.text.strip()
 
-    raw = pending_tasks.get((chat_id, student_id))
-    if not raw:
-        return await message.answer("❌ Предыдущие задания не найдены.")
+    file_name = "Solutions.pdf"
 
-    combined = f"{instr}\n\n{raw}"
+    # 1. Попробовать взять из reply (стандартный путь)
+    if message.reply_to_message and message.reply_to_message.document:
+        doc = message.reply_to_message.document
+        file_name = doc.file_name or "Solutions.pdf"
 
-    await message.answer(
-        "📝 Отправляю в GPT следующий запрос:\n\n"
-        f"```{combined}```",
-        parse_mode="Markdown"
-    )
+        from io import BytesIO
+        bio = BytesIO()
+        await message.bot.download(doc.file_id, destination=bio)
+        file_b64 = base64.b64encode(bio.getvalue()).decode()
+
+    else:
+        # 2. Попробовать взять из Redis
+        file_b64 = await get_last_solutions_file(chat_id)
+        if not file_b64:
+            return await message.answer("❌ Я не нашёл предыдущий Solutions.pdf. Пожалуйста, отправьте его повторно или ответьте на него.")
 
     task = {
-        "type":       "generate_tasks",
-        "user_id":    chat_id,
+        "type": "ocr_and_generate",
+        "user_id": chat_id,
         "student_id": student_id,
-        "prompt":     combined
+        "file_data": file_b64,
+        "file_name": file_name,
+        "prompt": prompt,
+        "refine": True
     }
     await _send_task(task)
-    await message.answer("🕔 Перегенерируем задания, ожидайте…")
+    await message.answer("📝 Переделываем задания по новым инструкциям…")
     await state.clear()
+
 
 # --- Подтверждение ---
 @router.callback_query(F.data == "tasks_ok")

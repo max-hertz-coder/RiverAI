@@ -4,13 +4,18 @@ import asyncio
 from io import BytesIO
 import base64
 from aiogram import Bot
-from common.redis_utils import get_context_by_task_id, cleanup_task_context
+from common.redis_utils import (
+    get_context_by_task_id,
+    cleanup_task_context,
+    save_last_solutions_file,  # 👈 добавлено
+)
 from bot_app.keyboards.chat_menu import (
     chat_gpt_back_kb,
     result_plan_kb,
     result_tasks_kb,
     result_check_kb
 )
+
 
 async def process_redis_result(result_data: dict, bot: Bot):
     """Обрабатывает результат из Redis"""
@@ -54,7 +59,16 @@ async def process_redis_result(result_data: dict, bot: Bot):
             # Сначала отправляем PDF
             if latex_tasks and latex_solutions:
                 from bot_app.pdf_compiler import compile_and_send_pdfs
-                await compile_and_send_pdfs(latex_tasks, latex_solutions, bot, user_id)
+
+                # 🧠 Компилируем и отправляем PDF
+                pdf_paths = await compile_and_send_pdfs(latex_tasks, latex_solutions, bot, user_id)
+
+                # 🧠 Сохраняем Solutions.pdf в Redis (base64)
+                if pdf_paths and pdf_paths.get("solutions"):
+                    with open(pdf_paths["solutions"], "rb") as f:
+                        b64 = base64.b64encode(f.read()).decode()
+                        await save_last_solutions_file(user_id, b64)
+
             else:
                 logging.warning(f"⚠️ LaTeX код отсутствует в результате")
                 await bot.send_message(user_id, "❌ Ошибка: LaTeX код не получен")
@@ -76,7 +90,7 @@ async def process_redis_result(result_data: dict, bot: Bot):
         elif result_type == "check":
             report = result_data.get("report_text", "(нет отчёта)")
             await bot.send_message(user_id, f"✔️ Результаты проверки:\n{report}", reply_markup=result_check_kb(student_id))
-            
+
             file_b64 = result_data.get("file")
             if file_b64:
                 pdf_bytes = base64.b64decode(file_b64)
@@ -98,15 +112,15 @@ async def process_redis_result(result_data: dict, bot: Bot):
         logging.exception(f"🔴 Ошибка обработки результата: {e}")
 
     finally:
-        # Очищаем контекст задачи
         await cleanup_task_context(task_id)
+
 
 async def consume_redis_results(bot: Bot):
     """Проверяет Redis на наличие результатов каждые 2 секунды"""
     from common.redis_utils import _get_client
 
     logging.info("🔧 Запускаем проверку результатов в Redis...")
-    
+
     while True:
         try:
             client = _get_client()

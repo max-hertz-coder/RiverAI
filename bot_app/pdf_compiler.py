@@ -5,6 +5,7 @@ from pathlib import Path
 from jinja2 import Template
 from io import BytesIO
 from aiogram.types import BufferedInputFile
+from common.redis_utils import save_last_solutions_file  # ⬅ добавлено
 
 # Шаблоны LaTeX (те же, что и в worker)
 BASIC_TEMPLATE = r"""\documentclass[12pt]{article}
@@ -68,12 +69,15 @@ def compile_latex_to_pdf(latex: str) -> tuple[str | None, str]:
         out.flush()
         return out.name, ""
 
-async def compile_and_send_pdfs(latex_tasks: str, latex_solutions: str, bot, user_id: int):
-    """Компилирует LaTeX в PDF и отправляет пользователю"""
+async def compile_and_send_pdfs(latex_tasks: str, latex_solutions: str, bot, user_id: int) -> dict:
+    """Компилирует LaTeX в PDF, отправляет их и возвращает пути к файлам"""
+    result_paths = {"tasks": None, "solutions": None}
+
     try:
         # Компилируем PDF с задачами
         pdf_t_path, log_t = compile_latex_to_pdf(latex_tasks)
         if pdf_t_path:
+            result_paths["tasks"] = pdf_t_path
             with open(pdf_t_path, "rb") as f:
                 file_bytes = f.read()
                 document = BufferedInputFile(file_bytes, filename="Tasks.pdf")
@@ -86,10 +90,15 @@ async def compile_and_send_pdfs(latex_tasks: str, latex_solutions: str, bot, use
         # Компилируем PDF с решениями
         pdf_s_path, log_s = compile_latex_to_pdf(latex_solutions)
         if pdf_s_path:
+            result_paths["solutions"] = pdf_s_path
             with open(pdf_s_path, "rb") as f:
                 file_bytes = f.read()
                 document = BufferedInputFile(file_bytes, filename="Solutions.pdf")
                 await bot.send_document(user_id, document, caption="📎 PDF: Решения")
+
+                # Сохраняем Solutions.pdf в Redis в base64
+                await save_last_solutions_file(user_id, base64.b64encode(file_bytes).decode())
+
             logging.info(f"✅ PDF Solutions отправлен пользователю {user_id}")
         else:
             logging.error(f"🔴 Ошибка компиляции PDF Solutions: {log_s}")
@@ -98,3 +107,5 @@ async def compile_and_send_pdfs(latex_tasks: str, latex_solutions: str, bot, use
     except Exception as e:
         logging.exception(f"🔴 Ошибка отправки PDF: {e}")
         await bot.send_message(user_id, f"❌ Ошибка отправки PDF: {str(e)}", parse_mode=None)
+
+    return result_paths
