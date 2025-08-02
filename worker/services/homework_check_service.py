@@ -5,6 +5,7 @@ from typing import Dict, Any
 from openai import OpenAI
 from dotenv import load_dotenv
 from jinja2 import Template
+import re
 
 load_dotenv()
 OPENAI_KEY = os.getenv("OPENAI_API_KEY")
@@ -57,6 +58,7 @@ async def check_homework(homework_text: str) -> str:
 7. Пишите простым текстом без специальных символов
 8. НЕ используйте звездочки (*) в названиях разделов
 9. Используйте только латинские буквы в названиях разделов
+10. НЕ используйте фигурные скобки в тексте, только в командах
 
 Структура ответа:
 \\section*{Obshchaya ocenka}
@@ -103,10 +105,7 @@ def escape_latex(text: str) -> str:
     """
     Экранирует специальные символы для LaTeX.
     """
-    # Сначала экранируем обратные слеши
-    text = text.replace('\\', '\\\\')
-    
-    # Затем экранируем остальные специальные символы
+    # Экранируем только специальные символы, НЕ трогаем обратные слеши
     replacements = {
         '&': '\\&',
         '%': '\\%',
@@ -143,13 +142,19 @@ async def handle_homework_check(task: Dict[str, Any]) -> Dict[str, Any]:
     try:
         # Проверяем ДЗ
         check_result = await check_homework(homework_text)
+        logger.info(f"🔧 check_homework: получили результат, длина: {len(check_result)}")
         
         # Очищаем и экранируем результат
         cleaned_result = clean_latex_for_check(check_result)
+        logger.info(f"🔧 check_homework: очистили результат, длина: {len(cleaned_result)}")
+        
         escaped_result = escape_latex(cleaned_result)
+        logger.info(f"🔧 check_homework: экранировали результат, длина: {len(escaped_result)}")
+        logger.info(f"🔧 check_homework: первые 200 символов: {escaped_result[:200]}...")
         
         # Создаем LaTeX документ
         latex_content = template_homework_check.render(check_result=escaped_result)
+        logger.info(f"🔧 check_homework: создали LaTeX документ, длина: {len(latex_content)}")
         
         return {
             "type": "homework_check",
