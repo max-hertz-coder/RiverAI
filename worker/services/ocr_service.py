@@ -79,7 +79,7 @@ def sync_ocr(path_or_url: str) -> str:
             messages=[{
                 "role": "user",
                 "content": [
-                    {"type": "text", "text": "Извлеките весь текст из этого изображения. Если изображение содержит математические формулы, запишите их в текстовом виде. Если изображение не содержит читаемого текста, ответьте 'НЕТЕКСТ'."},
+                    {"type": "text", "text": "Извлеките весь текст из этого изображения. Если изображение содержит математические формулы, запишите их в текстовом виде."},
                     {"type": "image_url", "image_url": image_data}
                 ]
             }],
@@ -91,9 +91,16 @@ def sync_ocr(path_or_url: str) -> str:
         
         logger.info(f"🔧 sync_ocr: получен ответ от OpenAI, длина: {len(text)} символов")
         
-        if "извин" in low or "sorry" in low:
+        # Проверяем на отказ или пустой ответ
+        if "извин" in low or "sorry" in low or "can't" in low or "не могу" in low:
             logger.info("🔧 sync_ocr: OCR отказ: %r", text)
             return ""
+        
+        # Если получили "НЕТЕКСТ", это тоже отказ
+        if text.strip() == "НЕТЕКСТ" or text.strip() == "НЕТЕКСТ.":
+            logger.info("🔧 sync_ocr: OCR отказ - нет текста: %r", text)
+            return ""
+            
         return text
     except Exception as e:
         logger.exception(f"🔧 sync_ocr: ошибка при OCR: {e}")
