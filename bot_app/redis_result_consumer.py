@@ -98,6 +98,34 @@ async def process_redis_result(result_data: dict, bot: Bot):
                 buf.name = "Homework_Report.pdf"
                 await bot.send_document(user_id, buf, caption="📎 Отчёт в PDF")
 
+        # === New Homework check (with PDF) ===
+        elif result_type == "homework_check":
+            report_text = result_data.get("check_result", "(нет отчёта)")
+            pdf_path = result_data.get("pdf_path")
+            
+            # Отправляем текстовый отчет
+            if len(report_text) > 4000:
+                report_text = report_text[:4000] + "\n\n... (отчет обрезан)"
+            
+            await bot.send_message(user_id, f"📋 **Результат проверки ДЗ:**\n\n{report_text}")
+            
+            # Отправляем PDF, если есть
+            if pdf_path:
+                try:
+                    from aiogram.types import FSInputFile
+                    await bot.send_document(user_id, FSInputFile(pdf_path), caption="📄 Результат проверки ДЗ")
+                except Exception as e:
+                    logging.exception("Ошибка отправки PDF: %s", e)
+
+        # === New Chat GPT response ===
+        elif result_type == "chat_gpt":
+            answer = result_data.get("gpt_response", "(нет ответа)")
+            
+            if len(answer) > 4000:
+                answer = answer[:4000] + "\n\n... (ответ обрезан)"
+            
+            await bot.send_message(user_id, f"🤖 **Ответ GPT:**\n\n{answer}")
+
         # === Error ===
         elif result_type == "error":
             error_msg = result_data.get("message", "Неизвестная ошибка")

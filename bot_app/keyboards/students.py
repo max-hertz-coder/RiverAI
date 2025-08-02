@@ -25,10 +25,14 @@ def student_actions_kb(student_id: int, lang: str = "RU"):
     kb = InlineKeyboardBuilder()
     if lang.upper() == "EN":
         kb.button(text="📄 Generate tasks", callback_data=f"generate_tasks:{student_id}")
+        kb.button(text="✅ Check homework", callback_data=f"check_homework:{student_id}")
+        kb.button(text="💬 Chat with GPT", callback_data=f"chat_gpt:{student_id}")
         kb.button(text="🗑 Delete student", callback_data=f"delete_student:{student_id}")
         kb.button(text="← Back", callback_data="back:students")
     else:
         kb.button(text="📄 Генерировать задания", callback_data=f"generate_tasks:{student_id}")
+        kb.button(text="✅ Проверка ДЗ", callback_data=f"check_homework:{student_id}")
+        kb.button(text="💬 Чат с GPT", callback_data=f"chat_gpt:{student_id}")
         kb.button(text="🗑 Удалить ученика", callback_data=f"delete_student:{student_id}")
         kb.button(text="← Назад", callback_data="back:students")
     kb.adjust(1)

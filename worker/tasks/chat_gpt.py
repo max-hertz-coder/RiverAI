@@ -1,5 +1,6 @@
 import logging
-from worker.services.gpt_service import chat_with_gpt
+import json
+from worker.services.chat_gpt_service import handle_chat_gpt
 from worker import redis_cache
 
 async def handle_chat_gpt(task: dict) -> dict:
@@ -18,19 +19,35 @@ async def handle_chat_gpt(task: dict) -> dict:
         }
 
     try:
+        # Получаем историю из Redis
         prev_json = await redis_cache.get_conversation(user_id, student_id)
         history = []
         if prev_json:
-            import json
             history = json.loads(prev_json)
+        
+        # Добавляем новое сообщение пользователя
         history.append({"role": "user", "content": prompt})
 
-        answer = await chat_with_gpt(
-            messages=history,
-            temperature=0.7,
-            max_tokens=1000
-        )
+        # Используем новый сервис для чата с GPT
+        result = await handle_chat_gpt({
+            "task_id": f"{user_id}_{student_id}_{len(history)}",
+            "message": prompt,
+            "context": json.dumps(history[:-1], ensure_ascii=False) if len(history) > 1 else ""
+        })
+        
+        if result.get("type") == "error":
+            return {
+                "type": "error",
+                "user_id": user_id,
+                "message": result.get("message", "Ошибка при обработке чата")
+            }
+        
+        answer = result.get("gpt_response", "")
+        
+        # Добавляем ответ GPT в историю
         history.append({"role": "assistant", "content": answer})
+        
+        # Сохраняем обновленную историю в Redis
         await redis_cache.save_conversation(user_id, student_id, json.dumps(history, ensure_ascii=False))
 
         return {
@@ -45,7 +62,7 @@ async def handle_chat_gpt(task: dict) -> dict:
         return {
             "type": "error",
             "user_id": user_id,
-            "message": f"GPT error: {e}"
+            "message": f"Ошибка при обработке чата: {e}"
         }
 
 async def handle_end_chat(task: dict) -> None:

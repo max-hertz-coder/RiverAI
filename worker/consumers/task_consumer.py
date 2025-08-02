@@ -5,6 +5,8 @@ from worker.services.plan_service import handle_plan
 from worker.services.tasks_service import handle_tasks
 from worker.tasks.check_homework import handle_check_homework
 from worker.services.chat_service import handle_chat
+from worker.services.homework_check_service import handle_homework_check
+from worker.services.chat_gpt_service import handle_chat_gpt
 from common.redis_utils import clear_conversation
 
 async def process_task_message(task: dict) -> dict | None:
@@ -25,6 +27,20 @@ async def process_task_message(task: dict) -> dict | None:
         if task_type == "ocr":
             return await handle_ocr(task)
 
+        if task_type == "ocr_and_check":
+            # OCR + проверка ДЗ
+            from worker.services.ocr_service import handle_ocr
+            ocr_result = await handle_ocr(task)
+            if ocr_result.get("type") == "error":
+                return ocr_result
+            
+            # Теперь проверяем ДЗ
+            check_task = {
+                "task_id": task_id,
+                "text": ocr_result.get("text", "")
+            }
+            return await handle_homework_check(check_task)
+
         if task_type == "generate_plan":
             return await handle_plan(task)
 
@@ -37,7 +53,10 @@ async def process_task_message(task: dict) -> dict | None:
         if task_type == "check_homework":
             return await handle_check_homework(task)
 
-        if task_type in ("chat_gpt", "chat"):
+        if task_type == "chat_gpt":
+            return await handle_chat_gpt(task)
+
+        if task_type in ("chat"):
             return await handle_chat(task)
 
         if task_type == "end_chat":
