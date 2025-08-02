@@ -101,7 +101,7 @@ async def process_redis_result(result_data: dict, bot: Bot):
         # === New Homework check (with PDF) ===
         elif result_type == "homework_check":
             report_text = result_data.get("check_result", "(нет отчёта)")
-            pdf_path = result_data.get("pdf_path")
+            latex_content = result_data.get("latex_content", "")
             
             # Отправляем текстовый отчет
             if len(report_text) > 4000:
@@ -109,13 +109,25 @@ async def process_redis_result(result_data: dict, bot: Bot):
             
             await bot.send_message(user_id, f"📋 **Результат проверки ДЗ:**\n\n{report_text}")
             
-            # Отправляем PDF, если есть
-            if pdf_path:
+            # Компилируем и отправляем PDF, если есть LaTeX код
+            if latex_content:
                 try:
-                    from aiogram.types import FSInputFile
-                    await bot.send_document(user_id, FSInputFile(pdf_path), caption="📄 Результат проверки ДЗ")
+                    from bot_app.pdf_compiler import compile_latex_to_pdf
+                    from aiogram.types import BufferedInputFile
+                    
+                    pdf_path, log = compile_latex_to_pdf(latex_content)
+                    if pdf_path:
+                        with open(pdf_path, "rb") as f:
+                            file_bytes = f.read()
+                            document = BufferedInputFile(file_bytes, filename="Homework_Check.pdf")
+                            await bot.send_document(user_id, document, caption="📄 Результат проверки ДЗ")
+                        logging.info(f"✅ PDF Homework Check отправлен пользователю {user_id}")
+                    else:
+                        logging.error(f"🔴 Ошибка компиляции PDF Homework Check: {log}")
+                        await bot.send_message(user_id, "❌ Ошибка создания PDF с результатом проверки")
                 except Exception as e:
                     logging.exception("Ошибка отправки PDF: %s", e)
+                    await bot.send_message(user_id, "❌ Ошибка создания PDF с результатом проверки")
 
         # === New Chat GPT response ===
         elif result_type == "chat_gpt":

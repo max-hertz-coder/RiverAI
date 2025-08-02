@@ -4,6 +4,7 @@ import logging
 from typing import Dict, Any
 from openai import OpenAI
 from dotenv import load_dotenv
+from jinja2 import Template
 
 load_dotenv()
 OPENAI_KEY = os.getenv("OPENAI_API_KEY")
@@ -12,6 +13,27 @@ if not OPENAI_KEY:
 
 client = OpenAI(api_key=OPENAI_KEY)
 logger = logging.getLogger(__name__)
+
+# Шаблон для проверки ДЗ
+HOMEWORK_CHECK_TEMPLATE = r"""\documentclass[12pt]{article}
+\usepackage[T2A]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[russian]{babel}
+\usepackage[margin=1in]{geometry}
+\begin{document}
+
+\begin{center}
+\textbf{Результат проверки домашнего задания}
+\end{center}
+
+\vspace{1cm}
+
+{{ check_result }}
+
+\end{document}
+"""
+
+template_homework_check = Template(HOMEWORK_CHECK_TEMPLATE)
 
 
 async def check_homework(homework_text: str) -> str:
@@ -122,12 +144,15 @@ async def handle_homework_check(task: Dict[str, Any]) -> Dict[str, Any]:
         cleaned_result = clean_latex_for_check(check_result)
         escaped_result = escape_latex(cleaned_result)
         
+        # Создаем LaTeX документ
+        latex_content = template_homework_check.render(check_result=escaped_result)
+        
         return {
             "type": "homework_check",
             "task_id": task_id,
             "original_text": homework_text,
-            "check_result": escaped_result,
-            "latex_content": escaped_result
+            "check_result": check_result,
+            "latex_content": latex_content
         }
         
     except Exception as e:

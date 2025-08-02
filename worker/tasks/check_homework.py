@@ -1,10 +1,9 @@
 import logging
 from worker.services.homework_check_service import handle_homework_check
-from worker.services.pdf_utils import compile_latex_to_pdf
 
 async def handle_check_homework(task: dict) -> dict:
     """
-    Проверка домашнего задания — отправка текста на ревью с генерацией PDF.
+    Проверка домашнего задания — отправка текста на ревью с генерацией LaTeX.
     """
     task_id = task.get("task_id")
     text = task.get("text", "").strip()
@@ -31,45 +30,16 @@ async def handle_check_homework(task: dict) -> dict:
         if result.get("type") == "error":
             return result
         
-        # Генерируем PDF отчет
+        # Возвращаем LaTeX код для компиляции в боте
         latex_content = result.get("latex_content", "")
         if latex_content:
-            # Создаем LaTeX документ для проверки ДЗ
-            latex_template = r"""\documentclass[12pt]{article}
-\usepackage[T2A]{fontenc}
-\usepackage[utf8]{inputenc}
-\usepackage[russian]{babel}
-\usepackage[margin=1in]{geometry}
-\begin{document}
-
-\begin{center}
-\textbf{Результат проверки домашнего задания}
-\end{center}
-
-\vspace{1cm}
-
-%s
-
-\end{document}""" % latex_content
-            
-            pdf_path, log = compile_latex_to_pdf(latex_template)
-            
-            if pdf_path:
-                return {
-                    "type": "check",
-                    "task_id": task_id,
-                    "report_text": result.get("check_result", ""),
-                    "pdf_path": pdf_path,
-                    "original_text": text
-                }
-            else:
-                # Если не удалось сгенерировать PDF, возвращаем только текст
-                return {
-                    "type": "check",
-                    "task_id": task_id,
-                    "report_text": result.get("check_result", ""),
-                    "original_text": text
-                }
+            return {
+                "type": "homework_check",
+                "task_id": task_id,
+                "original_text": text,
+                "check_result": result.get("check_result", ""),
+                "latex_content": latex_content
+            }
         else:
             return {
                 "type": "error",
