@@ -55,18 +55,20 @@ async def check_homework(homework_text: str) -> str:
 5. НЕ используйте Unicode символы вообще
 6. НЕ используйте математические символы в тексте
 7. Пишите простым текстом без специальных символов
+8. НЕ используйте звездочки (*) в названиях разделов
+9. Используйте только латинские буквы в названиях разделов
 
 Структура ответа:
-\\section*{Общая оценка}
+\\section*{Obshchaya ocenka}
 [Краткая общая оценка работы]
 
-\\section*{Найденные ошибки}
+\\section*{Najdennye oshibki}
 \\begin{enumerate}
 \\item [Описание ошибки 1]
 \\item [Описание ошибки 2]
 \\end{enumerate}
 
-\\section*{Рекомендации}
+\\section*{Rekomendacii}
 \\begin{enumerate}
 \\item [Рекомендация 1]
 \\item [Рекомендация 2]
@@ -92,9 +94,8 @@ def clean_latex_for_check(text: str) -> str:
     """
     Очищает LaTeX код от потенциально проблемных символов.
     """
-    # Удаляем проблемные символы
-    text = text.replace('*', '').replace('_', '').replace('`', '')
-    text = text.replace('\\', '\\\\')  # Экранируем обратные слеши
+    # Удаляем только самые проблемные символы, но сохраняем структуру LaTeX
+    text = text.replace('`', '')  # Удаляем обратные кавычки
     return text
 
 
@@ -102,6 +103,10 @@ def escape_latex(text: str) -> str:
     """
     Экранирует специальные символы для LaTeX.
     """
+    # Сначала экранируем обратные слеши
+    text = text.replace('\\', '\\\\')
+    
+    # Затем экранируем остальные специальные символы
     replacements = {
         '&': '\\&',
         '%': '\\%',
@@ -112,7 +117,6 @@ def escape_latex(text: str) -> str:
         '{': '\\{',
         '}': '\\}',
         '~': '\\~{}',
-        '\\': '\\textbackslash{}',
     }
     
     for old, new in replacements.items():

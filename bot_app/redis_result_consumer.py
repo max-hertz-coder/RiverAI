@@ -103,12 +103,6 @@ async def process_redis_result(result_data: dict, bot: Bot):
             report_text = result_data.get("check_result", "(нет отчёта)")
             latex_content = result_data.get("latex_content", "")
             
-            # Отправляем текстовый отчет
-            if len(report_text) > 4000:
-                report_text = report_text[:4000] + "\n\n... (отчет обрезан)"
-            
-            await bot.send_message(user_id, f"📋 **Результат проверки ДЗ:**\n\n{report_text}")
-            
             # Компилируем и отправляем PDF, если есть LaTeX код
             if latex_content:
                 try:
@@ -128,6 +122,11 @@ async def process_redis_result(result_data: dict, bot: Bot):
                 except Exception as e:
                     logging.exception("Ошибка отправки PDF: %s", e)
                     await bot.send_message(user_id, "❌ Ошибка создания PDF с результатом проверки")
+            else:
+                # Если нет LaTeX кода, отправляем только текстовый отчет
+                if len(report_text) > 4000:
+                    report_text = report_text[:4000] + "\n\n... (отчет обрезан)"
+                await bot.send_message(user_id, f"📋 **Результат проверки ДЗ:**\n\n{report_text}")
 
         # === New Chat GPT response ===
         elif result_type == "chat_gpt":
