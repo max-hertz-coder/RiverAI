@@ -30,8 +30,12 @@ async def process_task_message(task: dict) -> dict | None:
         if task_type == "ocr_and_check":
             # OCR + проверка ДЗ
             from worker.services.ocr_service import handle_ocr
+            logging.info(f"🔧 Начинаем OCR для проверки ДЗ: task_id={task_id}")
             ocr_result = await handle_ocr(task)
+            logging.info(f"🔧 OCR результат: {ocr_result}")
+            
             if ocr_result.get("type") == "error":
+                logging.error(f"🔴 OCR ошибка: {ocr_result}")
                 return ocr_result
             
             # Теперь проверяем ДЗ
@@ -39,7 +43,8 @@ async def process_task_message(task: dict) -> dict | None:
                 "task_id": task_id,
                 "text": ocr_result.get("text", "")
             }
-            return await handle_homework_check(check_task)
+            logging.info(f"🔧 Отправляем на проверку ДЗ: text_length={len(check_task['text'])}")
+            return await handle_check_homework(check_task)
 
         if task_type == "generate_plan":
             return await handle_plan(task)
