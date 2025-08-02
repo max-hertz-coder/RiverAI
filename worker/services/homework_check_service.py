@@ -106,24 +106,7 @@ def escape_latex(text: str) -> str:
     """
     Экранирует специальные символы для LaTeX, но сохраняет LaTeX команды.
     """
-    # Сначала защищаем LaTeX команды
-    import re
-    
-    # Временные маркеры для LaTeX команд
-    latex_commands = []
-    command_counter = 0
-    
-    def protect_latex_command(match):
-        nonlocal command_counter
-        placeholder = f"__LATEX_COMMAND_{command_counter}__"
-        latex_commands.append((placeholder, match.group(0)))
-        command_counter += 1
-        return placeholder
-    
-    # Защищаем LaTeX команды (начинающиеся с \)
-    text = re.sub(r'\\[a-zA-Z*]+(\{[^}]*\})?', protect_latex_command, text)
-    
-    # Теперь экранируем специальные символы
+    # Экранируем только специальные символы, НЕ трогаем обратные слеши и фигурные скобки
     replacements = {
         '&': '\\&',
         '%': '\\%',
@@ -131,17 +114,11 @@ def escape_latex(text: str) -> str:
         '#': '\\#',
         '^': '\\^{}',
         '_': '\\_',
-        '{': '\\{',
-        '}': '\\}',
         '~': '\\~{}',
     }
     
     for old, new in replacements.items():
         text = text.replace(old, new)
-    
-    # Восстанавливаем LaTeX команды
-    for placeholder, command in latex_commands:
-        text = text.replace(placeholder, command)
     
     return text
 
