@@ -33,7 +33,7 @@ async def get_user(user_id: int):
 async def get_student(student_id: int):
     pool = _get_pool()
     async with pool.acquire() as conn:
-        row = await conn.fetchrow("SELECT id, user_id, name, subject, level, notes FROM students WHERE id=$1", student_id)
+        row = await conn.fetchrow("SELECT id, user_id, name_enc, subject_enc, level_enc, notes_enc FROM students WHERE id=$1", student_id)
         return row
 
 async def increment_usage(user_id: int):

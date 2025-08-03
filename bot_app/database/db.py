@@ -18,9 +18,9 @@ def _get_pool():
 async def get_user_by_tg_id(telegram_id: int):
     pool = _get_pool()
     async with pool.acquire() as conn:
-        # Используем обычные колонки
+        # Используем зашифрованные колонки
         row = await conn.fetchrow("""
-            SELECT telegram_id, name, plan, usage_count, usage_limit,
+            SELECT telegram_id, name_enc, plan, usage_count, usage_limit,
                    language, notifications, password_hash,
                    ydisk_token_enc
             FROM users WHERE telegram_id=$1
@@ -28,7 +28,7 @@ async def get_user_by_tg_id(telegram_id: int):
         if row:
             return {
                 "telegram_id": row["telegram_id"],
-                "name": row["name"] if row["name"] else "",
+                "name": encryption.decrypt_str(row["name_enc"]) if row["name_enc"] else "",
                 "plan": row["plan"],
                 "usage_count": row["usage_count"],
                 "usage_limit": row["usage_limit"],
@@ -48,8 +48,9 @@ async def get_user_by_tg_id(telegram_id: int):
 async def create_user(telegram_id: int, name: str):
     pool = _get_pool()
     
-    # Используем обычные колонки
+    # Используем зашифрованные колонки
     async with pool.acquire() as conn:
+        name_enc = encryption.encrypt_str(name) if name else ""
         plan = "basic"
         usage_limit = 200
         usage_count = 0
@@ -60,19 +61,20 @@ async def create_user(telegram_id: int, name: str):
         
         await conn.execute("""
             INSERT INTO users (
-                telegram_id, name, plan, usage_count, usage_limit,
+                telegram_id, name_enc, plan, usage_count, usage_limit,
                 language, notifications, password_hash, ydisk_token_enc
             ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
             ON CONFLICT (telegram_id) DO NOTHING
-        """, telegram_id, name, plan, usage_count, usage_limit,
+        """, telegram_id, name_enc, plan, usage_count, usage_limit,
              language, notifications, password_hash, ydisk_token_enc)
         
         return await get_user_by_tg_id(telegram_id)
 
 async def update_user_name(user_id: int, new_name: str):
     pool = _get_pool()
+    name_enc = encryption.encrypt_str(new_name)
     async with pool.acquire() as conn:
-        await conn.execute("UPDATE users SET name=$1 WHERE telegram_id=$2", new_name, user_id)
+        await conn.execute("UPDATE users SET name_enc=$1 WHERE telegram_id=$2", name_enc, user_id)
 
 async def update_user_password(user_id: int, new_password_hash: str):
     pool = _get_pool()
@@ -105,19 +107,19 @@ async def set_user_disk_prompt_disabled(user_id: int):
 async def get_students_by_user(user_id: int):
     pool = _get_pool()
     async with pool.acquire() as conn:
-        # Используем обычные колонки
+        # Используем зашифрованные колонки
         rows = await conn.fetch("""
-            SELECT id, name, subject, level, notes
+            SELECT id, name_enc, subject_enc, level_enc, notes_enc
             FROM students WHERE user_id=$1 ORDER BY id
         """, user_id)
         students = []
         for row in rows:
             students.append({
                 "id": row["id"],
-                "name": row["name"],
-                "subject": row["subject"],
-                "level": row["level"],
-                "notes": row["notes"] if row["notes"] else "",
+                "name": encryption.decrypt_str(row["name_enc"]),
+                "subject": encryption.decrypt_str(row["subject_enc"]),
+                "level": encryption.decrypt_str(row["level_enc"]),
+                "notes": encryption.decrypt_str(row["notes_enc"]) if row["notes_enc"] else "",
                 "usage_count": 0,
                 "tokens_prompt_total": 0,
                 "tokens_gen_total": 0
@@ -128,17 +130,17 @@ async def get_student_by_id(student_id: int):
     pool = _get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow("""
-            SELECT id, user_id, name, subject, level, notes
+            SELECT id, user_id, name_enc, subject_enc, level_enc, notes_enc
             FROM students WHERE id=$1
         """, student_id)
         if row:
             return {
                 "id": row["id"],
                 "user_id": row["user_id"],
-                "name": row["name"],
-                "subject": row["subject"],
-                "level": row["level"],
-                "notes": row["notes"] if row["notes"] else "",
+                "name": encryption.decrypt_str(row["name_enc"]),
+                "subject": encryption.decrypt_str(row["subject_enc"]),
+                "level": encryption.decrypt_str(row["level_enc"]),
+                "notes": encryption.decrypt_str(row["notes_enc"]) if row["notes_enc"] else "",
                 "usage_count": 0,
                 "tokens_prompt_total": 0,
                 "tokens_gen_total": 0
@@ -148,21 +150,26 @@ async def get_student_by_id(student_id: int):
 async def create_student(user_id: int, name: str, subject: str, level: str, notes: str):
     pool = _get_pool()
     async with pool.acquire() as conn:
-        # Используем обычные колонки
+        # Используем зашифрованные колонки
         row = await conn.fetchrow("""
             INSERT INTO students (
-                user_id, name, subject, level, notes
+                user_id, name_enc, subject_enc, level_enc, notes_enc
             ) VALUES ($1, $2, $3, $4, $5)
             RETURNING id
         """,
-        user_id, name, subject, level, notes if notes else "")
+        user_id,
+        encryption.encrypt_str(name),
+        encryption.encrypt_str(subject),
+        encryption.encrypt_str(level),
+        encryption.encrypt_str(notes) if notes else "")
         
         return row["id"] if row else None
 
 async def update_student_name(student_id: int, new_name: str):
     pool = _get_pool()
+    name_enc = encryption.encrypt_str(new_name)
     async with pool.acquire() as conn:
-        await conn.execute("UPDATE students SET name=$1 WHERE id=$2", new_name, student_id)
+        await conn.execute("UPDATE students SET name_enc=$1 WHERE id=$2", name_enc, student_id)
 
 async def delete_student(student_id: int):
     pool = _get_pool()
