@@ -9,20 +9,22 @@ import asyncpg
 import os
 from pathlib import Path
 
-# Конфигурация базы данных
-DB_HOST = os.getenv("DB_HOST", "localhost")
-DB_PORT = os.getenv("DB_PORT", "5432")
-DB_USER = os.getenv("DB_USER", "postgres")
-DB_PASSWORD = os.getenv("DB_PASSWORD", "password")
-DB_NAME = os.getenv("DB_NAME", "riverai")
+# Добавляем путь к проекту для импорта конфигурации
+import sys
+sys.path.append(str(Path(__file__).parent.parent))
+
+# Импортируем конфигурацию
+from bot_app.config import POSTGRES_HOST, POSTGRES_PORT, POSTGRES_DB, POSTGRES_USER, POSTGRES_PASSWORD
 
 async def run_migration():
     """Запускает миграцию базы данных"""
     
     # Подключаемся к базе данных
-    dsn = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+    dsn = f"postgresql://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
     
     try:
+        print(f"🔍 Подключаемся к базе данных: {POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}")
+        print(f"👤 Пользователь: {POSTGRES_USER}")
         conn = await asyncpg.connect(dsn)
         print("✅ Подключились к базе данных")
         

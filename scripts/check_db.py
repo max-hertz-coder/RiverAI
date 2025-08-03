@@ -6,21 +6,23 @@
 import asyncio
 import asyncpg
 import os
+from pathlib import Path
 
-# Конфигурация базы данных
-DB_HOST = os.getenv("DB_HOST", "localhost")
-DB_PORT = os.getenv("DB_PORT", "5432")
-DB_USER = os.getenv("DB_USER", "postgres")
-DB_PASSWORD = os.getenv("DB_PASSWORD", "password")
-DB_NAME = os.getenv("DB_NAME", "riverai")
+# Добавляем путь к проекту для импорта конфигурации
+import sys
+sys.path.append(str(Path(__file__).parent.parent))
+
+# Импортируем конфигурацию
+from bot_app.config import POSTGRES_HOST, POSTGRES_PORT, POSTGRES_DB, POSTGRES_USER, POSTGRES_PASSWORD
 
 async def check_database():
     """Проверяет подключение к базе данных и структуру таблиц"""
     
-    dsn = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+    dsn = f"postgresql://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
     
     try:
-        print(f"🔍 Подключаемся к базе данных: {DB_HOST}:{DB_PORT}/{DB_NAME}")
+        print(f"🔍 Подключаемся к базе данных: {POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}")
+        print(f"👤 Пользователь: {POSTGRES_USER}")
         conn = await asyncpg.connect(dsn)
         print("✅ Подключение успешно!")
         
@@ -47,6 +49,8 @@ async def check_database():
             for col in users_columns:
                 nullable = "NULL" if col['is_nullable'] == 'YES' else "NOT NULL"
                 print(f"  - {col['column_name']}: {col['data_type']} {nullable}")
+        else:
+            print("\n❌ Таблица 'users' не найдена!")
         
         # Проверяем структуру таблицы students
         if any(t['table_name'] == 'students' for t in tables):
@@ -61,14 +65,21 @@ async def check_database():
             for col in students_columns:
                 nullable = "NULL" if col['is_nullable'] == 'YES' else "NOT NULL"
                 print(f"  - {col['column_name']}: {col['data_type']} {nullable}")
+        else:
+            print("\n❌ Таблица 'students' не найдена!")
         
         # Проверяем количество записей
-        users_count = await conn.fetchval("SELECT COUNT(*) FROM users")
-        students_count = await conn.fetchval("SELECT COUNT(*) FROM students")
+        try:
+            users_count = await conn.fetchval("SELECT COUNT(*) FROM users")
+            print(f"\n📊 Количество записей в users: {users_count}")
+        except Exception as e:
+            print(f"\n❌ Ошибка при подсчете записей в users: {e}")
         
-        print(f"\n📊 Количество записей:")
-        print(f"  - users: {users_count}")
-        print(f"  - students: {students_count}")
+        try:
+            students_count = await conn.fetchval("SELECT COUNT(*) FROM students")
+            print(f"📊 Количество записей в students: {students_count}")
+        except Exception as e:
+            print(f"❌ Ошибка при подсчете записей в students: {e}")
         
         await conn.close()
         print("\n✅ Проверка завершена успешно!")
