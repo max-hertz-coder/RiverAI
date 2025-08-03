@@ -1,3 +1,4 @@
+# === Итоговый файл .github/workflows/deploy.yml ===
 name: Автодеплой на сервера
 
 on:
@@ -61,43 +62,44 @@ jobs:
           host: ${{ matrix.host }}
           username: ${{ matrix.username }}
           key: ${{ secrets[matrix.secret_key] }}
-          envs: TELEGRAM_ID_SALT,WORKER_ENCRYPTION_SECRET,YDKEY_V1,YDKEY_VERSION,WORKER_POSTGRES_DSN
+          envs: TELEGRAM_ID_SALT,WORKER_ENCRYPTION_SECRET,YDKEY_V1,YDKEY_VERSION,WORKER_POSTGRES_DSN,ENCRYPTION_KEY
           script: |
-            # 1. Клонирование репозитория
+            cd /opt
             if [ ! -d /opt/RiverAI/.git ]; then
               git clone git@github.com:max-hertz-coder/RiverAI.git /opt/RiverAI
             fi
-
             cd /opt/RiverAI
             git pull origin main || { git fetch origin main && git reset --hard origin/main && git clean -fd; }
 
-            # 2. Логирование
             mkdir -p /opt/RiverAI/logs
             exec > >(tee -a /opt/RiverAI/logs/deploy.log) 2>&1
             echo "$(date +'%F %T') — Деплой стартовал на ${{ matrix.name }}"
 
-            # 3. Определение пути до .env
             if [ "${{ matrix.role }}" = "queue" ]; then
               ENV_PATH="./infrastructure/queue/.env"
             else
               ENV_PATH=".env"
             fi
 
-            # 4. Удаляем старые значения этих переменных (если есть)
-            for key in TELEGRAM_ID_SALT WORKER_ENCRYPTION_SECRET YDKEY_V1 YDKEY_VERSION WORKER_POSTGRES_DSN; do
-              sed -i "/^${key}=.*/d" "$ENV_PATH" 2>/dev/null || true
+            # Чтение и обновление .env
+            tmp_env="$(mktemp)"
+            [ -f "$ENV_PATH" ] && cat "$ENV_PATH" > "$tmp_env"
+
+            declare -A secrets=(
+              [TELEGRAM_ID_SALT]="$TELEGRAM_ID_SALT"
+              [WORKER_ENCRYPTION_SECRET]="$WORKER_ENCRYPTION_SECRET"
+              [YDKEY_V1]="$YDKEY_V1"
+              [YDKEY_VERSION]="$YDKEY_VERSION"
+              [WORKER_POSTGRES_DSN]="$WORKER_POSTGRES_DSN"
+              [ENCRYPTION_KEY]="$ENCRYPTION_KEY"
+            )
+
+            for key in "${!secrets[@]}"; do
+              grep -q "^$key=" "$tmp_env" && sed -i "s|^$key=.*|$key=${secrets[$key]}|" "$tmp_env" || echo "$key=${secrets[$key]}" >> "$tmp_env"
             done
 
-            # 5. Добавляем новые значения
-            {
-              echo "TELEGRAM_ID_SALT=${TELEGRAM_ID_SALT}"
-              echo "WORKER_ENCRYPTION_SECRET=${WORKER_ENCRYPTION_SECRET}"
-              echo "YDKEY_V1=${YDKEY_V1}"
-              echo "YDKEY_VERSION=${YDKEY_VERSION}"
-              echo "WORKER_POSTGRES_DSN=${WORKER_POSTGRES_DSN}"
-            } >> "$ENV_PATH"
+            mv "$tmp_env" "$ENV_PATH"
 
-            # 6. docker-compose up
             if command -v docker compose &> /dev/null; then
               docker compose up -d --build --remove-orphans
             else
