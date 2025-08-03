@@ -111,7 +111,7 @@ async def get_students_by_user(user_id: int):
         rows = await conn.fetch("""
             SELECT id, name, subject, level, notes, usage_count, tokens_prompt_total, tokens_gen_total
             FROM students WHERE user_id=$1 ORDER BY id
-        """, user_id)
+        """, str(user_id))  # Преобразуем int в str
         students = []
         for row in rows:
             students.append({
@@ -157,7 +157,7 @@ async def create_student(user_id: int, name: str, subject: str, level: str, note
             ) VALUES ($1, $2, $3, $4, $5)
             RETURNING id
         """,
-        user_id, name, subject, level, notes if notes else "")
+        str(user_id), name, subject, level, notes if notes else "")  # Преобразуем int в str
         
         return row["id"] if row else None
 
