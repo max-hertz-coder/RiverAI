@@ -87,6 +87,8 @@ jobs:
             echo "WORKER_ENCRYPTION_SECRET=${WORKER_ENCRYPTION_SECRET}" >> "$ENV_PATH"
             echo "YDKEY_V1=${YDKEY_V1}" >> "$ENV_PATH"
             echo "YDKEY_VERSION=${YDKEY_VERSION}" >> "$ENV_PATH"
+            echo "POSTGRES_DSN=${WORKER_POSTGRES_DSN}" >> "$ENV_PATH"
+
 
             # 5. Запуск docker compose
             if command -v docker compose &> /dev/null; then

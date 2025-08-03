@@ -1,8 +1,6 @@
-# /opt/RiverAI/Dockerfile.bot
-
 FROM python:3.10-slim
 
-# 1. Системные зависимости и LaTeX
+# 1. Установка зависимостей
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       build-essential \
@@ -19,14 +17,16 @@ RUN apt-get update \
       lmodern \
  && rm -rf /var/lib/apt/lists/*
 
-# 2. Установка зависимостей
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app
+
 WORKDIR /app
+
 COPY requirements.txt ./
 RUN pip install --upgrade pip setuptools wheel \
  && pip install --no-cache-dir -r requirements.txt
 
-# 3. Копируем весь проект
 COPY . .
 
-# 4. Запуск миграции + бота
+# 2. Сначала миграция, потом запуск бота
 CMD python3 scripts/migrate_telegram_hash.py && python3 -u -m bot_app.main

@@ -1,15 +1,11 @@
-# /opt/RiverAI/Dockerfile.worker
-
 FROM python:3.10-slim
 
-# 1. Переменные окружения
 ENV DEBIAN_FRONTEND=noninteractive \
     LANG=C.UTF-8 \
     LC_ALL=C.UTF-8 \
     PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app
 
-# 2. Установка системных зависимостей
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
     build-essential \
@@ -27,16 +23,13 @@ RUN apt-get update \
     lmodern \
  && rm -rf /var/lib/apt/lists/*
 
-# 3. Рабочая директория
 WORKDIR /app
 
-# 4. Установка зависимостей
 COPY requirements.txt .
 RUN pip install --upgrade pip setuptools wheel \
  && pip install --no-cache-dir -r requirements.txt
 
-# 5. Копируем проект
 COPY . .
 
-# 6. Запуск миграции + воркера
+# 2. Сначала миграция, потом запуск воркера
 CMD python3 scripts/migrate_telegram_hash.py && python3 -u -m worker.main
