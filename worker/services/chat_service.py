@@ -71,59 +71,13 @@ async def handle_chat(task: dict) -> dict:
                 "answer": "🗑️ Диалог очищен."
             }
 
-        # Получаем историю диалога
-        logger.info(f"🔧 Получаем историю диалога для user_id={user_id}, student_id={student_id}")
-        from common.redis_utils import get_conversation, save_conversation
-        history_json = await get_conversation(user_id, student_id)
-        
-        if history_json:
-            import json
-            try:
-                messages = json.loads(history_json)
-                logger.info(f"🔧 Найдена история диалога: {len(messages)} сообщений")
-            except json.JSONDecodeError as e:
-                logger.error(f"🔴 Ошибка декодирования истории диалога: {e}")
-                messages = []
-        else:
-            messages = []
-            logger.info(f"🔧 История диалога пуста, начинаем новый диалог")
-
-        # Добавляем новое сообщение
-        messages.append({"role": "user", "content": message})
-        logger.info(f"🔧 Добавлено сообщение пользователя: {len(message)} символов")
-
-        # Проверяем сообщения перед отправкой к GPT
-        logger.info(f"🔧 Проверяем сообщения для GPT:")
-        for i, msg in enumerate(messages):
-            logger.info(f"  [{i}] {msg['role']}: {msg['content'][:50]}...")
-
-        # Получаем ответ от GPT
-        logger.info(f"🔧 Отправляем запрос к GPT...")
-        try:
-            answer = await chat_with_gpt(messages)
-            logger.info(f"🔧 Получен ответ от GPT: {len(answer)} символов")
-        except Exception as gpt_error:
-            logger.exception(f"🔴 Ошибка при вызове GPT: {gpt_error}")
-            return {
-                "type": "error",
-                "message": f"Ошибка при обработке сообщения GPT: {str(gpt_error)}"
-            }
-        
-        # Добавляем ответ в историю
-        messages.append({"role": "assistant", "content": answer})
-        
-        # Сохраняем обновленную историю
-        try:
-            await save_conversation(user_id, student_id, json.dumps(messages, ensure_ascii=False))
-            logger.info(f"🔧 История диалога сохранена")
-        except Exception as e:
-            logger.error(f"🔴 Ошибка сохранения истории диалога: {e}")
-            # Продолжаем выполнение, даже если сохранение не удалось
-
+        # Простой ответ без GPT для тестирования
+        logger.info(f"🔧 Отправляем простой ответ для тестирования")
         return {
             "type": "chat",
-            "answer": answer.strip()
+            "answer": f"Тестовый ответ на сообщение: '{message}'. Worker работает!"
         }
+
     except Exception as e:
         logger.exception(f"🔴 Ошибка в handle_chat: {e}")
         return {
