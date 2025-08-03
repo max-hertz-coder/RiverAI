@@ -91,7 +91,6 @@ jobs:
               [YDKEY_V1]="$YDKEY_V1"
               [YDKEY_VERSION]="$YDKEY_VERSION"
               [WORKER_POSTGRES_DSN]="$WORKER_POSTGRES_DSN"
-              [ENCRYPTION_KEY]="$ENCRYPTION_KEY"
             )
 
             for key in "${!secrets[@]}"; do

@@ -38,7 +38,6 @@ services:
       - YDKEY_V1=${YDKEY_V1}
       - YDKEY_VERSION=${YDKEY_VERSION}
       - WORKER_POSTGRES_DSN=${WORKER_POSTGRES_DSN}
-      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
     logging:
       driver: "json-file"
       options:
