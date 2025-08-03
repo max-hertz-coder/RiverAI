@@ -7,10 +7,14 @@ from dotenv import load_dotenv
 load_dotenv()
 OPENAI_KEY = os.getenv("OPENAI_API_KEY")
 if not OPENAI_KEY:
+    logger = logging.getLogger(__name__)
+    logger.error("❌ Missing OPENAI_API_KEY environment variable")
     raise RuntimeError("Missing OPENAI_API_KEY environment variable")
 
-client = OpenAI(api_key=OPENAI_KEY)
 logger = logging.getLogger(__name__)
+logger.info(f"🔧 OpenAI API Key loaded: {OPENAI_KEY[:10]}...")
+
+client = OpenAI(api_key=OPENAI_KEY)
 
 
 async def chat_with_gpt(message: str, context: str = "") -> str:
@@ -58,15 +62,23 @@ async def handle_chat_gpt(task: Dict[str, Any]) -> Dict[str, Any]:
     message = task.get("message", "").strip()
     context = task.get("context", "").strip()
     
+    logger.info(f"🔧 Обрабатываем задачу chat_gpt: task_id={task_id}, message_length={len(message)}")
+    
     if not task_id:
+        logger.error("❌ Отсутствует task_id в задаче chat_gpt")
         return {"type": "error", "message": "Отсутствует task_id."}
     
     if not message:
+        logger.error("❌ Нет сообщения для обработки в задаче chat_gpt")
         return {"type": "error", "message": "Нет сообщения для обработки."}
     
     try:
+        logger.info(f"🔧 Отправляем запрос к GPT: task_id={task_id}")
+        
         # Получаем ответ от GPT
         response = await chat_with_gpt(message, context)
+        
+        logger.info(f"✅ Получен ответ от GPT: task_id={task_id}, response_length={len(response)}")
         
         return {
             "type": "chat_gpt",
@@ -77,7 +89,7 @@ async def handle_chat_gpt(task: Dict[str, Any]) -> Dict[str, Any]:
         }
         
     except Exception as e:
-        logger.exception("Ошибка в handle_chat_gpt: %s", e)
+        logger.exception(f"❌ Ошибка в handle_chat_gpt для task_id={task_id}: {e}")
         return {
             "type": "error",
             "task_id": task_id,
