@@ -63,37 +63,37 @@ jobs:
           key: ${{ secrets[matrix.secret_key] }}
           envs: TELEGRAM_ID_SALT,WORKER_ENCRYPTION_SECRET,YDKEY_V1,YDKEY_VERSION
           script: |
-            # 1. Клонирование репозитория (если не было) или обновление кода
+            # 1. Клонирование или обновление репозитория
             if [ ! -d /opt/RiverAI/.git ]; then
               git clone git@github.com:max-hertz-coder/RiverAI.git /opt/RiverAI
             fi
             cd /opt/RiverAI
             git pull origin main || { git fetch origin main && git reset --hard origin/main && git clean -fd; }
 
-            # 2. Логирование в файл /opt/RiverAI/logs/deploy.log
+            # 2. Логирование
             mkdir -p /opt/RiverAI/logs
             exec > >(tee -a /opt/RiverAI/logs/deploy.log) 2>&1
-            echo "$(date +'%F %T') — Начало деплоя на сервере ${{ matrix.name }}"
+            echo "$(date +'%F %T') — Деплой стартовал на сервере ${{ matrix.name }}"
 
-            # 3. Переход в нужную папку с docker-compose
+            # 3. Переход в docker-папку
             if [ "${{ matrix.role }}" = "queue" ]; then
               cd queue
             fi
 
-            # 4. Создание .env.override из секретов GitHub
+            # 4. Секреты в .env.override
             echo "TELEGRAM_ID_SALT=${TELEGRAM_ID_SALT}" > .env.override
             echo "WORKER_ENCRYPTION_SECRET=${WORKER_ENCRYPTION_SECRET}" >> .env.override
             echo "YDKEY_V1=${YDKEY_V1}" >> .env.override
             echo "YDKEY_VERSION=${YDKEY_VERSION}" >> .env.override
 
-            # 5. Запуск/обновление контейнеров
+            # 5. Запуск docker compose
             if command -v docker compose &> /dev/null; then
               docker compose up -d --build --remove-orphans
             else
               docker-compose up -d --build --remove-orphans
             fi
 
-            # 6. Очистка временных файлов
+            # 6. Удаление .env.override после деплоя (опционально)
             rm -f .env.override
 
-            echo "$(date +'%F %T') — Деплой успешно завершён на сервере ${{ matrix.name }}"
+            echo "$(date +'%F %T') — Деплой завершён на сервере ${{ matrix.name }}"
