@@ -115,8 +115,9 @@ async def doc_to_generate(message: Message, bot: Bot):
 # --- Генерация заданий через нижнее меню ---
 @router.message(F.text == "📝 Задания")
 async def msg_generate_tasks(message: Message, state: FSMContext):
-    if not await has_active_sub(message.from_user.id):
-        return await message.answer("❌ У вас нет активной подписки. Перейдите в 💳 Подписка и оформите доступ.")
+    # Убираем проверку подписки для тестирования
+    # if not await has_active_sub(message.from_user.id):
+    #     return await message.answer("❌ У вас нет активной подписки. Перейдите в 💳 Подписка и оформите доступ.")
 
     # Показываем список учеников для выбора
     students = await db.get_students_by_user(message.from_user.id)
@@ -141,8 +142,9 @@ async def msg_generate_tasks(message: Message, state: FSMContext):
 # --- Обработка описания для генерации заданий ---
 @router.message(TasksFSM.desc)
 async def proc_tasks(message: Message, state: FSMContext):
-    if not await has_active_sub(message.from_user.id):
-        return await message.answer("❌ У вас нет активной подписки. Перейдите в 💳 Подписка и оформите доступ.")
+    # Убираем проверку подписки для тестирования
+    # if not await has_active_sub(message.from_user.id):
+    #     return await message.answer("❌ У вас нет активной подписки. Перейдите в 💳 Подписка и оформите доступ.")
 
     desc = message.text.strip()
     if not desc:

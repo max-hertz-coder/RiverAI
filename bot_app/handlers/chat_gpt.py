@@ -64,8 +64,9 @@ class ChatGPTFSM(StatesGroup):
 # --- Обработчик кнопки "Чат с GPT" из нижнего меню ---
 @router.message(F.text == "💬 Чат с GPT")
 async def msg_chat_gpt(message: Message, state: FSMContext):
-    if not await has_active_sub(message.from_user.id):
-        return await message.answer("❌ У вас нет активной подписки. Перейдите в 💳 Подписка и оформите доступ.")
+    # Убираем проверку подписки для тестирования
+    # if not await has_active_sub(message.from_user.id):
+    #     return await message.answer("❌ У вас нет активной подписки. Перейдите в 💳 Подписка и оформите доступ.")
 
     # Получаем первого ученика (можно будет улучшить выбор)
     students = await db.get_students_by_user(message.from_user.id)
@@ -90,8 +91,9 @@ async def msg_chat_gpt(message: Message, state: FSMContext):
 # --- Обработчик кнопки "Чат с GPT" из CallbackQuery (для совместимости) ---
 @router.callback_query(F.data.startswith("chat_gpt:"))
 async def cb_chat_gpt(callback: CallbackQuery, state: FSMContext):
-    if not await has_active_sub(callback.from_user.id):
-        return await callback.answer("❌ У вас нет активной подписки. Перейдите в 💳 Подписка и оформите доступ.", show_alert=True)
+    # Убираем проверку подписки для тестирования
+    # if not await has_active_sub(callback.from_user.id):
+    #     return await callback.answer("❌ У вас нет активной подписки. Перейдите в 💳 Подписка и оформите доступ.", show_alert=True)
 
     student_id = int(callback.data.split(":", 1)[1])
     await state.set_state(ChatGPTFSM.message)
@@ -108,8 +110,9 @@ async def cb_chat_gpt(callback: CallbackQuery, state: FSMContext):
 # --- Обработка сообщений для чата с GPT ---
 @router.message(ChatGPTFSM.message)
 async def chat_message(message: Message, state: FSMContext):
-    if not await has_active_sub(message.from_user.id):
-        return await message.answer("❌ У вас нет активной подписки. Перейдите в 💳 Подписка и оформите доступ.")
+    # Убираем проверку подписки для тестирования
+    # if not await has_active_sub(message.from_user.id):
+    #     return await message.answer("❌ У вас нет активной подписки. Перейдите в 💳 Подписка и оформите доступ.")
 
     data = await state.get_data()
     student_id = data.get("student_id")
