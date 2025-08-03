@@ -79,7 +79,7 @@ async def msg_check_homework(message: Message, state: FSMContext):
     
     student_id = students[0]["id"]
     await state.set_state(HomeworkCheckFSM.text)
-    await state.update_data(student_id=student_id)
+    await state.update_data(selected_student_id=student_id)
     
     await message.answer(
         "✅ **Режим проверки ДЗ**\n\n"
@@ -97,7 +97,7 @@ async def cb_check_homework(callback: CallbackQuery, state: FSMContext):
 
     student_id = int(callback.data.split(":", 1)[1])
     await state.set_state(HomeworkCheckFSM.text)
-    await state.update_data(student_id=student_id)
+    await state.update_data(selected_student_id=student_id)
     
     await callback.message.edit_text(
         "✅ **Режим проверки ДЗ**\n\n"
@@ -110,15 +110,12 @@ async def cb_check_homework(callback: CallbackQuery, state: FSMContext):
 # --- Обработка текста для проверки ДЗ ---
 @router.message(HomeworkCheckFSM.text)
 async def text_to_check(message: Message, state: FSMContext):
-    if not await has_active_sub(message.from_user.id):
-        return await message.answer("❌ У вас нет активной подписки. Перейдите в 💳 Подписка и оформите доступ.")
-
     data = await state.get_data()
-    student_id = data.get("student_id")
+    student_id = data.get("selected_student_id")
     text = message.text.strip()
 
     if not text:
-        return await message.answer("❌ Текст не может быть пустым. Введите домашнее задание:")
+        return await message.answer("❌ Текст не может быть пустым. Введите домашнее задание для проверки:")
 
     task = {
         "type": "check_homework",
@@ -127,8 +124,7 @@ async def text_to_check(message: Message, state: FSMContext):
         "text": text,
     }
     await _send_task(task)
-    await state.clear()
-    await message.answer("🕔 Проверяю домашнее задание, ожидайте PDF…", reply_markup=bottom_menu_generation_kb())
+    await message.answer("🕔 Проверяю домашнее задание, ожидайте…", reply_markup=bottom_menu_generation_kb())
 
 
 # --- Обработка фото для проверки ДЗ ---
@@ -138,7 +134,7 @@ async def photo_to_check(message: Message, state: FSMContext, bot: Bot):
         return await message.answer("❌ У вас нет активной подписки. Перейдите в 💳 Подписка и оформите доступ.")
 
     data = await state.get_data()
-    student_id = data.get("student_id")
+    student_id = data.get("selected_student_id")
     caption = (message.caption or "").strip()
     
     bio = BytesIO()
@@ -154,8 +150,7 @@ async def photo_to_check(message: Message, state: FSMContext, bot: Bot):
         "prompt": caption,
     }
     await _send_task(task)
-    await state.clear()
-    await message.answer("🕔 Проверяю домашнее задание, ожидайте PDF…", reply_markup=bottom_menu_generation_kb())
+    await message.answer("🕔 Проверяю домашнее задание, ожидайте…", reply_markup=bottom_menu_generation_kb())
 
 
 # --- Обработка документа для проверки ДЗ ---
@@ -165,7 +160,7 @@ async def document_to_check(message: Message, state: FSMContext, bot: Bot):
         return await message.answer("❌ У вас нет активной подписки. Перейдите в 💳 Подписка и оформите доступ.")
 
     data = await state.get_data()
-    student_id = data.get("student_id")
+    student_id = data.get("selected_student_id")
     caption = (message.caption or "").strip()
     
     bio = BytesIO()
@@ -181,8 +176,7 @@ async def document_to_check(message: Message, state: FSMContext, bot: Bot):
         "prompt": caption,
     }
     await _send_task(task)
-    await state.clear()
-    await message.answer("🕔 Проверяю домашнее задание, ожидайте PDF…", reply_markup=bottom_menu_generation_kb())
+    await message.answer("🕔 Проверяю домашнее задание, ожидайте…", reply_markup=bottom_menu_generation_kb())
 
 
 # --- Обработчики результатов проверки ДЗ ---

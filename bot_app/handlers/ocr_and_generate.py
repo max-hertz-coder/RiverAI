@@ -46,142 +46,44 @@ async def _send_task(task: dict):
         logging.exception("Ошибка отправки задачи в очередь")
 
 
+# --- Обработка фото для OCR и генерации ---
 @router.message(F.photo)
-async def photo_to_generate(message: Message, bot: Bot, state: FSMContext):
-    current_state = await state.get_state()
+async def photo_to_generate(message: Message, state: FSMContext):
+    data = await state.get_data()
+    student_id = data.get("selected_student_id")
     
-    # Если мы в режиме проверки ДЗ
-    if current_state == "HomeworkCheckFSM:text":
-        from bot_app.database import db
-        from datetime import datetime
-        
-        # Проверяем подписку
-        user = await db.get_user_by_tg_id(message.from_user.id)
-        if not user:
-            return await message.answer("❌ Пользователь не найден.")
-        
-        expiry = user.get("subscription_expires")
-        if not expiry or datetime.fromisoformat(str(expiry)) <= datetime.now():
-            return await message.answer("❌ У вас нет активной подписки. Перейдите в 💳 Подписка и оформите доступ.")
-        
-        # Получаем данные состояния
-        data = await state.get_data()
-        student_id = data.get("student_id")
-        
-        # Обрабатываем фото для проверки ДЗ
-        bio = BytesIO()
-        await bot.download(message.photo[-1].file_id, destination=bio)
-        b64 = base64.b64encode(bio.getvalue()).decode()
-
-        task = {
-            "type": "ocr_and_check",
-            "user_id": message.from_user.id,
-            "student_id": student_id,
-            "file_data": b64,
-            "file_name": "photo.jpg",
-        }
-        await _send_task(task)
-        await message.answer("🕔 Распознаю и проверяю ДЗ, ожидайте PDF…", reply_markup=bottom_menu_generation_kb())
-        return
+    # Получаем фото с максимальным разрешением
+    photo = message.photo[-1]
+    file_info = await message.bot.get_file(photo.file_id)
+    file_url = file_info.file_url
     
-    # Обычная обработка для генерации заданий
-    caption = (message.caption or "").strip()
-    bio = BytesIO()
-    await bot.download(message.photo[-1].file_id, destination=bio)
-    b64 = base64.b64encode(bio.getvalue()).decode()
-
-    if not caption:
-        # сохраняем файл и ждём промпт
-        await state.update_data(
-            file_data=b64,
-            file_name="photo.jpg"
-        )
-        await state.set_state(OCRGenFSM.prompt)
-        return await message.answer(
-            "📌 Вы не указали текстовый запрос. Пожалуйста, введите **запрос** для генерации заданий по этому файлу:",
-            reply_markup=bottom_menu_generation_kb()
-        )
-
-    # Если есть caption, сразу отправляем задачу
     task = {
         "type": "ocr_and_generate",
         "user_id": message.from_user.id,
-        "student_id": None,
-        "file_data": b64,
-        "file_name": "photo.jpg",
-        "prompt": caption,
+        "student_id": student_id,
+        "image_url": file_url,
     }
     await _send_task(task)
-    await message.answer("🕔 Распознаю и генерирую задания, ожидайте PDF…", reply_markup=bottom_menu_generation_kb())
+    await message.answer("🕔 Обрабатываю фото и генерирую задания, ожидайте…", reply_markup=bottom_menu_generation_kb())
 
-
+# --- Обработка документов для OCR и генерации ---
 @router.message(F.document)
-async def doc_to_generate(message: Message, bot: Bot, state: FSMContext):
-    current_state = await state.get_state()
+async def doc_to_generate(message: Message, state: FSMContext):
+    data = await state.get_data()
+    student_id = data.get("selected_student_id")
     
-    # Если мы в режиме проверки ДЗ
-    if current_state == "HomeworkCheckFSM:text":
-        from bot_app.database import db
-        from datetime import datetime
-        
-        # Проверяем подписку
-        user = await db.get_user_by_tg_id(message.from_user.id)
-        if not user:
-            return await message.answer("❌ Пользователь не найден.")
-        
-        expiry = user.get("subscription_expires")
-        if not expiry or datetime.fromisoformat(str(expiry)) <= datetime.now():
-            return await message.answer("❌ У вас нет активной подписки. Перейдите в 💳 Подписка и оформите доступ.")
-        
-        # Получаем данные состояния
-        data = await state.get_data()
-        student_id = data.get("student_id")
-        
-        # Обрабатываем документ для проверки ДЗ
-        bio = BytesIO()
-        await bot.download(message.document.file_id, destination=bio)
-        b64 = base64.b64encode(bio.getvalue()).decode()
-
-        task = {
-            "type": "ocr_and_check",
-            "user_id": message.from_user.id,
-            "student_id": student_id,
-            "file_data": b64,
-            "file_name": message.document.file_name,
-        }
-        await _send_task(task)
-        await message.answer("🕔 Распознаю и проверяю ДЗ, ожидайте PDF…", reply_markup=bottom_menu_generation_kb())
-        return
+    # Получаем информацию о документе
+    file_info = await message.bot.get_file(message.document.file_id)
+    file_url = file_info.file_url
     
-    # Обычная обработка для генерации заданий
-    caption = (message.caption or "").strip()
-    bio = BytesIO()
-    await bot.download(message.document.file_id, destination=bio)
-    b64 = base64.b64encode(bio.getvalue()).decode()
-
-    if not caption:
-        # сохраняем файл и ждём промпт
-        await state.update_data(
-            file_data=b64,
-            file_name=message.document.file_name
-        )
-        await state.set_state(OCRGenFSM.prompt)
-        return await message.answer(
-            "📌 Вы не указали текстовый запрос. Пожалуйста, введите **запрос** для генерации заданий по этому файлу:",
-            reply_markup=bottom_menu_generation_kb()
-        )
-
-    # Если есть caption, сразу отправляем задачу
     task = {
         "type": "ocr_and_generate",
         "user_id": message.from_user.id,
-        "student_id": None,
-        "file_data": b64,
-        "file_name": message.document.file_name,
-        "prompt": caption,
+        "student_id": student_id,
+        "image_url": file_url,
     }
     await _send_task(task)
-    await message.answer("🕔 Распознаю и генерирую задания, ожидайте PDF…", reply_markup=bottom_menu_generation_kb())
+    await message.answer("🕔 Обрабатываю документ и генерирую задания, ожидайте…", reply_markup=bottom_menu_generation_kb())
 
 
 @router.message(OCRGenFSM.prompt)

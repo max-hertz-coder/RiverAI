@@ -139,33 +139,28 @@ async def msg_generate_tasks(message: Message, state: FSMContext):
     )
 
 
-# --- Обработка описания для генерации заданий ---
+# --- Обработка текстовых запросов для генерации заданий ---
 @router.message(TasksFSM.desc)
 async def proc_tasks(message: Message, state: FSMContext):
     # Убираем проверку подписки для тестирования
     # if not await has_active_sub(message.from_user.id):
     #     return await message.answer("❌ У вас нет активной подписки. Перейдите в 💳 Подписка и оформите доступ.")
 
-    desc = message.text.strip()
-    if not desc:
-        return await message.answer("❌ Описание не может быть пустым. Введите описание заданий:")
+    data = await state.get_data()
+    student_id = data.get("selected_student_id")
+    prompt = message.text.strip()
 
-    # Получаем первого ученика (можно будет улучшить выбор)
-    students = await db.get_students_by_user(message.from_user.id)
-    if not students:
-        return await message.answer("👤 У вас нет учеников. Сначала добавьте ученика.")
-    
-    student_id = students[0]["id"]
+    if not prompt:
+        return await message.answer("❌ Запрос не может быть пустым. Введите описание заданий:")
 
     task = {
         "type": "generate_tasks",
         "user_id": message.from_user.id,
         "student_id": student_id,
-        "description": desc,
+        "prompt": prompt,
     }
     await _send_task(task)
-    await state.clear()
-    await message.answer("🕔 Генерирую задания, ожидайте PDF…", reply_markup=bottom_menu_generation_kb())
+    await message.answer("🕔 Генерирую задания, ожидайте…", reply_markup=bottom_menu_generation_kb())
 
 
 # --- Генерация учебного плана через нижнее меню ---
