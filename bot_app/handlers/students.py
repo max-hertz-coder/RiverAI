@@ -1,11 +1,13 @@
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import StatesGroup, State
-
+from aiogram.fsm.state import State, StatesGroup
 from bot_app.database import db
 from bot_app.keyboards import students as student_kb
-from bot_app.keyboards.main_menu import bottom_menu_students_kb, bottom_menu_student_actions_kb
+from bot_app.keyboards.main_menu import bottom_menu_students_kb, bottom_menu_student_actions_kb, bottom_menu_generation_kb
+from bot_app.handlers.homework_check import HomeworkCheckFSM
+from bot_app.handlers.chat_gpt import ChatGPTFSM
+from bot_app.handlers.generation import TasksFSM as GenerationFSM
 
 router = Router()
 
@@ -33,8 +35,27 @@ def _no_students_text():
 async def msg_show_students(message: Message):
     await _ensure_user(message.from_user.id, message.from_user.first_name or "")
     students = await db.get_students_by_user(message.from_user.id)
-    text = _no_students_text() if not students else "Ваши ученики:"
-    await message.answer(text, reply_markup=bottom_menu_students_kb())
+    
+    if not students:
+        await message.answer(_no_students_text(), reply_markup=bottom_menu_students_kb())
+        return
+    
+    # Создаем клавиатуру с учениками
+    from bot_app.keyboards.main_menu import ReplyKeyboardBuilder
+    kb = ReplyKeyboardBuilder()
+    
+    # Добавляем кнопки учеников
+    for student in students:
+        kb.button(text=f"👤 {student['name']}")
+    
+    # Добавляем кнопку "Назад"
+    kb.button(text="← Главное меню")
+    kb.adjust(1)  # одна кнопка в ряд
+    
+    await message.answer(
+        "Выберите ученика:",
+        reply_markup=kb.as_markup(resize_keyboard=True)
+    )
 
 # --- Начало добавления ученика
 @router.message(F.text == "➕ Добавить ученика")
@@ -124,38 +145,139 @@ async def cb_select_student(callback: CallbackQuery):
     
     await callback.message.edit_text(text, reply_markup=bottom_menu_student_actions_kb())
 
+# --- Выбор ученика по имени
+@router.message(F.text.startswith("👤 "))
+async def msg_select_student(message: Message, state: FSMContext):
+    student_name = message.text[2:]  # Убираем "👤 "
+    
+    # Получаем ученика по имени
+    students = await db.get_students_by_user(message.from_user.id)
+    selected_student = None
+    
+    for student in students:
+        if student['name'] == student_name:
+            selected_student = student
+            break
+    
+    if not selected_student:
+        await message.answer("Ученик не найден. Попробуйте еще раз.")
+        return
+    
+    # Сохраняем выбранного ученика в состоянии
+    await state.update_data(selected_student_id=selected_student['id'])
+    await state.update_data(selected_student_name=selected_student['name'])
+    
+    # Показываем информацию об ученике и действия
+    text = f"👤 **{selected_student['name']}**\n\n📝 Предмет: {selected_student['subject']}\n📊 Уровень: {selected_student['level']}"
+    if selected_student.get('notes'):
+        text += f"\n📋 Заметки: {selected_student['notes']}"
+    
+    await message.answer(
+        text,
+        reply_markup=bottom_menu_student_actions_kb()
+    )
+
 # --- Обработчики действий с учеником через нижнее меню
 @router.message(F.text == "📄 Учебный план")
 async def msg_generate_plan(message: Message, state: FSMContext):
-    # Здесь нужно будет добавить логику для выбора ученика
-    await message.answer("Выберите ученика для генерации учебного плана:", reply_markup=bottom_menu_students_kb())
+    data = await state.get_data()
+    selected_student_id = data.get('selected_student_id')
+    
+    if not selected_student_id:
+        await message.answer("Сначала выберите ученика.")
+        return
+    
+    # Переходим к генерации плана
+    await state.set_state(GenerationFSM.desc)
+    await state.update_data(student_id=selected_student_id)
+    await message.answer(
+        "Отправьте фото или документ для генерации учебного плана:",
+        reply_markup=bottom_menu_generation_kb()
+    )
 
 @router.message(F.text == "📝 Задания")
 async def msg_generate_tasks(message: Message, state: FSMContext):
-    # Здесь нужно будет добавить логику для выбора ученика
-    await message.answer("Выберите ученика для генерации заданий:", reply_markup=bottom_menu_students_kb())
+    data = await state.get_data()
+    selected_student_id = data.get('selected_student_id')
+    
+    if not selected_student_id:
+        await message.answer("Сначала выберите ученика.")
+        return
+    
+    # Переходим к генерации заданий
+    await state.set_state(GenerationFSM.desc)
+    await state.update_data(student_id=selected_student_id)
+    await message.answer(
+        "Отправьте фото или документ для генерации заданий:",
+        reply_markup=bottom_menu_generation_kb()
+    )
 
 @router.message(F.text == "✅ Проверить ДЗ")
 async def msg_check_homework(message: Message, state: FSMContext):
-    # Здесь нужно будет добавить логику для выбора ученика
-    await message.answer("Выберите ученика для проверки домашнего задания:", reply_markup=bottom_menu_students_kb())
+    data = await state.get_data()
+    selected_student_id = data.get('selected_student_id')
+    
+    if not selected_student_id:
+        await message.answer("Сначала выберите ученика.")
+        return
+    
+    # Переходим к проверке ДЗ
+    await state.set_state(HomeworkCheckFSM.text)
+    await state.update_data(student_id=selected_student_id)
+    await message.answer(
+        "Отправьте фото или документ с домашним заданием для проверки:",
+        reply_markup=bottom_menu_generation_kb()
+    )
 
 @router.message(F.text == "💬 Чат с GPT")
 async def msg_chat_gpt(message: Message, state: FSMContext):
-    # Здесь нужно будет добавить логику для выбора ученика
-    await message.answer("Выберите ученика для чата с GPT:", reply_markup=bottom_menu_students_kb())
+    data = await state.get_data()
+    selected_student_id = data.get('selected_student_id')
+    
+    if not selected_student_id:
+        await message.answer("Сначала выберите ученика.")
+        return
+    
+    # Переходим к чату с GPT
+    await state.set_state(ChatGPTFSM.waiting_for_message)
+    await state.update_data(student_id=selected_student_id)
+    await message.answer(
+        "Отправьте сообщение для чата с GPT:",
+        reply_markup=bottom_menu_generation_kb()
+    )
 
 @router.message(F.text == "🗑 Удалить ученика")
 async def msg_delete_student(message: Message, state: FSMContext):
-    # Здесь нужно будет добавить логику для выбора ученика
-    await message.answer("Выберите ученика для удаления:", reply_markup=bottom_menu_students_kb())
+    data = await state.get_data()
+    selected_student_id = data.get('selected_student_id')
+    selected_student_name = data.get('selected_student_name')
+    
+    if not selected_student_id:
+        await message.answer("Сначала выберите ученика.")
+        return
+    
+    # Удаляем ученика
+    await db.delete_student(selected_student_id)
+    await state.clear()
+    
+    await message.answer(
+        f"✅ Ученик '{selected_student_name}' успешно удален!",
+        reply_markup=bottom_menu_students_kb()
+    )
 
 @router.message(F.text == "← К ученикам")
-async def back_to_students(message: Message):
-    """Возврат к списку учеников"""
-    students = await db.get_students_by_user(message.from_user.id)
-    text = _no_students_text() if not students else "Ваши ученики:"
-    await message.answer(text, reply_markup=bottom_menu_students_kb())
+async def back_to_students(message: Message, state: FSMContext):
+    await state.clear()
+    await msg_show_students(message)
+
+@router.message(F.text == "← Главное меню")
+async def back_to_main_menu(message: Message, state: FSMContext):
+    await state.clear()
+    from bot_app.keyboards.main_menu import bottom_menu_kb
+    await message.answer(
+        "Главное меню:",
+        reply_markup=bottom_menu_kb()
+    )
 
 # --- Обработчики для совместимости с callback
 @router.callback_query(F.data.startswith("open_chat:"))
@@ -249,35 +371,35 @@ async def process_edit_name(message: Message, state: FSMContext):
     
     await message.answer(text, reply_markup=bottom_menu_student_actions_kb())
 
-# --- Обработчики для английского языка ---
+# --- Обработчики для английских кнопок
+@router.message(F.text == "👤 Students")
+async def msg_show_students_en(message: Message):
+    await msg_show_students(message)
+
 @router.message(F.text == "📄 Generate Plan")
 async def msg_generate_plan_en(message: Message, state: FSMContext):
-    # Здесь нужно будет добавить логику для выбора ученика
-    await message.answer("Select a student to generate a study plan:", reply_markup=bottom_menu_students_kb(lang="EN"))
+    await msg_generate_plan(message, state)
 
 @router.message(F.text == "📝 Generate Tasks")
 async def msg_generate_tasks_en(message: Message, state: FSMContext):
-    # Здесь нужно будет добавить логику для выбора ученика
-    await message.answer("Select a student to generate tasks:", reply_markup=bottom_menu_students_kb(lang="EN"))
+    await msg_generate_tasks(message, state)
 
 @router.message(F.text == "✅ Check HW")
 async def msg_check_homework_en(message: Message, state: FSMContext):
-    # Здесь нужно будет добавить логику для выбора ученика
-    await message.answer("Select a student to check homework:", reply_markup=bottom_menu_students_kb(lang="EN"))
+    await msg_check_homework(message, state)
 
 @router.message(F.text == "💬 Chat GPT")
 async def msg_chat_gpt_en(message: Message, state: FSMContext):
-    # Здесь нужно будет добавить логику для выбора ученика
-    await message.answer("Select a student for GPT chat:", reply_markup=bottom_menu_students_kb(lang="EN"))
+    await msg_chat_gpt(message, state)
 
 @router.message(F.text == "🗑 Delete Student")
 async def msg_delete_student_en(message: Message, state: FSMContext):
-    # Здесь нужно будет добавить логику для выбора ученика
-    await message.answer("Select a student to delete:", reply_markup=bottom_menu_students_kb(lang="EN"))
+    await msg_delete_student(message, state)
 
 @router.message(F.text == "← Back to Students")
-async def back_to_students_en(message: Message):
-    """Возврат к списку учеников на английском"""
-    students = await db.get_students_by_user(message.from_user.id)
-    text = "You don't have any students yet." if not students else "Your students:"
-    await message.answer(text, reply_markup=bottom_menu_students_kb(lang="EN"))
+async def back_to_students_en(message: Message, state: FSMContext):
+    await back_to_students(message, state)
+
+@router.message(F.text == "← Back to Main")
+async def back_to_main_menu_en(message: Message, state: FSMContext):
+    await back_to_main_menu(message, state)
