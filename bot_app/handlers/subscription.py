@@ -106,7 +106,8 @@ async def process_model_choice(callback: CallbackQuery, state: FSMContext):
     # Обновляем данные пользователя
     await db.update_user_plan(user_id, model, students)
     
-    await callback.message.edit_text(
+    # Используем answer вместо edit_text для ReplyKeyboardMarkup
+    await callback.message.answer(
         f"✅ **Подписка оформлена!**\n\n"
         f"📦 Тариф: {model.capitalize()}\n"
         f"👥 Учеников: {students}\n"
@@ -114,6 +115,9 @@ async def process_model_choice(callback: CallbackQuery, state: FSMContext):
         f"Теперь вы можете использовать все функции бота!",
         reply_markup=bottom_menu_subscription_kb()
     )
+    
+    # Удаляем старое сообщение
+    await callback.message.delete()
 
 # --- Продлить подписку
 @router.message(F.text == "💳 Продлить подписку")
