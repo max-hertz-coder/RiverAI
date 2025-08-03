@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   worker:
     build:
@@ -12,7 +10,6 @@ services:
       - rabbitmq
     env_file:
       - ../../.env
-      - ../../.env.override
     environment:
       - TELEGRAM_ID_SALT=${TELEGRAM_ID_SALT}
       - WORKER_ENCRYPTION_SECRET=${WORKER_ENCRYPTION_SECRET}

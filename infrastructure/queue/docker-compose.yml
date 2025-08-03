@@ -1,14 +1,12 @@
-version: "3.9"
-
 services:
   redis:
     image: redis:7-alpine
     container_name: queue-redis
     restart: unless-stopped
-    networks:
-      - riverai-network
     ports:
       - "6379:6379"
+    networks:
+      - riverai-network
 
   rabbitmq:
     image: rabbitmq:3-management
@@ -34,7 +32,6 @@ services:
       - rabbitmq
     env_file:
       - .env
-      - .env.override
     environment:
       - TELEGRAM_ID_SALT=${TELEGRAM_ID_SALT}
     logging:
