@@ -1,3 +1,5 @@
+version: "3.9"
+
 services:
   worker:
     build:
@@ -5,20 +7,20 @@ services:
       dockerfile: Dockerfile.worker
     container_name: riverai-worker
     restart: unless-stopped
+    depends_on:
+      - redis
+      - rabbitmq
     env_file:
       - ../../.env
-      - ../../.env.override  # 👈 ОБЯЗАТЕЛЬНО
-    depends_on:
-      - rabbitmq
-      - redis
-    networks:
-      - riverai-network
+      - ../../.env.override
     environment:
       - TELEGRAM_ID_SALT=${TELEGRAM_ID_SALT}
       - WORKER_ENCRYPTION_SECRET=${WORKER_ENCRYPTION_SECRET}
       - YDKEY_V1=${YDKEY_V1}
       - YDKEY_VERSION=${YDKEY_VERSION}
       - WORKER_POSTGRES_DSN=${WORKER_POSTGRES_DSN}
+    networks:
+      - riverai-network
 
 networks:
   riverai-network:
