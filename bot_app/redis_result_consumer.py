@@ -39,6 +39,7 @@ async def process_redis_result(result_data: dict, bot: Bot):
             return
 
         logging.info(f"📥 Обрабатываем результат: task_id={task_id}, type={result_type}, user_id={user_id}")
+        logging.info(f"📥 Полный результат: {result_data}")
 
         # === Generated tasks ===
         if result_type == "tasks":

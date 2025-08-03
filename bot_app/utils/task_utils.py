@@ -35,6 +35,7 @@ async def create_task_with_context(task_data: Dict[str, Any]) -> Dict[str, Any]:
         "task_type": task_data.get("type")
     }
     
+    print(f"🔧 Сохраняем контекст в Redis: task_id={task_id}, context={context}")
     await save_context(task_id, context)
     
     # Добавляем task_id к задаче

@@ -66,8 +66,10 @@ async def process_task_message(task: dict) -> dict | None:
 
         if task_type in ("chat"):
             logging.info(f"🔧 Вызываем handle_chat для task_id={task_id}")
+            logging.info(f"🔧 Входные данные для handle_chat: {task}")
             result = await handle_chat(task)
             logging.info(f"🔧 handle_chat вернул: type={result.get('type') if result else 'None'}")
+            logging.info(f"🔧 Полный результат handle_chat: {result}")
             return result
 
         if task_type == "end_chat":

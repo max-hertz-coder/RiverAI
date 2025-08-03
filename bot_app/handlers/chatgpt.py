@@ -49,6 +49,7 @@ async def cb_chat_msg(message: Message, state: FSMContext):
         logger.info(f"🔧 Создаем задачу с контекстом: type={ttype}")
         task_with_context = await create_task_with_context(task)
         logger.info(f"🔧 Задача создана: task_id={task_with_context.get('task_id')}")
+        logger.info(f"🔧 Полная задача для отправки: {task_with_context}")
         
         if rabbit_channel:
             logger.info(f"🔧 Используем существующий канал RabbitMQ")
