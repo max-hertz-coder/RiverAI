@@ -38,7 +38,7 @@ async def cb_chat_msg(message: Message, state: FSMContext):
     # если выходим
     ttype = "end_chat" if txt.lower() in ("/back","/exit") else "chat"
     task = {
-        "type": ttype,
+        "type": "generate_plan",
         "user_id": message.from_user.id,
         "student_id": sid,
         "message": txt
