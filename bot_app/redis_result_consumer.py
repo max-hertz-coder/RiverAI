@@ -6,10 +6,10 @@ from aiogram.types import FSInputFile
 import tempfile
 import os
 
-from bot_app.config import TELEGRAM_TOKEN
+from bot_app.config import BOT_TOKEN
 from common.redis_utils import get_context_by_task_id, cleanup_task_context
 
-bot = Bot(token=TELEGRAM_TOKEN)
+bot = Bot(token=BOT_TOKEN)
 logger = logging.getLogger(__name__)
 
 async def process_result(result: Dict[str, Any]):
