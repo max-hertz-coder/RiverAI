@@ -8,8 +8,16 @@ logger = logging.getLogger(__name__)
 
 # Инициализация OpenAI клиента (рандомный ключ)
 def _get_openai_client():
+    if not config.OPENAI_API_KEYS:
+        raise RuntimeError("OPENAI_API_KEYS не настроены")
+    
     key = random.choice(config.OPENAI_API_KEYS)
     logger.info(f"🔧 Используем OpenAI ключ: {key[:10]}...")
+    
+    if not key or len(key) < 10:
+        logger.error(f"🔴 Недействительный OpenAI ключ: {key[:10] if key else 'None'}...")
+        raise RuntimeError("Недействительный OpenAI ключ")
+    
     return AsyncOpenAI(api_key=key)
 
 async def chat_with_gpt(messages: list[dict], temperature=0.7, max_tokens=1000) -> str:
@@ -20,34 +28,47 @@ async def chat_with_gpt(messages: list[dict], temperature=0.7, max_tokens=1000) 
     logger.info(f"  Количество сообщений: {len(messages)}")
     logger.info(f"  Последнее сообщение: {messages[-1]['content'][:100]}...")
     
-    client = _get_openai_client()
-    try:
-        logger.info(f"🔧 Отправляем запрос к GPT API...")
-        response = await client.chat.completions.create(
-            model="gpt-4o",
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens
-        )
-        logger.info(f"🔧 Получен ответ от GPT API")
-        result = response.choices[0].message.content.strip()
-        logger.info(f"🔧 Ответ GPT: {len(result)} символов")
-        return result
-    except Exception as e:
-        logger.error(f"🔴 Ошибка с gpt-4o: {e}")
-        # Попробуем с gpt-3.5-turbo как fallback
+    # Retry механизм
+    max_retries = 3
+    for attempt in range(max_retries):
         try:
-            logger.info(f"🔧 Пробуем с gpt-3.5-turbo...")
+            client = _get_openai_client()
+            logger.info(f"🔧 Попытка {attempt + 1}/{max_retries}: отправляем запрос к GPT API...")
+            
             response = await client.chat.completions.create(
-                model="gpt-3.5-turbo",
+                model="gpt-4o",
                 messages=messages,
                 temperature=temperature,
                 max_tokens=max_tokens
             )
-            logger.info(f"🔧 Получен ответ от GPT-3.5 API")
+            logger.info(f"🔧 Получен ответ от GPT API")
             result = response.choices[0].message.content.strip()
-            logger.info(f"🔧 Ответ GPT-3.5: {len(result)} символов")
+            logger.info(f"🔧 Ответ GPT: {len(result)} символов")
             return result
-        except Exception as e2:
-            logger.exception(f"🔴 Ошибка в chat_with_gpt (оба варианта): {e2}")
-            raise e2
+            
+        except Exception as e:
+            logger.error(f"🔴 Попытка {attempt + 1}/{max_retries} с gpt-4o: {e}")
+            logger.error(f"🔴 Тип ошибки: {type(e).__name__}")
+            
+            if attempt == max_retries - 1:
+                # Последняя попытка - пробуем gpt-3.5-turbo
+                try:
+                    logger.info(f"🔧 Пробуем с gpt-3.5-turbo...")
+                    response = await client.chat.completions.create(
+                        model="gpt-3.5-turbo",
+                        messages=messages,
+                        temperature=temperature,
+                        max_tokens=max_tokens
+                    )
+                    logger.info(f"🔧 Получен ответ от GPT-3.5 API")
+                    result = response.choices[0].message.content.strip()
+                    logger.info(f"🔧 Ответ GPT-3.5: {len(result)} символов")
+                    return result
+                except Exception as e2:
+                    logger.exception(f"🔴 Ошибка в chat_with_gpt (оба варианта): {e2}")
+                    logger.error(f"🔴 Тип второй ошибки: {type(e2).__name__}")
+                    raise e2
+            else:
+                # Ждем перед следующей попыткой
+                await asyncio.sleep(1)
+                continue
