@@ -80,5 +80,3 @@ async def cb_chat_msg(message: Message, state: FSMContext):
     if ttype == "end_chat":
         await state.clear()
         await message.answer("🔚 Чат завершён", reply_markup=chat_menu_kb(sid))
-    else:
-        await message.answer("💭 Отправлено ИИ, ожидайте ответ…", reply_markup=chat_menu_kb(sid))

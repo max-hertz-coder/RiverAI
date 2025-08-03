@@ -135,7 +135,7 @@ async def process_redis_result(result_data: dict, bot: Bot):
             if len(answer) > 4000:
                 answer = answer[:4000] + "\n\n... (ответ обрезан)"
             
-            await bot.send_message(user_id, f"🤖 **Ответ GPT:**\n\n{answer}")
+            await bot.send_message(user_id, answer)
 
         # === Error ===
         elif result_type == "error":

@@ -99,7 +99,6 @@ async def chat_message(message: Message, state: FSMContext):
         "message": user_message,
     }
     await _send_task(task)
-    await message.answer("🕔 Обрабатываю ваш вопрос…")
 
 
 # --- Обработка результатов чата с GPT ---
@@ -126,7 +125,7 @@ async def cb_chat_gpt_result(callback: CallbackQuery):
             answer = answer[:4000] + "\n\n... (ответ обрезан)"
         
         await callback.message.answer(
-            f"🤖 **Ответ GPT:**\n\n{answer}",
+            answer,
             reply_markup=back_button("← Назад", f"student:{result.get('student_id')}")
         )
     

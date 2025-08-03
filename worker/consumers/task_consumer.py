@@ -16,6 +16,9 @@ async def process_task_message(task: dict) -> dict | None:
     task_id = task.get("task_id")
     task_type = task.get("type")
 
+    logging.info(f"🔧 Начинаем обработку задачи: task_id={task_id}, type={task_type}")
+    logging.info(f"🔧 Полная задача: {task}")
+
     if not task_id:
         logging.error("🔴 Task missing task_id")
         return None
