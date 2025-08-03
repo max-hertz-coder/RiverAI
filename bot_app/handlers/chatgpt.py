@@ -53,8 +53,10 @@ async def cb_chat_msg(message: Message, state: FSMContext):
         
         if rabbit_channel:
             logger.info(f"🔧 Используем существующий канал RabbitMQ")
+            message_body = json.dumps(task_with_context).encode("utf-8")
+            logger.info(f"🔧 Отправляем в RabbitMQ: {message_body}")
             await rabbit_channel.default_exchange.publish(
-                aio_pika.Message(body=json.dumps(task_with_context).encode("utf-8")),
+                aio_pika.Message(body=message_body),
                 routing_key=config.TASK_QUEUE
             )
         else:
@@ -66,8 +68,10 @@ async def cb_chat_msg(message: Message, state: FSMContext):
                 password=config.RABBITMQ_PASS,
             )
             ch = await conn.channel()
+            message_body = json.dumps(task_with_context).encode("utf-8")
+            logger.info(f"🔧 Отправляем в RabbitMQ: {message_body}")
             await ch.default_exchange.publish(
-                aio_pika.Message(body=json.dumps(task_with_context).encode("utf-8")),
+                aio_pika.Message(body=message_body),
                 routing_key=config.TASK_QUEUE
             )
             await conn.close()

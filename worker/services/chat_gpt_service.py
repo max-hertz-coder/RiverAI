@@ -1,7 +1,7 @@
 import os
 import logging
 from typing import Dict, Any
-from openai import OpenAI
+from openai import AsyncOpenAI
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -9,7 +9,7 @@ OPENAI_KEY = os.getenv("OPENAI_API_KEY")
 if not OPENAI_KEY:
     raise RuntimeError("Missing OPENAI_API_KEY environment variable")
 
-client = OpenAI(api_key=OPENAI_KEY)
+client = AsyncOpenAI(api_key=OPENAI_KEY)
 logger = logging.getLogger(__name__)
 
 
@@ -34,7 +34,7 @@ async def chat_with_gpt(message: str, context: str = "") -> str:
             "content": message
         })
         
-        response = client.chat.completions.create(
+        response = await client.chat.completions.create(
             model="gpt-4o-mini",
             messages=messages,
             temperature=0.7,
@@ -58,6 +58,8 @@ async def handle_chat_gpt(task: Dict[str, Any]) -> Dict[str, Any]:
     message = task.get("message", "").strip()
     context = task.get("context", "").strip()
     
+    logger.info(f"🔧 Обрабатываем chat_gpt: task_id={task_id}, message_length={len(message)}")
+    
     if not task_id:
         return {"type": "error", "message": "Отсутствует task_id."}
     
@@ -66,7 +68,9 @@ async def handle_chat_gpt(task: Dict[str, Any]) -> Dict[str, Any]:
     
     try:
         # Получаем ответ от GPT
+        logger.info(f"🔧 Отправляем запрос к GPT...")
         response = await chat_with_gpt(message, context)
+        logger.info(f"🔧 Получен ответ от GPT: {len(response)} символов")
         
         return {
             "type": "chat_gpt",

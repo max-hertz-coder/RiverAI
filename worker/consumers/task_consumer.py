@@ -62,7 +62,12 @@ async def process_task_message(task: dict) -> dict | None:
             return await handle_check_homework(task)
 
         if task_type == "chat_gpt":
-            return await handle_chat_gpt(task)
+            logging.info(f"🔧 Вызываем handle_chat_gpt для task_id={task_id}")
+            logging.info(f"🔧 Входные данные для handle_chat_gpt: {task}")
+            result = await handle_chat_gpt(task)
+            logging.info(f"🔧 handle_chat_gpt вернул: type={result.get('type') if result else 'None'}")
+            logging.info(f"🔧 Полный результат handle_chat_gpt: {result}")
+            return result
 
         if task_type in ("chat"):
             logging.info(f"🔧 Вызываем handle_chat для task_id={task_id}")
