@@ -74,11 +74,11 @@ async def on_startup(bot_: Bot, dp: Dispatcher):
     # Ставим новые команды
     await bot_.set_my_commands([
         BotCommand("start", "Старт бота"),
-        BotCommand("back",  "Завершить чат с GPT"),
+        BotCommand("help", "Помощь"),
     ], language_code="ru")
     await bot_.set_my_commands([
         BotCommand("start", "Start bot"),
-        BotCommand("back",  "End chat with GPT"),
+        BotCommand("help", "Help"),
     ], language_code="en")
 
     # Обработчик результатов запускается в main()
