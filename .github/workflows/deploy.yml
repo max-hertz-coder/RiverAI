@@ -95,7 +95,5 @@ jobs:
               docker-compose up -d --build --remove-orphans
             fi
 
-            # 6. Удаление .env.override после запуска
-            rm -f "$ENV_PATH"
 
             echo "$(date +'%F %T') — Деплой завершён на сервере ${{ matrix.name }}"
