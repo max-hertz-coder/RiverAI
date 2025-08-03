@@ -1,17 +1,24 @@
 services:
   worker:
-    container_name: riverai-worker-1
     build:
       context: ../..
       dockerfile: Dockerfile.worker
+    container_name: riverai-worker
     restart: unless-stopped
     env_file:
-      - ../../.env         # обычный .env (общий)
-      - ../../.env.override  # временный секрет из GitHub Actions
+      - ../../.env
+      - ../../.env.override  # 👈 ОБЯЗАТЕЛЬНО
+    depends_on:
+      - rabbitmq
+      - redis
     networks:
       - riverai-network
     environment:
-      - TELEGRAM_ID_SALT   # обязательно пробрасываем внутрь контейнера
+      - TELEGRAM_ID_SALT=${TELEGRAM_ID_SALT}
+      - WORKER_ENCRYPTION_SECRET=${WORKER_ENCRYPTION_SECRET}
+      - YDKEY_V1=${YDKEY_V1}
+      - YDKEY_VERSION=${YDKEY_VERSION}
+      - WORKER_POSTGRES_DSN=${WORKER_POSTGRES_DSN}
 
 networks:
   riverai-network:

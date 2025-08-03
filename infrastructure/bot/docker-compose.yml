@@ -4,14 +4,18 @@ services:
       context: ../..
       dockerfile: Dockerfile.bot
     container_name: riverai-bot
+    restart: unless-stopped
     env_file:
       - ../../.env
-      - ../../.env.override  # ← добавлен
-    restart: unless-stopped
+      - ../../.env.override  # 👈 ОБЯЗАТЕЛЬНО
     networks:
       - riverai-network
     environment:
-      - TELEGRAM_ID_SALT
+      - TELEGRAM_ID_SALT=${TELEGRAM_ID_SALT}
+      - WORKER_ENCRYPTION_SECRET=${WORKER_ENCRYPTION_SECRET}
+      - YDKEY_V1=${YDKEY_V1}
+      - YDKEY_VERSION=${YDKEY_VERSION}
+      - WORKER_POSTGRES_DSN=${WORKER_POSTGRES_DSN}
 
 networks:
   riverai-network:
