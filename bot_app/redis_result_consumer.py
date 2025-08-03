@@ -140,6 +140,7 @@ async def process_redis_result(result_data: dict, bot: Bot):
         # === Error ===
         elif result_type == "error":
             error_msg = result_data.get("message", "Неизвестная ошибка")
+            logging.error(f"🔴 Получена ошибка от worker: {error_msg}")
             await bot.send_message(user_id, f"⚠️ Ошибка: {error_msg}")
 
         else:
@@ -149,9 +150,18 @@ async def process_redis_result(result_data: dict, bot: Bot):
 
     except Exception as e:
         logging.exception(f"🔴 Ошибка обработки результата: {e}")
+        # Попробуем отправить сообщение об ошибке пользователю
+        try:
+            if 'user_id' in locals():
+                await bot.send_message(user_id, "⚠️ Произошла ошибка при обработке результата. Попробуйте позже.")
+        except Exception as send_error:
+            logging.error(f"🔴 Не удалось отправить сообщение об ошибке: {send_error}")
 
     finally:
-        await cleanup_task_context(task_id)
+        try:
+            await cleanup_task_context(task_id)
+        except Exception as cleanup_error:
+            logging.error(f"🔴 Ошибка очистки контекста task_id={task_id}: {cleanup_error}")
 
 
 async def consume_redis_results(bot: Bot):
@@ -164,15 +174,21 @@ async def consume_redis_results(bot: Bot):
         try:
             client = _get_client()
             result_keys = await client.keys("result:*")
+            
+            if result_keys:
+                logging.info(f"🔧 Найдено {len(result_keys)} результатов в Redis")
 
             for key in result_keys:
                 try:
                     result_json = await client.get(key)
                     if result_json:
                         result_data = json.loads(result_json)
+                        logging.info(f"🔧 Обрабатываем результат: {key}, type={result_data.get('type')}")
                         await process_redis_result(result_data, bot)
                         await client.delete(key)
                         logging.info(f"✅ Обработан результат из Redis: {key}")
+                    else:
+                        logging.warning(f"⚠️ Результат {key} пустой")
                 except Exception as e:
                     logging.error(f"🔴 Ошибка обработки результата из Redis {key}: {e}")
 

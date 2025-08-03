@@ -86,9 +86,15 @@ async def on_startup(bot_: Bot, dp: Dispatcher):
 
 
 async def on_shutdown(bot_: Bot, dp: Dispatcher):
-    logging.info("🔌 Shutdown: закрываем пул БД")
+    logging.info("🔌 Shutdown: закрываем пул БД и RabbitMQ соединение")
     if db._pool:
         await db._pool.close()
+    
+    # Закрываем RabbitMQ соединение
+    import bot_app
+    if bot_app.rabbit_channel:
+        await bot_app.rabbit_channel.close()
+        logging.info("🔌 RabbitMQ канал закрыт")
 
 
 async def main():
@@ -117,6 +123,18 @@ async def main():
         f"redis://{worker_config.REDIS_HOST}:{worker_config.REDIS_PORT}/{app_config.REDIS_DB_FSM}"
     )
     dp = Dispatcher(storage=storage)
+
+    # Инициализируем RabbitMQ канал
+    logging.info("🔧 Инициализация RabbitMQ канала...")
+    import bot_app
+    connection = await aio_pika.connect_robust(
+        host=app_config.RABBITMQ_HOST,
+        port=app_config.RABBITMQ_PORT,
+        login=app_config.RABBITMQ_USER,
+        password=app_config.RABBITMQ_PASS,
+    )
+    bot_app.rabbit_channel = await connection.channel()
+    logging.info("✅ RabbitMQ канал инициализирован")
 
     # Подключаем middleware
     dp.message.middleware(AuthMiddleware())
@@ -150,7 +168,16 @@ async def main():
     logging.info("✅ Обработчик результатов запущен")
     
     # Ждём завершения polling (это блокирует выполнение)
-    await polling_task
+    try:
+        await polling_task
+    except KeyboardInterrupt:
+        logging.info("🛑 Получен сигнал завершения")
+    finally:
+        consume_task.cancel()
+        try:
+            await consume_task
+        except asyncio.CancelledError:
+            pass
 
 
 if __name__ == "__main__":

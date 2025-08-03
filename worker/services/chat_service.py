@@ -30,6 +30,8 @@ async def handle_chat(task: dict) -> dict:
         user_id = context.get("user_id")
         student_id = context.get("student_id")
 
+        logger.info(f"🔧 Обрабатываем чат: task_id={task_id}, user_id={user_id}, student_id={student_id}")
+
         if task_type == "end_chat":
             # Очищаем историю диалога
             from common.redis_utils import clear_conversation
@@ -46,27 +48,33 @@ async def handle_chat(task: dict) -> dict:
         if history_json:
             import json
             messages = json.loads(history_json)
+            logger.info(f"🔧 Найдена история диалога: {len(messages)} сообщений")
         else:
             messages = []
+            logger.info(f"🔧 История диалога пуста, начинаем новый диалог")
 
         # Добавляем новое сообщение
         messages.append({"role": "user", "content": message})
+        logger.info(f"🔧 Добавлено сообщение пользователя: {len(message)} символов")
 
         # Получаем ответ от GPT
+        logger.info(f"🔧 Отправляем запрос к GPT...")
         answer = await chat_with_gpt(messages)
+        logger.info(f"🔧 Получен ответ от GPT: {len(answer)} символов")
         
         # Добавляем ответ в историю
         messages.append({"role": "assistant", "content": answer})
         
         # Сохраняем обновленную историю
         await save_conversation(user_id, student_id, json.dumps(messages, ensure_ascii=False))
+        logger.info(f"🔧 История диалога сохранена")
 
         return {
             "type": "chat",
             "answer": answer.strip()
         }
     except Exception as e:
-        logger.exception("Ошибка в handle_chat")
+        logger.exception(f"Ошибка в handle_chat: {e}")
         return {
             "type": "error",
             "message": "Ошибка при обработке сообщения GPT."
