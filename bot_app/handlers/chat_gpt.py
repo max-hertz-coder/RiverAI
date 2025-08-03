@@ -93,7 +93,7 @@ async def chat_message(message: Message, state: FSMContext):
         return await message.answer("❌ Сообщение не может быть пустым. Введите ваш вопрос:")
 
     task = {
-        "type": "chat_gpt",
+        "type": "chat",
         "user_id": message.from_user.id,
         "student_id": student_id,
         "message": user_message,

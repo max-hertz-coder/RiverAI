@@ -79,10 +79,17 @@ async def process_task_message(task: dict) -> dict | None:
         if task_type in ("chat"):
             logging.info(f"🔧 Вызываем handle_chat для task_id={task_id}")
             logging.info(f"🔧 Входные данные для handle_chat: {task}")
-            result = await handle_chat(task)
-            logging.info(f"🔧 handle_chat вернул: type={result.get('type') if result else 'None'}")
-            logging.info(f"🔧 Полный результат handle_chat: {result}")
-            return result
+            try:
+                result = await handle_chat(task)
+                logging.info(f"🔧 handle_chat вернул: type={result.get('type') if result else 'None'}")
+                logging.info(f"🔧 Полный результат handle_chat: {result}")
+                return result
+            except Exception as e:
+                logging.exception(f"🔴 Ошибка в handle_chat: {e}")
+                return {
+                    "type": "error",
+                    "message": f"Ошибка в handle_chat: {str(e)}"
+                }
 
         if task_type == "end_chat":
             # Очищаем историю диалога
