@@ -37,6 +37,10 @@ OPENAI_API_KEYS = [k.strip() for k in os.getenv("OPENAI_API_KEYS", "").split(","
 if not OPENAI_API_KEYS:
     raise RuntimeError("OPENAI_API_KEYS not set")
 
+print(f"🔧 OpenAI API Keys loaded: {len(OPENAI_API_KEYS)} keys")
+for i, key in enumerate(OPENAI_API_KEYS):
+    print(f"  Key {i+1}: {key[:10]}...")
+
 
 # Encryption key (hex-строка 64 символа → 32 байта)
 _key_str = os.getenv("ENCRYPTION_KEY")

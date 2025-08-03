@@ -62,7 +62,10 @@ async def process_task_message(task: dict) -> dict | None:
             return await handle_chat_gpt(task)
 
         if task_type in ("chat"):
-            return await handle_chat(task)
+            logging.info(f"🔧 Вызываем handle_chat для task_id={task_id}")
+            result = await handle_chat(task)
+            logging.info(f"🔧 handle_chat вернул: type={result.get('type') if result else 'None'}")
+            return result
 
         if task_type == "end_chat":
             # Очищаем историю диалога
@@ -85,8 +88,8 @@ async def process_task_message(task: dict) -> dict | None:
 
         logging.warning("Unknown task type: %s", task_type)
 
-    except Exception:
-        logging.exception("🔴 Error processing task %r", task)
+    except Exception as e:
+        logging.exception(f"🔴 Error processing task {task_type} with task_id={task_id}: {e}")
         return {
             "type": "error",
             "message": "Внутренняя ошибка обработки задачи."
