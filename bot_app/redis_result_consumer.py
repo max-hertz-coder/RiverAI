@@ -1,5 +1,6 @@
 import json
 import logging
+import asyncio
 from typing import Dict, Any
 from aiogram import Bot
 from aiogram.types import FSInputFile
