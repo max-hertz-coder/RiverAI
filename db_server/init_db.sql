@@ -3,27 +3,36 @@
 
 -- Таблица пользователей
 CREATE TABLE IF NOT EXISTS users (
-    telegram_id   BIGINT        PRIMARY KEY,
-    name_enc      TEXT,
-    plan          VARCHAR(50)   NOT NULL DEFAULT 'basic',
-    usage_count   INT           NOT NULL DEFAULT 0,
-    usage_limit   INT           NOT NULL DEFAULT 0,
-    language      VARCHAR(5)    NOT NULL DEFAULT 'RU',
-    notifications BOOLEAN      NOT NULL DEFAULT TRUE,
-    password_hash TEXT          NOT NULL DEFAULT '',
-    ydisk_token_enc TEXT         NOT NULL DEFAULT ''
+    telegram_id         BIGINT        PRIMARY KEY,
+    name_enc           TEXT,
+    plan               VARCHAR(50)   NOT NULL DEFAULT 'basic',
+    usage_count        INT           NOT NULL DEFAULT 0,
+    usage_limit        INT           NOT NULL DEFAULT 0,
+    language           VARCHAR(5)    NOT NULL DEFAULT 'RU',
+    notifications      BOOLEAN       NOT NULL DEFAULT TRUE,
+    password_hash      TEXT          NOT NULL DEFAULT '',
+    ydisk_token_enc    TEXT          NOT NULL DEFAULT '',
+    hide_disk_prompt   BOOLEAN       NOT NULL DEFAULT FALSE,
+    tokens_prompt_total INT          NOT NULL DEFAULT 0,
+    tokens_gen_total   INT           NOT NULL DEFAULT 0,
+    subscription_expires TIMESTAMP,
+    trial_used         BOOLEAN       NOT NULL DEFAULT FALSE,
+    students_limit     INT           NOT NULL DEFAULT 3
 );
 
 -- Таблица учеников
 CREATE TABLE IF NOT EXISTS students (
-    id           SERIAL       PRIMARY KEY,
-    user_id      BIGINT       NOT NULL
+    id                 SERIAL        PRIMARY KEY,
+    user_id            BIGINT        NOT NULL
         REFERENCES users(telegram_id)
         ON DELETE CASCADE,
-    name_enc     TEXT         NOT NULL,
-    subject_enc  TEXT         NOT NULL,
-    level_enc    TEXT         NOT NULL,
-    notes_enc    TEXT
+    name_enc           TEXT          NOT NULL,
+    subject_enc        TEXT          NOT NULL,
+    level_enc          TEXT          NOT NULL,
+    notes_enc          TEXT,
+    usage_count        INT           NOT NULL DEFAULT 0,
+    tokens_prompt_total INT          NOT NULL DEFAULT 0,
+    tokens_gen_total   INT           NOT NULL DEFAULT 0
 );
 
 -- Индекс для быстрого поиска учеников по пользователю
