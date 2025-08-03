@@ -239,7 +239,7 @@ async def msg_chat_gpt(message: Message, state: FSMContext):
         return
     
     # Переходим к чату с GPT
-    await state.set_state(ChatGPTFSM.waiting_for_message)
+    await state.set_state(ChatGPTFSM.message)
     await state.update_data(student_id=selected_student_id)
     await message.answer(
         "Отправьте сообщение для чата с GPT:",

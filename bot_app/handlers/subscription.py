@@ -100,23 +100,18 @@ async def process_model_choice(callback: CallbackQuery, state: FSMContext):
     students = data["students"]
     await state.clear()
 
-    total_generations = students * 8 * 4
-    total_tokens = total_generations * 10000
-    cost_per_million = 0.5 + 1.5
-    multiplier = 1.0 if model == "standard" else 1.5
-    price_usd = (total_tokens / 1_000_000) * cost_per_million * multiplier
-    price_usd = round(price_usd, 2)
-    price_rub = round(price_usd * 100, 2)*4//100*100
-
-    admin_id = 922135759
-    await callback.message.answer(
-        f"\n\n💵 Тариф '{model}' для {students} учеников:\n"
-        f"💰 Цена: {price_rub}₽\n\n"
-        f"📊 Включено:\n"
-        f"• {students} учеников\n"
-        f"• {total_generations} генераций\n"
-        f"• {total_tokens:,} токенов\n\n"
-        f"Для оплаты напишите @admin",
+    # Автоматически оформляем подписку
+    user_id = callback.from_user.id
+    
+    # Обновляем данные пользователя
+    await db.update_user_plan(user_id, model, students)
+    
+    await callback.message.edit_text(
+        f"✅ **Подписка оформлена!**\n\n"
+        f"📦 Тариф: {model.capitalize()}\n"
+        f"👥 Учеников: {students}\n"
+        f"⏳ Срок: 30 дней\n\n"
+        f"Теперь вы можете использовать все функции бота!",
         reply_markup=bottom_menu_subscription_kb()
     )
 
