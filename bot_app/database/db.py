@@ -103,14 +103,20 @@ async def set_user_disk_prompt_disabled(user_id: int):
 
 # ---------- Student-related operations ----------
 
+
+
 async def get_students_by_user(user_id: int):
     pool = _get_pool()
-    tg_hash = hash_telegram_id(user_id)
+    user_hash = hash_telegram_id(user_id)
+
     async with pool.acquire() as conn:
         rows = await conn.fetch("""
             SELECT id, name_enc, subject_enc, level_enc, notes_enc
-            FROM students WHERE user_id=$1 ORDER BY id
-        """, tg_hash)
+            FROM students
+            WHERE user_hash = $1
+            ORDER BY id
+        """, user_hash)
+
         students = []
         for row in rows:
             students.append({
@@ -120,7 +126,9 @@ async def get_students_by_user(user_id: int):
                 "level": encryption.decrypt_str(row["level_enc"]),
                 "notes": encryption.decrypt_str(row["notes_enc"]) if row["notes_enc"] else ""
             })
+
         return students
+
 
 async def get_student(student_id: int):
     pool = _get_pool()
