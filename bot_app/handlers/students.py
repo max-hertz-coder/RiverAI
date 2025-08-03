@@ -65,12 +65,13 @@ async def msg_add_student(message: Message, state: FSMContext):
     user_data = await db.get_user_by_tg_id(user.id)
     students = await db.get_students_by_user(user.id)
 
-    if user_data and len(students) >= user_data.get("max_students", 3):
-        await message.answer(
-            "🚫 Вы достигли лимита по количеству учеников.\n\n"
-            "Чтобы добавить больше, обновите тариф в разделе «Подписка»."
-        )
-        return
+    # Убираем проверку лимита учеников для бесплатного использования
+    # if user_data and len(students) >= user_data.get("max_students", 3):
+    #     await message.answer(
+    #         "🚫 Вы достигли лимита по количеству учеников.\n\n"
+    #         "Чтобы добавить больше, обновите тариф в разделе «Подписка»."
+    #     )
+    #     return
 
     await state.clear()
     await state.set_state(AddStudentFSM.name)

@@ -110,3 +110,31 @@ async def msg_subscription_en(message: Message):
     """Подписка на английском"""
     from bot_app.handlers.subscription import msg_subscription
     await msg_subscription(message, None)
+
+# --- Обработчики для русского языка ---
+@router.message(F.text == "👤 Ученики")
+async def msg_show_students_ru(message: Message):
+    """Показ списка учеников на русском"""
+    from bot_app.handlers.students import msg_show_students
+    await msg_show_students(message)
+
+@router.message(F.text == "➕ Добавить ученика")
+async def msg_add_student_ru(message: Message, state: FSMContext):
+    """Добавление ученика на русском"""
+    from bot_app.handlers.students import msg_add_student
+    await msg_add_student(message, state)
+
+@router.message(F.text == "⚙️ Настройки")
+async def msg_settings_menu_ru(message: Message):
+    """Настройки на русском"""
+    user = await database.db.get_user_by_tg_id(message.from_user.id)
+    lang = user["language"] if user else "RU"
+    text = "Настройки профиля:" if lang == "RU" else "Profile Settings:"
+    from bot_app.keyboards.main_menu import bottom_menu_settings_kb
+    await message.answer(text, reply_markup=bottom_menu_settings_kb(lang="RU"))
+
+@router.message(F.text == "💳 Подписка")
+async def msg_subscription_ru(message: Message, state: FSMContext):
+    """Подписка на русском"""
+    from bot_app.handlers.subscription import msg_subscription
+    await msg_subscription(message, state)
