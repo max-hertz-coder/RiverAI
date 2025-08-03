@@ -97,7 +97,7 @@ async def get_students_by_user(user_id: int):
         rows = await conn.fetch("""
             SELECT id, name, subject, level, notes
             FROM students WHERE user_id=$1 ORDER BY id
-        """, user_id)
+        """, str(user_id))
         students = []
         for row in rows:
             students.append({
@@ -136,7 +136,7 @@ async def add_student(user_id: int, name: str, subject: str, level: str, notes: 
             ) VALUES ($1, $2, $3, $4, $5)
             RETURNING id
         """,
-        user_id, name, subject, level, notes if notes else "")
+        str(user_id), name, subject, level, notes if notes else "")
         return row["id"] if row else None
 
 async def update_student(student_id: int, name: str, subject: str, level: str, notes: str):
