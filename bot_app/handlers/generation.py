@@ -12,7 +12,7 @@ from aiogram.fsm.state import StatesGroup, State
 
 from bot_app import config, rabbit_channel
 from bot_app.rabbit import pending_tasks
-from bot_app.keyboards.main_menu import back_button
+from bot_app.keyboards.main_menu import bottom_menu_generation_kb, bottom_menu_students_kb
 from bot_app.database import db
 from bot_app.utils.task_utils import create_task_with_context
 
@@ -89,7 +89,6 @@ async def photo_to_generate(message: Message, bot: Bot):
     await message.answer("🕔 Распознаю и генерирую задания, ожидайте PDF…")
 
 
-
 # --- Генерация из документа ---
 @router.message(F.document)
 async def doc_to_generate(message: Message, bot: Bot):
@@ -100,116 +99,133 @@ async def doc_to_generate(message: Message, bot: Bot):
     bio = BytesIO()
     await bot.download(message.document.file_id, destination=bio)
     b64 = base64.b64encode(bio.getvalue()).decode()
-    name = message.document.file_name or "file.pdf"
 
     task = {
         "type": "ocr_and_generate",
         "user_id": message.from_user.id,
         "student_id": None,
         "file_data": b64,
-        "file_name": name,
+        "file_name": message.document.file_name,
         "prompt": caption,
     }
     await _send_task(task)
     await message.answer("🕔 Распознаю и генерирую задания, ожидайте PDF…")
 
 
-# --- Кнопка генерации ---
-@router.callback_query(F.data.startswith("generate_tasks:"))
-async def cb_tasks(callback: CallbackQuery, state: FSMContext):
-    sid = int(callback.data.split(":", 1)[1])
-    await state.update_data(student_id=sid)
+# --- Генерация заданий через нижнее меню ---
+@router.message(F.text == "📝 Задания")
+async def msg_generate_tasks(message: Message, state: FSMContext):
+    if not await has_active_sub(message.from_user.id):
+        return await message.answer("❌ У вас нет активной подписки. Перейдите в 💳 Подписка и оформите доступ.")
+
+    # Показываем список учеников для выбора
+    students = await db.get_students_by_user(message.from_user.id)
+    if not students:
+        return await message.answer(
+            "👤 У вас нет учеников. Сначала добавьте ученика в разделе «👤 Ученики».",
+            reply_markup=bottom_menu_students_kb()
+        )
+    
     await state.set_state(TasksFSM.desc)
-    await callback.message.edit_text(
-        "Введите текстовый запрос для генерации заданий:",
-        reply_markup=back_button("← Отмена", "back:chat")
+    await message.answer(
+        "📝 **Генерация заданий**\n\n"
+        "Опишите, какие задания нужно сгенерировать:\n"
+        "• Тема или раздел\n"
+        "• Тип заданий (тесты, задачи, упражнения)\n"
+        "• Уровень сложности\n"
+        "• Количество заданий",
+        reply_markup=bottom_menu_generation_kb()
     )
 
+
+# --- Обработка описания для генерации заданий ---
 @router.message(TasksFSM.desc)
 async def proc_tasks(message: Message, state: FSMContext):
     if not await has_active_sub(message.from_user.id):
         return await message.answer("❌ У вас нет активной подписки. Перейдите в 💳 Подписка и оформите доступ.")
 
-    data = await state.get_data()
-    prompt = message.text.strip()
+    desc = message.text.strip()
+    if not desc:
+        return await message.answer("❌ Описание не может быть пустым. Введите описание заданий:")
+
+    # Получаем первого ученика (можно будет улучшить выбор)
+    students = await db.get_students_by_user(message.from_user.id)
+    if not students:
+        return await message.answer("👤 У вас нет учеников. Сначала добавьте ученика.")
+    
+    student_id = students[0]["id"]
+
     task = {
-        "type":       "generate_tasks",
-        "user_id":    message.from_user.id,
-        "student_id": data.get("student_id"),
-        "prompt":     prompt,
+        "type": "generate_tasks",
+        "user_id": message.from_user.id,
+        "student_id": student_id,
+        "description": desc,
     }
     await _send_task(task)
-    await message.answer("🕔 Генерируются задания, ожидайте...")
     await state.clear()
+    await message.answer("🕔 Генерирую задания, ожидайте PDF…", reply_markup=bottom_menu_generation_kb())
 
 
-# --- Refine (уточнение) ---
-@router.callback_query(F.data.startswith("refine_tasks:"))
-async def cb_refine_tasks(callback: CallbackQuery, state: FSMContext):
-    sid_str = callback.data.split(":", 1)[1]
-    sid = int(sid_str) if sid_str.isdigit() else None
-    await state.update_data(student_id=sid)
-    await state.set_state(RefineTasksFSM.notes)
+# --- Генерация учебного плана через нижнее меню ---
+@router.message(F.text == "📄 Учебный план")
+async def msg_generate_plan(message: Message, state: FSMContext):
+    if not await has_active_sub(message.from_user.id):
+        return await message.answer("❌ У вас нет активной подписки. Перейдите в 💳 Подписка и оформите доступ.")
+
+    # Получаем первого ученика (можно будет улучшить выбор)
+    students = await db.get_students_by_user(message.from_user.id)
+    if not students:
+        return await message.answer(
+            "👤 У вас нет учеников. Сначала добавьте ученика в разделе «👤 Ученики».",
+            reply_markup=bottom_menu_students_kb()
+        )
+    
+    student_id = students[0]["id"]
+    student = await db.get_student_by_id(student_id)
+
+    task = {
+        "type": "generate_plan",
+        "user_id": message.from_user.id,
+        "student_id": student_id,
+        "description": f"Учебный план для ученика {student['name']} по предмету {student['subject']}",
+    }
+    await _send_task(task)
+    await message.answer("🕔 Генерирую учебный план, ожидайте PDF…", reply_markup=bottom_menu_generation_kb())
+
+
+# --- Обработчики для совместимости с callback ---
+@router.callback_query(F.data.startswith("generate_tasks:"))
+async def cb_tasks(callback: CallbackQuery, state: FSMContext):
+    if not await has_active_sub(callback.from_user.id):
+        return await callback.answer("❌ У вас нет активной подписки. Перейдите в 💳 Подписка и оформите доступ.", show_alert=True)
+
+    student_id = int(callback.data.split(":", 1)[1])
+    await state.set_state(TasksFSM.desc)
+    await state.update_data(student_id=student_id)
     await callback.message.edit_text(
-        "✏️ Опишите, как изменить эти задания:",
-        reply_markup=back_button("← Отмена", "back:chat")
+        "📝 **Генерация заданий**\n\n"
+        "Опишите, какие задания нужно сгенерировать:\n"
+        "• Тема или раздел\n"
+        "• Тип заданий (тесты, задачи, упражнения)\n"
+        "• Уровень сложности\n"
+        "• Количество заданий",
+        reply_markup=bottom_menu_generation_kb()
     )
 
-@router.message(RefineTasksFSM.notes)
-async def proc_refine_tasks(message: Message, state: FSMContext):
-    from common.redis_utils import get_last_solutions_file  # новый импорт
 
-    if not await has_active_sub(message.from_user.id):
-        return await message.answer("❌ У вас нет активной подписки.")
+@router.callback_query(F.data.startswith("refine_tasks:"))
+async def cb_refine_tasks(callback: CallbackQuery, state: FSMContext):
+    if not await has_active_sub(callback.from_user.id):
+        return await callback.answer("❌ У вас нет активной подписки. Перейдите в 💳 Подписка и оформите доступ.", show_alert=True)
 
-    data = await state.get_data()
-    chat_id = message.from_user.id
-    student_id = data.get("student_id")
-    prompt = message.text.strip()
-
-    file_name = "Solutions.pdf"
-
-    # 1. Попробовать взять из reply (стандартный путь)
-    if message.reply_to_message and message.reply_to_message.document:
-        doc = message.reply_to_message.document
-        file_name = doc.file_name or "Solutions.pdf"
-
-        from io import BytesIO
-        bio = BytesIO()
-        await message.bot.download(doc.file_id, destination=bio)
-        file_b64 = base64.b64encode(bio.getvalue()).decode()
-
-    else:
-        # 2. Попробовать взять из Redis
-        file_b64 = await get_last_solutions_file(chat_id)
-        if not file_b64:
-            return await message.answer("❌ Я не нашёл предыдущий Solutions.pdf. Пожалуйста, отправьте его повторно или ответьте на него.")
-
-    task = {
-        "type": "ocr_and_generate",
-        "user_id": chat_id,
-        "student_id": student_id,
-        "file_data": file_b64,
-        "file_name": file_name,
-        "prompt": prompt,
-        "refine": True
-    }
-    await _send_task(task)
-    await message.answer("📝 Переделываем задания по новым инструкциям…")
-    await state.clear()
-
-
-# --- Подтверждение ---
-@router.callback_query(F.data == "tasks_ok")
-async def cb_tasks_ok(callback: CallbackQuery):
-    await callback.answer("👍 Отлично!")
-    await callback.message.edit_reply_markup(None)
-
-
-# --- Отмена ---
-@router.callback_query(F.data == "back:chat")
-async def cb_back(callback: CallbackQuery):
-    await callback.message.edit_text("Возвращаюсь в главное меню.")
+    student_id = int(callback.data.split(":", 1)[1])
+    await state.set_state(RefineTasksFSM.notes)
+    await state.update_data(student_id=student_id)
+    await callback.message.edit_text(
+        "✏️ **Исправление заданий**\n\n"
+        "Опишите, что нужно изменить в заданиях:",
+        reply_markup=bottom_menu_generation_kb()
+    )
 
 
 @router.message(RefineTasksFSM.notes)
@@ -218,31 +234,146 @@ async def proc_refine_tasks(message: Message, state: FSMContext):
         return await message.answer("❌ У вас нет активной подписки. Перейдите в 💳 Подписка и оформите доступ.")
 
     data = await state.get_data()
-    chat_id = message.from_user.id
     student_id = data.get("student_id")
-    prompt = message.text.strip()
+    notes = message.text.strip()
 
-    # Используем последнее отправленное Solutions.pdf
-    if not message.reply_to_message or not message.reply_to_message.document:
-        return await message.answer("📎 Пожалуйста, отправьте новый текст в ответ на Solutions.pdf.")
-
-    doc = message.reply_to_message.document
-    file_name = doc.file_name or "file.pdf"
-
-    from io import BytesIO
-    bio = BytesIO()
-    await message.bot.download(doc.file_id, destination=bio)
-    b64 = base64.b64encode(bio.getvalue()).decode()
+    if not notes:
+        return await message.answer("❌ Описание изменений не может быть пустым. Введите, что нужно изменить:")
 
     task = {
-        "type": "ocr_and_generate",
-        "user_id": chat_id,
+        "type": "refine_tasks",
+        "user_id": message.from_user.id,
         "student_id": student_id,
-        "file_data": b64,
-        "file_name": file_name,
-        "prompt": prompt,
-        "refine": True
+        "notes": notes,
     }
     await _send_task(task)
-    await message.answer("📝 Переделываем задания по новым инструкциям…")
     await state.clear()
+    await message.answer("🕔 Исправляю задания, ожидайте PDF…", reply_markup=bottom_menu_generation_kb())
+
+
+# --- Обработчики результатов ---
+@router.callback_query(F.data == "tasks_ok")
+async def cb_tasks_ok(callback: CallbackQuery):
+    await callback.answer("✅ Задания сохранены!", show_alert=True)
+
+
+@router.callback_query(F.data == "back:chat")
+async def cb_back(callback: CallbackQuery):
+    await callback.message.edit_text(
+        "👤 Выберите действие:",
+        reply_markup=bottom_menu_students_kb()
+    )
+
+
+# --- Возврат к ученикам ---
+@router.message(F.text == "← К ученикам")
+async def back_to_students_from_generation(message: Message):
+    """Возврат к ученикам из генерации"""
+    students = await db.get_students_by_user(message.from_user.id)
+    text = "Ваши ученики:" if students else "👤 У Вас пока нет добавленных учеников."
+    await message.answer(text, reply_markup=bottom_menu_students_kb())
+
+# --- Обработчики для английского языка ---
+@router.message(F.text == "📄 Generate Plan")
+async def msg_generate_plan_en(message: Message, state: FSMContext):
+    if not await has_active_sub(message.from_user.id):
+        return await message.answer("❌ You don't have an active subscription. Go to 💳 Subscription and get access.")
+
+    # Получаем первого ученика (можно будет улучшить выбор)
+    students = await db.get_students_by_user(message.from_user.id)
+    if not students:
+        return await message.answer(
+            "👤 You don't have any students. First add a student in the «👤 Students» section.",
+            reply_markup=bottom_menu_students_kb(lang="EN")
+        )
+    
+    student_id = students[0]["id"]
+    student = await db.get_student_by_id(student_id)
+
+    task = {
+        "type": "generate_plan",
+        "user_id": message.from_user.id,
+        "student_id": student_id,
+        "description": f"Study plan for student {student['name']} in {student['subject']}",
+    }
+    await _send_task(task)
+    await message.answer("🕔 Generating study plan, wait for PDF…", reply_markup=bottom_menu_generation_kb(lang="EN"))
+
+@router.message(F.text == "📝 Generate Tasks")
+async def msg_generate_tasks_en(message: Message, state: FSMContext):
+    if not await has_active_sub(message.from_user.id):
+        return await message.answer("❌ You don't have an active subscription. Go to 💳 Subscription and get access.")
+
+    # Показываем список учеников для выбора
+    students = await db.get_students_by_user(message.from_user.id)
+    if not students:
+        return await message.answer(
+            "👤 You don't have any students. First add a student in the «👤 Students» section.",
+            reply_markup=bottom_menu_students_kb(lang="EN")
+        )
+    
+    await state.set_state(TasksFSM.desc)
+    await message.answer(
+        "📝 **Task Generation**\n\n"
+        "Describe what tasks to generate:\n"
+        "• Topic or section\n"
+        "• Task type (tests, problems, exercises)\n"
+        "• Difficulty level\n"
+        "• Number of tasks",
+        reply_markup=bottom_menu_generation_kb(lang="EN")
+    )
+
+@router.message(F.text == "✅ Check HW")
+async def msg_check_homework_en(message: Message, state: FSMContext):
+    if not await has_active_sub(message.from_user.id):
+        return await message.answer("❌ You don't have an active subscription. Go to 💳 Subscription and get access.")
+
+    # Получаем первого ученика (можно будет улучшить выбор)
+    students = await db.get_students_by_user(message.from_user.id)
+    if not students:
+        return await message.answer(
+            "👤 You don't have any students. First add a student in the «👤 Students» section.",
+            reply_markup=bottom_menu_students_kb(lang="EN")
+        )
+    
+    student_id = students[0]["id"]
+    await state.set_state(HomeworkCheckFSM.text)
+    await state.update_data(student_id=student_id)
+    
+    await message.answer(
+        "✅ **Homework Check Mode**\n\n"
+        "Send a photo, PDF or text of homework.\n"
+        "The bot will check it and give recommendations in PDF format.",
+        reply_markup=bottom_menu_generation_kb(lang="EN")
+    )
+
+@router.message(F.text == "💬 Chat GPT")
+async def msg_chat_gpt_en(message: Message, state: FSMContext):
+    if not await has_active_sub(message.from_user.id):
+        return await message.answer("❌ You don't have an active subscription. Go to 💳 Subscription and get access.")
+
+    # Получаем первого ученика (можно будет улучшить выбор)
+    students = await db.get_students_by_user(message.from_user.id)
+    if not students:
+        return await message.answer(
+            "👤 You don't have any students. First add a student in the «👤 Students» section.",
+            reply_markup=bottom_menu_students_kb(lang="EN")
+        )
+    
+    student_id = students[0]["id"]
+    await state.set_state(ChatGPTFSM.message)
+    await state.update_data(student_id=student_id)
+    
+    await message.answer(
+        "💬 **GPT Chat Mode**\n\n"
+        "Write any question — the bot will answer you directly in the chat.\n"
+        "Chat history is saved for each student.",
+        reply_markup=bottom_menu_generation_kb(lang="EN")
+    )
+
+@router.message(F.text == "← Back to Students")
+async def back_to_students_from_generation_en(message: Message):
+    """Возврат к ученикам из генерации на английском"""
+    students = await db.get_students_by_user(message.from_user.id)
+    text = "Your students:" if students else "👤 You don't have any students yet."
+    await message.answer(text, reply_markup=bottom_menu_students_kb(lang="EN"))

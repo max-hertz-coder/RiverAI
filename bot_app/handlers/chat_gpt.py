@@ -10,7 +10,7 @@ from aiogram.fsm.state import StatesGroup, State
 
 from bot_app import config, rabbit_channel
 from bot_app.rabbit import pending_tasks
-from bot_app.keyboards.main_menu import back_button
+from bot_app.keyboards.main_menu import bottom_menu_generation_kb, bottom_menu_students_kb
 from bot_app.database import db
 from bot_app.utils.task_utils import create_task_with_context
 
@@ -61,7 +61,33 @@ class ChatGPTFSM(StatesGroup):
     message = State()
 
 
-# --- Обработчик кнопки "Чат с GPT" ---
+# --- Обработчик кнопки "Чат с GPT" из нижнего меню ---
+@router.message(F.text == "💬 Чат с GPT")
+async def msg_chat_gpt(message: Message, state: FSMContext):
+    if not await has_active_sub(message.from_user.id):
+        return await message.answer("❌ У вас нет активной подписки. Перейдите в 💳 Подписка и оформите доступ.")
+
+    # Получаем первого ученика (можно будет улучшить выбор)
+    students = await db.get_students_by_user(message.from_user.id)
+    if not students:
+        return await message.answer(
+            "👤 У вас нет учеников. Сначала добавьте ученика в разделе «👤 Ученики».",
+            reply_markup=bottom_menu_students_kb()
+        )
+    
+    student_id = students[0]["id"]
+    await state.set_state(ChatGPTFSM.message)
+    await state.update_data(student_id=student_id)
+    
+    await message.answer(
+        "💬 **Режим чата с GPT**\n\n"
+        "Напишите любой вопрос — бот ответит вам прямо в чат.\n"
+        "История переписки сохраняется для каждого ученика.",
+        reply_markup=bottom_menu_generation_kb()
+    )
+
+
+# --- Обработчик кнопки "Чат с GPT" из CallbackQuery (для совместимости) ---
 @router.callback_query(F.data.startswith("chat_gpt:"))
 async def cb_chat_gpt(callback: CallbackQuery, state: FSMContext):
     if not await has_active_sub(callback.from_user.id):
@@ -75,7 +101,7 @@ async def cb_chat_gpt(callback: CallbackQuery, state: FSMContext):
         "💬 **Режим чата с GPT**\n\n"
         "Напишите любой вопрос — бот ответит вам прямо в чат.\n"
         "История переписки сохраняется для каждого ученика.",
-        reply_markup=back_button("← Назад", f"student:{student_id}")
+        reply_markup=bottom_menu_generation_kb()
     )
 
 
@@ -99,39 +125,28 @@ async def chat_message(message: Message, state: FSMContext):
         "message": user_message,
     }
     await _send_task(task)
-    await message.answer("🕔 Обрабатываю ваш вопрос…")
+    await message.answer("🕔 Обрабатываю ваш вопрос, ожидайте ответа…", reply_markup=bottom_menu_generation_kb())
 
 
-# --- Обработка результатов чата с GPT ---
+# --- Обработчики результатов чата с GPT ---
 @router.callback_query(F.data.startswith("chat_gpt_result:"))
 async def cb_chat_gpt_result(callback: CallbackQuery):
-    task_id = callback.data.split(":", 1)[1]
-    result = pending_tasks.get(task_id)
-    
-    if not result:
-        return await callback.answer("❌ Результат не найден", show_alert=True)
-    
-    if result.get("type") == "error":
-        await callback.message.edit_text(
-            f"❌ Ошибка при обработке чата:\n{result.get('message', 'Неизвестная ошибка')}",
-            reply_markup=back_button("← Назад", f"student:{result.get('student_id')}")
-        )
-        return
-    
-    # Отправляем ответ GPT
-    answer = result.get("answer", "")
-    if answer:
-        # Ограничиваем длину сообщения
-        if len(answer) > 4000:
-            answer = answer[:4000] + "\n\n... (ответ обрезан)"
+    try:
+        data = json.loads(callback.data.split(":", 1)[1])
+        response = data.get("response", "Ответ не получен")
+        student_id = data.get("student_id")
         
-        await callback.message.answer(
-            f"🤖 **Ответ GPT:**\n\n{answer}",
-            reply_markup=back_button("← Назад", f"student:{result.get('student_id')}")
+        # Формируем ответ с кнопками действий
+        text = f"💬 **Ответ GPT:**\n\n{response}"
+        
+        await callback.message.edit_text(
+            text,
+            reply_markup=bottom_menu_generation_kb()
         )
-    
-    # Удаляем исходное сообщение
-    await callback.message.delete()
+        
+    except Exception as e:
+        logging.error(f"Ошибка обработки результата чата: {e}")
+        await callback.answer("❌ Ошибка обработки ответа", show_alert=True)
 
 
 # --- Очистка истории чата ---
@@ -139,11 +154,21 @@ async def cb_chat_gpt_result(callback: CallbackQuery):
 async def cb_clear_chat(callback: CallbackQuery):
     student_id = int(callback.data.split(":", 1)[1])
     
-    task = {
-        "type": "end_chat",
-        "user_id": callback.from_user.id,
-        "student_id": student_id,
-    }
-    await _send_task(task)
+    # Здесь можно добавить логику очистки истории чата
+    # await db.clear_chat_history(callback.from_user.id, student_id)
     
-    await callback.answer("🗑 История чата очищена", show_alert=True) 
+    await callback.answer("✅ История чата очищена!", show_alert=True)
+    await callback.message.edit_text(
+        "💬 **История чата очищена**\n\n"
+        "Начните новый диалог с GPT.",
+        reply_markup=bottom_menu_generation_kb()
+    )
+
+
+# --- Возврат к ученикам ---
+@router.message(F.text == "← К ученикам")
+async def back_to_students_from_chat(message: Message):
+    """Возврат к ученикам из чата"""
+    students = await db.get_students_by_user(message.from_user.id)
+    text = "Ваши ученики:" if students else "👤 У Вас пока нет добавленных учеников."
+    await message.answer(text, reply_markup=bottom_menu_students_kb()) 

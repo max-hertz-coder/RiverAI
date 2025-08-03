@@ -10,6 +10,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 
 from bot_app import rabbit_channel, config
+from bot_app.keyboards.main_menu import bottom_menu_generation_kb
 from bot_app.utils.task_utils import create_task_with_context
 
 router = Router()
@@ -80,7 +81,7 @@ async def photo_to_generate(message: Message, bot: Bot, state: FSMContext):
             "file_name": "photo.jpg",
         }
         await _send_task(task)
-        await message.answer("🕔 Распознаю и проверяю ДЗ, ожидайте PDF…")
+        await message.answer("🕔 Распознаю и проверяю ДЗ, ожидайте PDF…", reply_markup=bottom_menu_generation_kb())
         return
     
     # Обычная обработка для генерации заданий
@@ -97,10 +98,11 @@ async def photo_to_generate(message: Message, bot: Bot, state: FSMContext):
         )
         await state.set_state(OCRGenFSM.prompt)
         return await message.answer(
-            "📌 Вы не указали текстовый запрос. Пожалуйста, введите **запрос** для генерации заданий по этому файлу:"
+            "📌 Вы не указали текстовый запрос. Пожалуйста, введите **запрос** для генерации заданий по этому файлу:",
+            reply_markup=bottom_menu_generation_kb()
         )
 
-    # сразу шлём задачу
+    # Если есть caption, сразу отправляем задачу
     task = {
         "type": "ocr_and_generate",
         "user_id": message.from_user.id,
@@ -110,7 +112,7 @@ async def photo_to_generate(message: Message, bot: Bot, state: FSMContext):
         "prompt": caption,
     }
     await _send_task(task)
-    await message.answer("🕔 Распознаю и генерирую задания, ожидайте PDF…")
+    await message.answer("🕔 Распознаю и генерирую задания, ожидайте PDF…", reply_markup=bottom_menu_generation_kb())
 
 
 @router.message(F.document)
@@ -139,17 +141,16 @@ async def doc_to_generate(message: Message, bot: Bot, state: FSMContext):
         bio = BytesIO()
         await bot.download(message.document.file_id, destination=bio)
         b64 = base64.b64encode(bio.getvalue()).decode()
-        name = message.document.file_name or "file.pdf"
 
         task = {
             "type": "ocr_and_check",
             "user_id": message.from_user.id,
             "student_id": student_id,
             "file_data": b64,
-            "file_name": name,
+            "file_name": message.document.file_name,
         }
         await _send_task(task)
-        await message.answer("🕔 Распознаю и проверяю ДЗ, ожидайте PDF…")
+        await message.answer("🕔 Распознаю и проверяю ДЗ, ожидайте PDF…", reply_markup=bottom_menu_generation_kb())
         return
     
     # Обычная обработка для генерации заданий
@@ -157,42 +158,44 @@ async def doc_to_generate(message: Message, bot: Bot, state: FSMContext):
     bio = BytesIO()
     await bot.download(message.document.file_id, destination=bio)
     b64 = base64.b64encode(bio.getvalue()).decode()
-    name = message.document.file_name or "file.pdf"
 
     if not caption:
+        # сохраняем файл и ждём промпт
         await state.update_data(
             file_data=b64,
-            file_name=name
+            file_name=message.document.file_name
         )
         await state.set_state(OCRGenFSM.prompt)
         return await message.answer(
-            "📌 Вы не указали текстовый запрос. Пожалуйста, введите **запрос** для генерации заданий по этому файлу:"
+            "📌 Вы не указали текстовый запрос. Пожалуйста, введите **запрос** для генерации заданий по этому файлу:",
+            reply_markup=bottom_menu_generation_kb()
         )
 
+    # Если есть caption, сразу отправляем задачу
     task = {
         "type": "ocr_and_generate",
         "user_id": message.from_user.id,
         "student_id": None,
         "file_data": b64,
-        "file_name": name,
+        "file_name": message.document.file_name,
         "prompt": caption,
     }
     await _send_task(task)
-    await message.answer("🕔 Распознаю и генерирую задания, ожидайте PDF…")
+    await message.answer("🕔 Распознаю и генерирую задания, ожидайте PDF…", reply_markup=bottom_menu_generation_kb())
 
 
 @router.message(OCRGenFSM.prompt)
 async def proc_ocr_prompt(message: Message, state: FSMContext):
-    data = await state.get_data()
     prompt = message.text.strip()
+    if not prompt:
+        return await message.answer("❌ Запрос не может быть пустым. Введите запрос для генерации заданий:", reply_markup=bottom_menu_generation_kb())
+
+    data = await state.get_data()
     file_data = data.get("file_data")
     file_name = data.get("file_name")
 
-    # чистим FSM
-    await state.clear()
-
     if not file_data:
-        return await message.answer("⚠️ Что-то пошло не так, попробуйте прислать файл заново.")
+        return await message.answer("❌ Файл не найден. Отправьте файл заново.", reply_markup=bottom_menu_generation_kb())
 
     task = {
         "type": "ocr_and_generate",
@@ -203,4 +206,5 @@ async def proc_ocr_prompt(message: Message, state: FSMContext):
         "prompt": prompt,
     }
     await _send_task(task)
-    await message.answer("🕔 Распознаю и генерирую задания, ожидайте PDF…")
+    await state.clear()
+    await message.answer("🕔 Распознаю и генерирую задания, ожидайте PDF…", reply_markup=bottom_menu_generation_kb())

@@ -12,7 +12,7 @@ from aiogram.fsm.state import StatesGroup, State
 
 from bot_app import config, rabbit_channel
 from bot_app.rabbit import pending_tasks
-from bot_app.keyboards.main_menu import back_button
+from bot_app.keyboards.main_menu import bottom_menu_generation_kb, bottom_menu_students_kb
 from bot_app.database import db
 from bot_app.utils.task_utils import create_task_with_context
 
@@ -63,7 +63,33 @@ class HomeworkCheckFSM(StatesGroup):
     text = State()
 
 
-# --- Обработчик кнопки "Проверка ДЗ" ---
+# --- Обработчик кнопки "Проверка ДЗ" из нижнего меню ---
+@router.message(F.text == "✅ Проверить ДЗ")
+async def msg_check_homework(message: Message, state: FSMContext):
+    if not await has_active_sub(message.from_user.id):
+        return await message.answer("❌ У вас нет активной подписки. Перейдите в 💳 Подписка и оформите доступ.")
+
+    # Получаем первого ученика (можно будет улучшить выбор)
+    students = await db.get_students_by_user(message.from_user.id)
+    if not students:
+        return await message.answer(
+            "👤 У вас нет учеников. Сначала добавьте ученика в разделе «👤 Ученики».",
+            reply_markup=bottom_menu_students_kb()
+        )
+    
+    student_id = students[0]["id"]
+    await state.set_state(HomeworkCheckFSM.text)
+    await state.update_data(student_id=student_id)
+    
+    await message.answer(
+        "✅ **Режим проверки ДЗ**\n\n"
+        "Пришлите фото, PDF или текст домашней работы.\n"
+        "Бот проверит её и даст рекомендации в PDF формате.",
+        reply_markup=bottom_menu_generation_kb()
+    )
+
+
+# --- Обработчик кнопки "Проверка ДЗ" из CallbackQuery (для совместимости) ---
 @router.callback_query(F.data.startswith("check_homework:"))
 async def cb_check_homework(callback: CallbackQuery, state: FSMContext):
     if not await has_active_sub(callback.from_user.id):
@@ -77,7 +103,7 @@ async def cb_check_homework(callback: CallbackQuery, state: FSMContext):
         "✅ **Режим проверки ДЗ**\n\n"
         "Пришлите фото, PDF или текст домашней работы.\n"
         "Бот проверит её и даст рекомендации в PDF формате.",
-        reply_markup=back_button("← Назад", f"student:{student_id}")
+        reply_markup=bottom_menu_generation_kb()
     )
 
 
@@ -102,47 +128,88 @@ async def text_to_check(message: Message, state: FSMContext):
     }
     await _send_task(task)
     await state.clear()
-    await message.answer("🕔 Проверяю ДЗ, ожидайте PDF…")
+    await message.answer("🕔 Проверяю домашнее задание, ожидайте PDF…", reply_markup=bottom_menu_generation_kb())
 
 
-# --- Обработка результатов проверки ДЗ ---
+# --- Обработка фото для проверки ДЗ ---
+@router.message(HomeworkCheckFSM.text, F.photo)
+async def photo_to_check(message: Message, state: FSMContext, bot: Bot):
+    if not await has_active_sub(message.from_user.id):
+        return await message.answer("❌ У вас нет активной подписки. Перейдите в 💳 Подписка и оформите доступ.")
+
+    data = await state.get_data()
+    student_id = data.get("student_id")
+    caption = (message.caption or "").strip()
+    
+    bio = BytesIO()
+    await bot.download(message.photo[-1].file_id, destination=bio)
+    b64 = base64.b64encode(bio.getvalue()).decode()
+
+    task = {
+        "type": "check_homework",
+        "user_id": message.from_user.id,
+        "student_id": student_id,
+        "file_data": b64,
+        "file_name": "homework_photo.jpg",
+        "prompt": caption,
+    }
+    await _send_task(task)
+    await state.clear()
+    await message.answer("🕔 Проверяю домашнее задание, ожидайте PDF…", reply_markup=bottom_menu_generation_kb())
+
+
+# --- Обработка документа для проверки ДЗ ---
+@router.message(HomeworkCheckFSM.text, F.document)
+async def document_to_check(message: Message, state: FSMContext, bot: Bot):
+    if not await has_active_sub(message.from_user.id):
+        return await message.answer("❌ У вас нет активной подписки. Перейдите в 💳 Подписка и оформите доступ.")
+
+    data = await state.get_data()
+    student_id = data.get("student_id")
+    caption = (message.caption or "").strip()
+    
+    bio = BytesIO()
+    await bot.download(message.document.file_id, destination=bio)
+    b64 = base64.b64encode(bio.getvalue()).decode()
+
+    task = {
+        "type": "check_homework",
+        "user_id": message.from_user.id,
+        "student_id": student_id,
+        "file_data": b64,
+        "file_name": message.document.file_name,
+        "prompt": caption,
+    }
+    await _send_task(task)
+    await state.clear()
+    await message.answer("🕔 Проверяю домашнее задание, ожидайте PDF…", reply_markup=bottom_menu_generation_kb())
+
+
+# --- Обработчики результатов проверки ДЗ ---
 @router.callback_query(F.data.startswith("check_homework_result:"))
 async def cb_check_homework_result(callback: CallbackQuery):
-    task_id = callback.data.split(":", 1)[1]
-    result = pending_tasks.get(task_id)
-    
-    if not result:
-        return await callback.answer("❌ Результат не найден", show_alert=True)
-    
-    if result.get("type") == "error":
-        await callback.message.edit_text(
-            f"❌ Ошибка при проверке ДЗ:\n{result.get('message', 'Неизвестная ошибка')}",
-            reply_markup=back_button("← Назад", f"student:{result.get('student_id')}")
-        )
-        return
-    
-    # Отправляем PDF, если есть
-    if result.get("pdf_path"):
-        try:
-            from aiogram.types import FSInputFile
-            await callback.message.answer_document(
-                FSInputFile(result["pdf_path"]),
-                caption="📄 Результат проверки ДЗ"
-            )
-        except Exception as e:
-            logging.exception("Ошибка отправки PDF: %s", e)
-    
-    # Отправляем текстовый отчет
-    report_text = result.get("report_text", "")
-    if report_text:
-        # Ограничиваем длину сообщения
-        if len(report_text) > 4000:
-            report_text = report_text[:4000] + "\n\n... (отчет обрезан)"
+    try:
+        data = json.loads(callback.data.split(":", 1)[1])
+        result = data.get("result", "Результат не получен")
+        student_id = data.get("student_id")
         
-        await callback.message.answer(
-            f"📋 **Результат проверки ДЗ:**\n\n{report_text}",
-            reply_markup=back_button("← Назад", f"student:{result.get('student_id')}")
+        # Формируем ответ с кнопками действий
+        text = f"✅ **Результат проверки ДЗ:**\n\n{result}"
+        
+        await callback.message.edit_text(
+            text,
+            reply_markup=bottom_menu_generation_kb()
         )
-    
-    # Удаляем исходное сообщение
-    await callback.message.delete() 
+        
+    except Exception as e:
+        logging.error(f"Ошибка обработки результата проверки ДЗ: {e}")
+        await callback.answer("❌ Ошибка обработки результата", show_alert=True)
+
+
+# --- Возврат к ученикам ---
+@router.message(F.text == "← К ученикам")
+async def back_to_students_from_homework(message: Message):
+    """Возврат к ученикам из проверки ДЗ"""
+    students = await db.get_students_by_user(message.from_user.id)
+    text = "Ваши ученики:" if students else "👤 У Вас пока нет добавленных учеников."
+    await message.answer(text, reply_markup=bottom_menu_students_kb()) 
