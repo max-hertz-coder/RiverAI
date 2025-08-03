@@ -83,14 +83,21 @@ jobs:
               ENV_PATH=".env"
             fi
 
-            # 4. Обновление .env c секретами GitHub
-            echo "TELEGRAM_ID_SALT=${TELEGRAM_ID_SALT}" > "$ENV_PATH"
-            echo "WORKER_ENCRYPTION_SECRET=${WORKER_ENCRYPTION_SECRET}" >> "$ENV_PATH"
-            echo "YDKEY_V1=${YDKEY_V1}" >> "$ENV_PATH"
-            echo "YDKEY_VERSION=${YDKEY_VERSION}" >> "$ENV_PATH"
-            echo "WORKER_POSTGRES_DSN=${WORKER_POSTGRES_DSN}" >> "$ENV_PATH"
+            # 4. Удаляем старые значения этих переменных (если есть)
+            for key in TELEGRAM_ID_SALT WORKER_ENCRYPTION_SECRET YDKEY_V1 YDKEY_VERSION WORKER_POSTGRES_DSN; do
+              sed -i "/^${key}=.*/d" "$ENV_PATH" 2>/dev/null || true
+            done
 
-            # 5. docker-compose up
+            # 5. Добавляем новые значения
+            {
+              echo "TELEGRAM_ID_SALT=${TELEGRAM_ID_SALT}"
+              echo "WORKER_ENCRYPTION_SECRET=${WORKER_ENCRYPTION_SECRET}"
+              echo "YDKEY_V1=${YDKEY_V1}"
+              echo "YDKEY_VERSION=${YDKEY_VERSION}"
+              echo "WORKER_POSTGRES_DSN=${WORKER_POSTGRES_DSN}"
+            } >> "$ENV_PATH"
+
+            # 6. docker-compose up
             if command -v docker compose &> /dev/null; then
               docker compose up -d --build --remove-orphans
             else
