@@ -55,10 +55,12 @@ async def cb_chat_msg(message: Message, state: FSMContext):
             logger.info(f"🔧 Используем существующий канал RabbitMQ")
             message_body = json.dumps(task_with_context).encode("utf-8")
             logger.info(f"🔧 Отправляем в RabbitMQ: {message_body}")
+            logger.info(f"🔧 Routing key: {config.TASK_QUEUE}")
             await rabbit_channel.default_exchange.publish(
                 aio_pika.Message(body=message_body),
                 routing_key=config.TASK_QUEUE
             )
+            logger.info(f"✅ Сообщение отправлено в RabbitMQ")
         else:
             logger.info(f"🔧 Создаем новое подключение к RabbitMQ")
             conn = await aio_pika.connect_robust(
@@ -70,11 +72,13 @@ async def cb_chat_msg(message: Message, state: FSMContext):
             ch = await conn.channel()
             message_body = json.dumps(task_with_context).encode("utf-8")
             logger.info(f"🔧 Отправляем в RabbitMQ: {message_body}")
+            logger.info(f"🔧 Routing key: {config.TASK_QUEUE}")
             await ch.default_exchange.publish(
                 aio_pika.Message(body=message_body),
                 routing_key=config.TASK_QUEUE
             )
             await conn.close()
+            logger.info(f"✅ Сообщение отправлено в RabbitMQ")
         
         logger.info(f"✅ Задача отправлена в очередь: task_id={task_with_context.get('task_id')}")
         

@@ -118,6 +118,10 @@ async def process_task_message(task: dict) -> dict | None:
             }
 
         logging.warning("Unknown task type: %s", task_type)
+        return {
+            "type": "error",
+            "message": f"Неизвестный тип задачи: {task_type}"
+        }
 
     except Exception as e:
         logging.exception(f"🔴 Error processing task {task_type} with task_id={task_id}: {e}")
