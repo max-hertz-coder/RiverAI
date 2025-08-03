@@ -9,6 +9,9 @@ from worker.services.homework_check_service import handle_homework_check
 from worker.services.chat_gpt_service import handle_chat_gpt
 from common.redis_utils import clear_conversation
 
+# Проверяем импорт handle_chat
+logging.info(f"🔧 handle_chat импортирован: {handle_chat}")
+
 async def process_task_message(task: dict) -> dict | None:
     """
     Обрабатывает задачу из очереди task_queue и возвращает результат или None.
@@ -80,12 +83,15 @@ async def process_task_message(task: dict) -> dict | None:
             logging.info(f"🔧 Вызываем handle_chat для task_id={task_id}")
             logging.info(f"🔧 Входные данные для handle_chat: {task}")
             try:
+                logging.info(f"🔧 Начинаем вызов handle_chat")
                 result = await handle_chat(task)
                 logging.info(f"🔧 handle_chat вернул: type={result.get('type') if result else 'None'}")
                 logging.info(f"🔧 Полный результат handle_chat: {result}")
                 return result
             except Exception as e:
                 logging.exception(f"🔴 Ошибка в handle_chat: {e}")
+                logging.error(f"🔴 Тип ошибки: {type(e).__name__}")
+                logging.error(f"🔴 Детали ошибки: {str(e)}")
                 return {
                     "type": "error",
                     "message": f"Ошибка в handle_chat: {str(e)}"
