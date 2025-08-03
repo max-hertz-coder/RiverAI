@@ -95,17 +95,17 @@ async def get_students_by_user(user_id: int):
     pool = _get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch("""
-            SELECT id, name_enc, subject_enc, level_enc, notes_enc
+            SELECT id, name, subject, level, notes
             FROM students WHERE user_id=$1 ORDER BY id
         """, user_id)
         students = []
         for row in rows:
             students.append({
                 "id": row["id"],
-                "name": encryption.decrypt_str(row["name_enc"]),
-                "subject": encryption.decrypt_str(row["subject_enc"]),
-                "level": encryption.decrypt_str(row["level_enc"]),
-                "notes": encryption.decrypt_str(row["notes_enc"]) if row["notes_enc"] else ""
+                "name": row["name"],
+                "subject": row["subject"],
+                "level": row["level"],
+                "notes": row["notes"] if row["notes"] else ""
             })
         return students
 
@@ -113,17 +113,17 @@ async def get_student(student_id: int):
     pool = _get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow("""
-            SELECT id, user_id, name_enc, subject_enc, level_enc, notes_enc
+            SELECT id, user_id, name, subject, level, notes
             FROM students WHERE id=$1
         """, student_id)
         if row:
             return {
                 "id": row["id"],
                 "user_id": row["user_id"],
-                "name": encryption.decrypt_str(row["name_enc"]),
-                "subject": encryption.decrypt_str(row["subject_enc"]),
-                "level": encryption.decrypt_str(row["level_enc"]),
-                "notes": encryption.decrypt_str(row["notes_enc"]) if row["notes_enc"] else ""
+                "name": row["name"],
+                "subject": row["subject"],
+                "level": row["level"],
+                "notes": row["notes"] if row["notes"] else ""
             }
         return None
 
@@ -132,15 +132,11 @@ async def add_student(user_id: int, name: str, subject: str, level: str, notes: 
     async with pool.acquire() as conn:
         row = await conn.fetchrow("""
             INSERT INTO students (
-                user_id, name_enc, subject_enc, level_enc, notes_enc
+                user_id, name, subject, level, notes
             ) VALUES ($1, $2, $3, $4, $5)
             RETURNING id
         """,
-        user_id,
-        encryption.encrypt_str(name),
-        encryption.encrypt_str(subject),
-        encryption.encrypt_str(level),
-        encryption.encrypt_str(notes) if notes else "")
+        user_id, name, subject, level, notes if notes else "")
         return row["id"] if row else None
 
 async def update_student(student_id: int, name: str, subject: str, level: str, notes: str):
@@ -148,14 +144,10 @@ async def update_student(student_id: int, name: str, subject: str, level: str, n
     async with pool.acquire() as conn:
         await conn.execute("""
             UPDATE students
-            SET name_enc=$1, subject_enc=$2, level_enc=$3, notes_enc=$4
+            SET name=$1, subject=$2, level=$3, notes=$4
             WHERE id=$5
         """,
-        encryption.encrypt_str(name),
-        encryption.encrypt_str(subject),
-        encryption.encrypt_str(level),
-        encryption.encrypt_str(notes) if notes else "",
-        student_id)
+        name, subject, level, notes if notes else "", student_id)
 
 async def delete_student(student_id: int):
     pool = _get_pool()
