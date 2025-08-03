@@ -1,0 +1,55 @@
+# /opt/RiverAI/worker/config.py
+
+import string
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+
+DB_HOST = os.getenv("POSTGRES_HOST")
+DB_PORT = int(os.getenv("POSTGRES_PORT", "5432"))
+DB_NAME = os.getenv("POSTGRES_DB")
+DB_USER = os.getenv("POSTGRES_USER")
+DB_PASSWORD = os.getenv("POSTGRES_PASSWORD")
+
+REDIS_HOST = os.getenv("REDIS_HOST", "redis")
+REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+# Здесь — единственная переменная для номера БД:
+REDIS_DB   = int(os.getenv("REDIS_DB_CACHE", "1"))
+
+RABBITMQ_HOST = os.getenv("RABBITMQ_HOST")
+RABBITMQ_PORT = int(os.getenv("RABBITMQ_PORT", "5672"))
+RABBITMQ_USER = os.getenv("RABBITMQ_USER")
+RABBITMQ_PASS = os.getenv("RABBITMQ_PASS")
+
+TASK_QUEUE   = os.getenv("RABBITMQ_TASK_QUEUE",   "task_queue")
+RESULT_QUEUE = os.getenv("RABBITMQ_RESULT_QUEUE", "result_queue")
+
+# Отладочная информация
+print(f"🔧 Worker config loaded:")
+print(f"  RABBITMQ_HOST: {RABBITMQ_HOST}")
+print(f"  RABBITMQ_PORT: {RABBITMQ_PORT}")
+print(f"  RABBITMQ_USER: {RABBITMQ_USER}")
+print(f"  RESULT_QUEUE: {RESULT_QUEUE}")
+
+OPENAI_API_KEYS = [k.strip() for k in os.getenv("OPENAI_API_KEYS", "").split(",") if k.strip()]
+if not OPENAI_API_KEYS:
+    raise RuntimeError("OPENAI_API_KEYS not set")
+
+
+# Encryption key (hex-строка 64 символа → 32 байта)
+_key_str = os.getenv("ENCRYPTION_KEY")
+if not _key_str:
+    raise RuntimeError("ENCRYPTION_KEY not set for worker")
+
+# Если это 64-символьная hex-строка, конвертируем в 32 байта
+if len(_key_str) == 64 and all(c in string.hexdigits for c in _key_str):
+    ENCRYPTION_KEY = bytes.fromhex(_key_str)
+else:
+    # Иначе используем как raw-bytes (UTF-8), но длина должна быть 16/24/32
+    key_bytes = _key_str.encode("utf-8")
+    if len(key_bytes) not in (16, 24, 32):
+        raise RuntimeError(f"Invalid ENCRYPTION_KEY length: {len(key_bytes)} bytes")
+    ENCRYPTION_KEY = key_bytes
+

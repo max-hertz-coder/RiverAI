@@ -1,0 +1,157 @@
+#!/usr/bin/env python3
+import asyncio
+import logging
+import aio_pika
+
+from aiogram import Bot, Dispatcher
+from aiogram.client.bot import DefaultBotProperties
+from aiogram.enums import ParseMode
+from aiogram.fsm.storage.redis import RedisStorage
+from aiogram.types import BotCommand, BotCommandScopeDefault
+
+import bot_app.config as app_config
+import worker.config as worker_config
+from common.redis_utils import init_redis_pool
+from bot_app.database import db
+from bot_app.rabbit import process_result
+from bot_app.middlewares.auth import AuthMiddleware
+
+from bot_app.handlers.start import router as start_router
+from bot_app.handlers.students import router as students_router
+from bot_app.handlers.ocr_and_generate import router as ocr_and_generate_router
+from bot_app.handlers.generation import router as generation_router
+from bot_app.handlers.chatgpt import router as chatgpt_router
+from bot_app.handlers.subscription import router as subscription_router
+from bot_app.handlers.settings import router as settings_router
+from bot_app.handlers.homework_check import router as homework_check_router
+from bot_app.handlers.chat_gpt import router as chat_gpt_router
+
+
+async def consume_results(bot: Bot):
+    try:
+        logging.info(f"🔧 Подключение к RabbitMQ для result_queue:")
+        logging.info(f"  Host: {app_config.RABBITMQ_HOST}")
+        logging.info(f"  Port: {app_config.RABBITMQ_PORT}")
+        logging.info(f"  User: {app_config.RABBITMQ_USER}")
+        logging.info(f"  Queue: {app_config.RESULT_QUEUE}")
+        
+        connection = await aio_pika.connect_robust(
+            host=app_config.RABBITMQ_HOST,
+            port=app_config.RABBITMQ_PORT,
+            login=app_config.RABBITMQ_USER,
+            password=app_config.RABBITMQ_PASS,
+        )
+        channel = await connection.channel()
+        await channel.set_qos(prefetch_count=5)
+        queue = await channel.declare_queue(app_config.RESULT_QUEUE, durable=True)
+        
+        logging.info(f"✅ Подписались на очередь '{app_config.RESULT_QUEUE}', ожидаем результаты...")
+
+        async with queue.iterator() as queue_iter:
+            async for message in queue_iter:
+                try:
+                    await process_result(message, bot)
+                except Exception as e:
+                    logging.error(f"Ошибка обработки result_queue: {e}")
+    except Exception as e:
+        logging.error(f"🔴 Критическая ошибка в consume_results: {e}")
+        raise
+
+
+async def on_startup(bot_: Bot, dp: Dispatcher):
+    logging.info("🚀 Startup: очищаем команды и инициализируем сервисы")
+    logging.info("🔧 Проверяем конфигурацию RabbitMQ:")
+    logging.info(f"  RABBITMQ_HOST: {app_config.RABBITMQ_HOST}")
+    logging.info(f"  RABBITMQ_PORT: {app_config.RABBITMQ_PORT}")
+    logging.info(f"  RABBITMQ_USER: {app_config.RABBITMQ_USER}")
+    logging.info(f"  RESULT_QUEUE: {app_config.RESULT_QUEUE}")
+
+    # Удаляем все старые команды
+    await bot_.delete_my_commands(scope=BotCommandScopeDefault(), language_code="ru")
+    await bot_.delete_my_commands(scope=BotCommandScopeDefault(), language_code="en")
+    await bot_.delete_my_commands(scope=None)
+
+    # Ставим новые команды
+    await bot_.set_my_commands([
+        BotCommand("start", "Старт бота"),
+        BotCommand("back",  "Завершить чат с GPT"),
+    ], language_code="ru")
+    await bot_.set_my_commands([
+        BotCommand("start", "Start bot"),
+        BotCommand("back",  "End chat with GPT"),
+    ], language_code="en")
+
+    # Обработчик результатов запускается в main()
+    logging.info("✅ Startup завершен")
+
+
+async def on_shutdown(bot_: Bot, dp: Dispatcher):
+    logging.info("🔌 Shutdown: закрываем пул БД")
+    if db._pool:
+        await db._pool.close()
+
+
+async def main():
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
+
+    # 1) Инициализация Redis (должна быть первой!)
+    await init_redis_pool(
+        worker_config.REDIS_HOST,
+        worker_config.REDIS_PORT,
+        worker_config.REDIS_DB
+    )
+
+    # 2) Инициализация PostgreSQL
+    dsn = (
+        f"postgresql://{app_config.DB_USER}:{app_config.DB_PASSWORD}"
+        f"@{app_config.DB_HOST}:{app_config.DB_PORT}/{app_config.DB_NAME}"
+    )
+    await db.init_db_pool(dsn)
+
+    # 3) Настройка Bot и Dispatcher
+    bot = Bot(
+        token=app_config.BOT_TOKEN,
+        default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+    )
+    storage = RedisStorage.from_url(
+        f"redis://{worker_config.REDIS_HOST}:{worker_config.REDIS_PORT}/{app_config.REDIS_DB_FSM}"
+    )
+    dp = Dispatcher(storage=storage)
+
+    # Подключаем middleware
+    dp.message.middleware(AuthMiddleware())
+    dp.callback_query.middleware(AuthMiddleware())
+
+    # Регистрируем роутеры
+    dp.include_router(start_router)
+    dp.include_router(students_router)
+    dp.include_router(ocr_and_generate_router)
+    dp.include_router(generation_router)
+    dp.include_router(chatgpt_router)
+    dp.include_router(subscription_router)
+    dp.include_router(settings_router)
+    dp.include_router(homework_check_router)
+    dp.include_router(chat_gpt_router)
+    
+    # Запускаем polling в отдельной задаче
+    polling_task = asyncio.create_task(
+        dp.start_polling(
+            bot,
+            skip_updates=True,
+            on_startup=on_startup,
+            on_shutdown=on_shutdown
+        )
+    )
+    
+    # Запускаем обработчик результатов из Redis
+    logging.info("🚀 Запускаем обработчик результатов из Redis...")
+    from bot_app.redis_result_consumer import consume_redis_results
+    consume_task = asyncio.create_task(consume_redis_results(bot))
+    logging.info("✅ Обработчик результатов запущен")
+    
+    # Ждём завершения polling (это блокирует выполнение)
+    await polling_task
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
