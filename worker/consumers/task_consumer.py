@@ -64,10 +64,17 @@ async def process_task_message(task: dict) -> dict | None:
         if task_type == "chat_gpt":
             logging.info(f"🔧 Вызываем handle_chat_gpt для task_id={task_id}")
             logging.info(f"🔧 Входные данные для handle_chat_gpt: {task}")
-            result = await handle_chat_gpt(task)
-            logging.info(f"🔧 handle_chat_gpt вернул: type={result.get('type') if result else 'None'}")
-            logging.info(f"🔧 Полный результат handle_chat_gpt: {result}")
-            return result
+            try:
+                result = await handle_chat_gpt(task)
+                logging.info(f"🔧 handle_chat_gpt вернул: type={result.get('type') if result else 'None'}")
+                logging.info(f"🔧 Полный результат handle_chat_gpt: {result}")
+                return result
+            except Exception as e:
+                logging.exception(f"🔴 Ошибка в handle_chat_gpt: {e}")
+                # Fallback - пробуем обработать как обычный чат
+                logging.info(f"🔧 Пробуем fallback через handle_chat")
+                task["type"] = "chat"
+                return await handle_chat(task)
 
         if task_type in ("chat"):
             logging.info(f"🔧 Вызываем handle_chat для task_id={task_id}")
