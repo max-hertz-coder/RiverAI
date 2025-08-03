@@ -88,6 +88,7 @@ jobs:
             echo "YDKEY_V1=${YDKEY_V1}" >> "$ENV_PATH"
             echo "YDKEY_VERSION=${YDKEY_VERSION}" >> "$ENV_PATH"
             echo "POSTGRES_DSN=${WORKER_POSTGRES_DSN}" >> "$ENV_PATH"
+            echo "WORKER_POSTGRES_DSN=${WORKER_POSTGRES_DSN}" >> "$ENV_PATH"
 
 
             # 5. Запуск docker compose
