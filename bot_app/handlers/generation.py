@@ -212,9 +212,6 @@ async def cb_tasks(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data.startswith("refine_tasks:"))
 async def cb_refine_tasks(callback: CallbackQuery, state: FSMContext):
-    if not await has_active_sub(callback.from_user.id):
-        return await callback.answer("❌ У вас нет активной подписки. Перейдите в 💳 Подписка и оформите доступ.", show_alert=True)
-
     student_id = int(callback.data.split(":", 1)[1])
     await state.set_state(RefineTasksFSM.notes)
     await state.update_data(student_id=student_id)

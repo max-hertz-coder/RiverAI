@@ -54,14 +54,18 @@ async def photo_to_generate(message: Message, state: FSMContext):
     
     # Получаем фото с максимальным разрешением
     photo = message.photo[-1]
-    file_info = await message.bot.get_file(photo.file_id)
-    file_url = file_info.file_url
+    
+    # Скачиваем файл и кодируем в base64
+    bio = BytesIO()
+    await message.bot.download(photo.file_id, destination=bio)
+    b64 = base64.b64encode(bio.getvalue()).decode()
     
     task = {
         "type": "ocr_and_generate",
         "user_id": message.from_user.id,
         "student_id": student_id,
-        "image_url": file_url,
+        "file_data": b64,
+        "file_name": "photo.jpg",
     }
     await _send_task(task)
     await message.answer("🕔 Обрабатываю фото и генерирую задания, ожидайте…", reply_markup=bottom_menu_generation_kb())
@@ -72,15 +76,17 @@ async def doc_to_generate(message: Message, state: FSMContext):
     data = await state.get_data()
     student_id = data.get("selected_student_id")
     
-    # Получаем информацию о документе
-    file_info = await message.bot.get_file(message.document.file_id)
-    file_url = file_info.file_url
+    # Скачиваем документ и кодируем в base64
+    bio = BytesIO()
+    await message.bot.download(message.document.file_id, destination=bio)
+    b64 = base64.b64encode(bio.getvalue()).decode()
     
     task = {
         "type": "ocr_and_generate",
         "user_id": message.from_user.id,
         "student_id": student_id,
-        "image_url": file_url,
+        "file_data": b64,
+        "file_name": message.document.file_name,
     }
     await _send_task(task)
     await message.answer("🕔 Обрабатываю документ и генерирую задания, ожидайте…", reply_markup=bottom_menu_generation_kb())

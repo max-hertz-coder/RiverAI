@@ -130,9 +130,6 @@ async def text_to_check(message: Message, state: FSMContext):
 # --- Обработка фото для проверки ДЗ ---
 @router.message(HomeworkCheckFSM.text, F.photo)
 async def photo_to_check(message: Message, state: FSMContext, bot: Bot):
-    if not await has_active_sub(message.from_user.id):
-        return await message.answer("❌ У вас нет активной подписки. Перейдите в 💳 Подписка и оформите доступ.")
-
     data = await state.get_data()
     student_id = data.get("selected_student_id")
     caption = (message.caption or "").strip()
@@ -156,9 +153,6 @@ async def photo_to_check(message: Message, state: FSMContext, bot: Bot):
 # --- Обработка документа для проверки ДЗ ---
 @router.message(HomeworkCheckFSM.text, F.document)
 async def document_to_check(message: Message, state: FSMContext, bot: Bot):
-    if not await has_active_sub(message.from_user.id):
-        return await message.answer("❌ У вас нет активной подписки. Перейдите в 💳 Подписка и оформите доступ.")
-
     data = await state.get_data()
     student_id = data.get("selected_student_id")
     caption = (message.caption or "").strip()
