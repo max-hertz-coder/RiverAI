@@ -33,9 +33,12 @@ services:
     env_file:
       - .env
     environment:
-      - TELEGRAM_ID_SALT
-      - WORKER_ENCRYPTION_SECRET
-      - ENCRYPTION_KEY
+      - TELEGRAM_ID_SALT=${TELEGRAM_ID_SALT}
+      - WORKER_ENCRYPTION_SECRET=${WORKER_ENCRYPTION_SECRET}
+      - YDKEY_V1=${YDKEY_V1}
+      - YDKEY_VERSION=${YDKEY_VERSION}
+      - WORKER_POSTGRES_DSN=${WORKER_POSTGRES_DSN}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
     logging:
       driver: "json-file"
       options:
