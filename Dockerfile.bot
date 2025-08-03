@@ -1,6 +1,5 @@
 FROM python:3.10-slim
 
-# 1. Установка системных зависимостей и LaTeX
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       build-essential \
@@ -17,20 +16,16 @@ RUN apt-get update \
       lmodern \
  && rm -rf /var/lib/apt/lists/*
 
-# 2. Переменные среды
 ENV PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app
 
-# 3. Папка проекта
 WORKDIR /app
 
-# 4. Установка зависимостей
 COPY requirements.txt ./
 RUN pip install --upgrade pip setuptools wheel \
  && pip install --no-cache-dir -r requirements.txt
 
-# 5. Копирование исходников
 COPY . .
 
-# 6. Выполнение миграции + запуск бота
-CMD ["sh", "-c", "python3 scripts/migrate_telegram_hash.py && python3 -u -m bot_app.main"]
+# ❗ Заменим CMD на ENTRYPOINT и передадим окружение в migrate
+ENTRYPOINT ["/bin/sh", "-c", "env && python3 scripts/migrate_telegram_hash.py && python3 -u -m bot_app.main"]
