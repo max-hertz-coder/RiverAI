@@ -61,6 +61,7 @@ jobs:
           host: ${{ matrix.host }}
           username: ${{ matrix.username }}
           key: ${{ secrets[matrix.secret_key] }}
+          envs: TELEGRAM_ID_SALT,WORKER_ENCRYPTION_SECRET,YDKEY_V1,YDKEY_VERSION
           script: |
             # 1. Клонирование репозитория (если не было) или обновление кода
             if [ ! -d /opt/RiverAI/.git ]; then
@@ -69,21 +70,30 @@ jobs:
             cd /opt/RiverAI
             git pull origin main || { git fetch origin main && git reset --hard origin/main && git clean -fd; }
 
-            # 2. Логирование в файл /opt/RiverAI/deploy.log
+            # 2. Логирование в файл /opt/RiverAI/logs/deploy.log
             mkdir -p /opt/RiverAI/logs
             exec > >(tee -a /opt/RiverAI/logs/deploy.log) 2>&1
             echo "$(date +'%F %T') — Начало деплоя на сервере ${{ matrix.name }}"
 
-            # 3. Переход в нужную папку с docker-compose 
+            # 3. Переход в нужную папку с docker-compose
             if [ "${{ matrix.role }}" = "queue" ]; then
               cd queue
             fi
 
-            # 4. Запуск/обновление контейнеров
+            # 4. Создание .env.override из секретов GitHub
+            echo "TELEGRAM_ID_SALT=${TELEGRAM_ID_SALT}" > .env.override
+            echo "WORKER_ENCRYPTION_SECRET=${WORKER_ENCRYPTION_SECRET}" >> .env.override
+            echo "YDKEY_V1=${YDKEY_V1}" >> .env.override
+            echo "YDKEY_VERSION=${YDKEY_VERSION}" >> .env.override
+
+            # 5. Запуск/обновление контейнеров
             if command -v docker compose &> /dev/null; then
               docker compose up -d --build --remove-orphans
             else
               docker-compose up -d --build --remove-orphans
             fi
+
+            # 6. Очистка временных файлов
+            rm -f .env.override
 
             echo "$(date +'%F %T') — Деплой успешно завершён на сервере ${{ matrix.name }}"

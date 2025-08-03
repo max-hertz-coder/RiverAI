@@ -6,9 +6,12 @@ services:
       dockerfile: Dockerfile.worker
     restart: unless-stopped
     env_file:
-      - ../../.env
+      - ../../.env         # обычный .env (общий)
+      - ../../.env.override  # временный секрет из GitHub Actions
     networks:
       - riverai-network
+    environment:
+      - TELEGRAM_ID_SALT   # обязательно пробрасываем внутрь контейнера
 
 networks:
   riverai-network:

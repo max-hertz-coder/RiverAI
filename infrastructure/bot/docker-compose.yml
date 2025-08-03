@@ -6,9 +6,12 @@ services:
     container_name: riverai-bot
     env_file:
       - ../../.env
+      - ../../.env.override  # ← добавлен
     restart: unless-stopped
     networks:
       - riverai-network
+    environment:
+      - TELEGRAM_ID_SALT
 
 networks:
   riverai-network:

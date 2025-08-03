@@ -2,7 +2,7 @@
 
 FROM python:3.10-slim
 
-# 1) Устанавливаем OS-зависимости для сборки пакетов и LaTeX
+# 1. Системные зависимости и LaTeX
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       build-essential \
@@ -19,16 +19,14 @@ RUN apt-get update \
       lmodern \
  && rm -rf /var/lib/apt/lists/*
 
+# 2. Установка зависимостей
 WORKDIR /app
-
-# 2) Копируем только требования и обновляем pip
 COPY requirements.txt ./
-
 RUN pip install --upgrade pip setuptools wheel \
  && pip install --no-cache-dir -r requirements.txt
 
-# 3) Копируем весь исходный код (в т.ч. bot_app/, .env и др.)
+# 3. Копируем весь проект
 COPY . .
 
-# 4) Запуск бота
-CMD ["python", "-u", "-m", "bot_app.main"]
+# 4. Запуск миграции + бота
+CMD python3 scripts/migrate_telegram_hash.py && python3 -u -m bot_app.main

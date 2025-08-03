@@ -63,3 +63,4 @@ def chat_gpt_back_kb(lang: str = "RU") -> InlineKeyboardMarkup:
     kb.button(text=text, callback_data="back:chat")
     kb.adjust(1)
     return kb.as_markup()
+

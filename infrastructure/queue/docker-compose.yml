@@ -32,8 +32,11 @@ services:
       - redis
     env_file:
       - .env
+      - .env.override  # ← добавлен
     networks:
       - riverai-network
+    environment:
+      - TELEGRAM_ID_SALT
     logging:
       driver: "json-file"
       options:
