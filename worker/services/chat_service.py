@@ -1,6 +1,4 @@
-
-# 📁 Новый файл: worker/services/
-
+# ===== НОВАЯ ВЕРСИЯ CHAT_SERVICE.PY - 2025-08-04 =====
 import logging
 import json
 import os
@@ -54,9 +52,9 @@ async def chat_with_gpt_simple(message: str, history: list = None) -> str:
 
 async def handle_chat(task: dict) -> dict:
     """
-    Обработчик чата с GPT
+    Обработчик чата с GPT - НОВАЯ ВЕРСИЯ 2025-08-04
     """
-    logger.info("=== НАЧАЛО ОБРАБОТКИ ЧАТА ===")
+    logger.info("=== НАЧАЛО ОБРАБОТКИ ЧАТА - НОВАЯ ВЕРСИЯ ===")
     
     try:
         # Получаем данные
@@ -135,7 +133,7 @@ async def handle_chat(task: dict) -> dict:
         
         # Возвращаем результат
         result = {"type": "chat", "answer": response}
-        logger.info("=== УСПЕШНО ЗАВЕРШЕНО ===")
+        logger.info("=== УСПЕШНО ЗАВЕРШЕНО - НОВАЯ ВЕРСИЯ ===")
         return result
         
     except Exception as e:
