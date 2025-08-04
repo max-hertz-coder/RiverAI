@@ -198,7 +198,7 @@ async def proc_refine_tasks(message: Message, state: FSMContext):
 @router.callback_query(F.data == "tasks_ok")
 async def cb_tasks_ok(callback: CallbackQuery):
     await callback.answer("👍 Отлично!")
-    await callback.message.edit_reply_markup(None)
+    await callback.message.edit_text("🎉 Рад был помочь! Если понадобится что-то еще - обращайтесь!")
 
 
 # --- Отмена ---
