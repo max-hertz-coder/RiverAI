@@ -8,6 +8,10 @@ from worker.services.chat_service import handle_chat
 from worker.services.homework_check_service import handle_homework_check
 from common.redis_utils import clear_conversation
 
+# Логируем импорт
+logging.info(f"handle_chat импортирован: {handle_chat}")
+logging.info(f"Тип handle_chat: {type(handle_chat)}")
+
 async def process_task_message(task: dict) -> dict | None:
     """
     Обрабатывает задачу из очереди task_queue и возвращает результат или None.
