@@ -12,37 +12,43 @@ jobs:
         include:
           - name: очередь_RU
             host: 176.123.160.130
-            secret_key: SSH_PRIVATE_KEY_QUEUE
+            key_secret: SSH_PRIVATE_KEY_QUEUE
             role: queue
             username: user1
+
           - name: основной_RU
             host: 176.123.160.14
-            secret_key: SSH_PRIVATE_KEY_MAIN
+            key_secret: SSH_PRIVATE_KEY_MAIN
             role: app
             username: user1
+
           - name: очередь
             host: 185.200.176.96
-            secret_key: SSH_KEY_QUEUE
+            key_secret: SSH_KEY_QUEUE
             role: queue
             username: root
+
           - name: основной
             host: 185.200.176.99
-            secret_key: SSH_KEY_BASED
+            key_secret: SSH_KEY_BASED
             role: app
             username: root
+
           - name: резервный
             host: 185.200.176.97
-            secret_key: SSH_KEY_RESERVE
+            key_secret: SSH_KEY_RESERVE
             role: app
             username: root
+
           - name: воркер1
             host: 185.200.176.95
-            secret_key: SSH_KEY_WORKER
+            key_secret: SSH_KEY_WORKER
             role: app
             username: root
+
           - name: воркер2
             host: 185.200.176.98
-            secret_key: SSH_KEY_WORKER
+            key_secret: SSH_KEY_WORKER
             role: app
             username: root
 
@@ -55,24 +61,12 @@ jobs:
           mkdir -p ~/.ssh
           ssh-keyscan -H github.com >> ~/.ssh/known_hosts
 
-      - name: Map secret key
-        id: map_key
-        run: |
-          case "${{ matrix.secret_key }}" in
-            SSH_PRIVATE_KEY_QUEUE) echo "key=${{ secrets.SSH_PRIVATE_KEY_QUEUE }}" >> $GITHUB_OUTPUT ;;
-            SSH_PRIVATE_KEY_MAIN) echo "key=${{ secrets.SSH_PRIVATE_KEY_MAIN }}" >> $GITHUB_OUTPUT ;;
-            SSH_KEY_QUEUE) echo "key=${{ secrets.SSH_KEY_QUEUE }}" >> $GITHUB_OUTPUT ;;
-            SSH_KEY_BASED) echo "key=${{ secrets.SSH_KEY_BASED }}" >> $GITHUB_OUTPUT ;;
-            SSH_KEY_RESERVE) echo "key=${{ secrets.SSH_KEY_RESERVE }}" >> $GITHUB_OUTPUT ;;
-            SSH_KEY_WORKER) echo "key=${{ secrets.SSH_KEY_WORKER }}" >> $GITHUB_OUTPUT ;;
-          esac
-
       - name: Deploy to ${{ matrix.name }}
         uses: appleboy/ssh-action@v1.2.2
         with:
           host: ${{ matrix.host }}
           username: ${{ matrix.username }}
-          key: ${{ steps.map_key.outputs.key }}
+          key: ${{ secrets[matrix.key_secret] }}
           envs: TELEGRAM_ID_SALT,WORKER_ENCRYPTION_SECRET,YDKEY_V1,YDKEY_VERSION,WORKER_POSTGRES_DSN
           script: |
             cd /opt
