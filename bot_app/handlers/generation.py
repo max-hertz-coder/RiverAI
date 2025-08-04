@@ -197,7 +197,7 @@ async def proc_refine_tasks(message: Message, state: FSMContext):
 
 
 # --- Отладка callback_query ---
-@router.callback_query()
+@router.callback_query(F.data.startswith("debug:"))
 async def debug_callback(callback: CallbackQuery):
     import logging
     logger = logging.getLogger(__name__)
