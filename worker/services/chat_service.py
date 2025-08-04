@@ -11,30 +11,29 @@ from common.redis_utils import get_context_by_task_id, get_conversation, save_co
 load_dotenv()
 logger = logging.getLogger(__name__)
 
-# Инициализация OpenAI клиента
+# Инициализация OpenAI
 OPENAI_KEY = os.getenv("OPENAI_API_KEY")
 if not OPENAI_KEY:
-    logger.error("🔴 OPENAI_API_KEY не найден в переменных окружения")
-    raise RuntimeError("Missing OPENAI_API_KEY environment variable")
+    raise RuntimeError("OPENAI_API_KEY не найден")
 
 client = AsyncOpenAI(api_key=OPENAI_KEY)
 
-async def simple_chat_with_gpt(message: str, history: list = None) -> str:
+async def chat_with_gpt_simple(message: str, history: list = None) -> str:
     """
-    Простой чат с GPT без сложной логики
+    Простая функция для чата с GPT
     """
     try:
-        # Формируем сообщения для GPT
+        # Формируем сообщения
         messages = []
         
-        # Добавляем историю если есть
+        # Добавляем историю
         if history:
             messages.extend(history)
         
         # Добавляем текущее сообщение
         messages.append({"role": "user", "content": message})
         
-        logger.info(f"🔧 Отправляем запрос к GPT: {len(messages)} сообщений")
+        logger.info(f"Отправляем в GPT: {len(messages)} сообщений")
         
         # Вызываем GPT
         response = await client.chat.completions.create(
@@ -45,82 +44,82 @@ async def simple_chat_with_gpt(message: str, history: list = None) -> str:
         )
         
         answer = response.choices[0].message.content.strip()
-        logger.info(f"🔧 Получен ответ от GPT: {len(answer)} символов")
+        logger.info(f"Получен ответ от GPT: {len(answer)} символов")
         
         return answer
         
     except Exception as e:
-        logger.exception(f"🔴 Ошибка в simple_chat_with_gpt: {e}")
-        return f"❌ Ошибка при обращении к GPT: {str(e)}"
+        logger.exception(f"Ошибка в GPT: {e}")
+        return f"Ошибка при обращении к GPT: {str(e)}"
 
 async def handle_chat(task: dict) -> dict:
     """
-    Простой обработчик чата с GPT
+    Обработчик чата с GPT
     """
-    logger.info(f"🔧 handle_chat: начало")
+    logger.info("=== НАЧАЛО ОБРАБОТКИ ЧАТА ===")
     
     try:
-        # Получаем данные из задачи
+        # Получаем данные
         task_id = task.get("task_id")
         message = task.get("message", "").strip()
         task_type = task.get("type")
         
-        logger.info(f"🔧 handle_chat: task_id={task_id}, type={task_type}, message='{message[:50]}...'")
+        logger.info(f"task_id={task_id}, type={task_type}, message='{message[:30]}...'")
         
-        # Проверяем обязательные поля
+        # Проверки
         if not task_id:
-            logger.error("🔴 handle_chat: отсутствует task_id")
-            return {"type": "error", "message": "Отсутствует task_id"}
+            logger.error("Нет task_id")
+            return {"type": "error", "message": "Нет task_id"}
         
         if not message and task_type != "end_chat":
-            logger.error("🔴 handle_chat: сообщение пустое")
-            return {"type": "error", "message": "Сообщение пустое"}
+            logger.error("Пустое сообщение")
+            return {"type": "error", "message": "Пустое сообщение"}
         
-        # Получаем контекст из Redis
-        logger.info(f"🔧 handle_chat: получаем контекст")
+        # Получаем контекст
+        logger.info("Получаем контекст из Redis")
         context = await get_context_by_task_id(task_id)
         if not context:
-            logger.error(f"🔴 handle_chat: контекст не найден для task_id={task_id}")
-            return {"type": "error", "message": "Контекст задачи не найден"}
+            logger.error(f"Контекст не найден для {task_id}")
+            return {"type": "error", "message": "Контекст не найден"}
         
         user_id = context.get("user_id")
         student_id = context.get("student_id")
         
-        logger.info(f"🔧 handle_chat: user_id={user_id}, student_id={student_id}")
+        logger.info(f"user_id={user_id}, student_id={student_id}")
         
         if not user_id or not student_id:
-            logger.error(f"🔴 handle_chat: отсутствует user_id или student_id")
-            return {"type": "error", "message": "Ошибка: отсутствует user_id или student_id"}
+            logger.error("Нет user_id или student_id")
+            return {"type": "error", "message": "Нет user_id или student_id"}
         
-        # Обработка очистки чата
+        # Очистка чата
         if task_type == "end_chat":
-            logger.info(f"🔧 handle_chat: очищаем историю")
+            logger.info("Очищаем историю")
             from common.redis_utils import clear_conversation
             await clear_conversation(user_id, student_id)
             return {"type": "chat", "answer": "🗑️ Диалог очищен"}
         
-        # Получаем историю диалога
-        logger.info(f"🔧 handle_chat: получаем историю")
+        # Получаем историю
+        logger.info("Получаем историю диалога")
         history_json = await get_conversation(user_id, student_id)
         history = []
         
         if history_json:
             try:
                 history = json.loads(history_json)
-                logger.info(f"🔧 handle_chat: найдена история: {len(history)} сообщений")
+                logger.info(f"Найдена история: {len(history)} сообщений")
             except json.JSONDecodeError as e:
-                logger.error(f"🔴 handle_chat: ошибка декодирования истории: {e}")
+                logger.error(f"Ошибка декодирования истории: {e}")
                 history = []
         else:
-            logger.info(f"🔧 handle_chat: история пуста")
+            logger.info("История пуста")
         
         # Получаем ответ от GPT
-        logger.info(f"🔧 handle_chat: вызываем GPT")
-        response = await simple_chat_with_gpt(message, history)
+        logger.info("Вызываем GPT")
+        response = await chat_with_gpt_simple(message, history)
         
         # Проверяем на ошибку
-        if response.startswith("❌"):
-            logger.error(f"🔴 handle_chat: GPT вернул ошибку: {response}")
+        if response.startswith("Ошибка"):
+            logger.error(f"GPT вернул ошибку: {response}")
             return {"type": "error", "message": response}
         
         # Обновляем историю
@@ -130,15 +129,15 @@ async def handle_chat(task: dict) -> dict:
         # Сохраняем историю
         try:
             await save_conversation(user_id, student_id, json.dumps(history, ensure_ascii=False))
-            logger.info(f"🔧 handle_chat: история сохранена")
+            logger.info("История сохранена")
         except Exception as e:
-            logger.error(f"🔴 handle_chat: ошибка сохранения истории: {e}")
+            logger.error(f"Ошибка сохранения истории: {e}")
         
         # Возвращаем результат
         result = {"type": "chat", "answer": response}
-        logger.info(f"🔧 handle_chat: успешно завершено")
+        logger.info("=== УСПЕШНО ЗАВЕРШЕНО ===")
         return result
         
     except Exception as e:
-        logger.exception(f"🔴 handle_chat: неожиданная ошибка: {e}")
-        return {"type": "error", "message": f"Ошибка при обработке чата: {str(e)}"}
+        logger.exception(f"Неожиданная ошибка: {e}")
+        return {"type": "error", "message": f"Ошибка: {str(e)}"}

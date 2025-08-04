@@ -8,9 +8,6 @@ from worker.services.chat_service import handle_chat
 from worker.services.homework_check_service import handle_homework_check
 from common.redis_utils import clear_conversation
 
-# Проверяем импорт handle_chat
-logging.info(f"🔧 handle_chat импортирован: {handle_chat}")
-
 async def process_task_message(task: dict) -> dict | None:
     """
     Обрабатывает задачу из очереди task_queue и возвращает результат или None.
@@ -64,16 +61,16 @@ async def process_task_message(task: dict) -> dict | None:
             return await handle_check_homework(task)
 
         if task_type in ("chat"):
-            logging.info(f"🔧 Вызываем handle_chat для task_id={task_id}")
+            logging.info(f"Обрабатываем чат: task_id={task_id}")
             try:
                 result = await handle_chat(task)
-                logging.info(f"🔧 handle_chat вернул: type={result.get('type') if result else 'None'}")
+                logging.info(f"Результат чата: {result.get('type')}")
                 return result
             except Exception as e:
-                logging.exception(f"🔴 Ошибка в handle_chat: {e}")
+                logging.exception(f"Ошибка в чате: {e}")
                 return {
                     "type": "error",
-                    "message": f"Ошибка в handle_chat: {str(e)}"
+                    "message": f"Ошибка в чате: {str(e)}"
                 }
 
         if task_type == "end_chat":
