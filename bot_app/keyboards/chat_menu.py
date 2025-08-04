@@ -5,8 +5,8 @@ def chat_menu_kb(student_id: int) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.button(text="📄 Учебный план", callback_data=f"generate_plan:{student_id}")
     kb.button(text="📝 Задания", callback_data=f"generate_tasks:{student_id}")
-    kb.button(text="🔄 Проверить ДЗ", callback_data=f"check_hw:{student_id}")
-    kb.button(text="💬 Чат с GPT", callback_data=f"chat:{student_id}")
+    kb.button(text="🔄 Проверить ДЗ", callback_data=f"check_homework:{student_id}")
+    kb.button(text="💬 Чат с GPT", callback_data=f"chat_gpt:{student_id}")
     kb.adjust(2)  # две кнопки в ряд
     return kb.as_markup()
 

@@ -20,6 +20,7 @@ async def cb_settings(callback: CallbackQuery):
     lang = user["language"] if user else "RU"
     text = "Настройки профиля:" if lang == "RU" else "Profile Settings:"
     await callback.message.edit_text(text, reply_markup=settings_kb.settings_menu_kb(lang))
+    await callback.answer()
 
 # --- Обработка текстовой кнопки "⚙️ Настройки" из обычного сообщения
 @router.message(F.text == "⚙️ Настройки")

@@ -58,6 +58,7 @@ async def cb_subscription(callback: CallbackQuery, state: FSMContext):
         await callback.answer(sub_text, reply_markup=kb.as_markup())
     else:
         await callback.message.edit_text(sub_text, reply_markup=kb.as_markup())
+        await callback.answer()
 
 # --- Изменить тариф
 @router.callback_query(F.data == "change_plan")
@@ -101,6 +102,7 @@ async def process_model_choice(callback: CallbackQuery, state: FSMContext):
         f"💰 Цена: {price_rub}₽\n\n"
         "Пожалуйста, произведите оплату. Как только вы оплатите, я напишу админу и активирую подписку."
     )
+    await callback.answer()
 
     await callback.bot.send_message(
         admin_id,
@@ -124,6 +126,7 @@ async def cb_admin_confirm(callback: CallbackQuery):
     await db.set_subscription(user_id, model, students, until)
     await callback.message.answer(f"✅ Подписка активирована пользователю {user_id} до {until.date()}")
     await callback.bot.send_message(user_id, f"✅ Подписка активирована до {until.date()}")
+    await callback.answer()
 
 # --- Продление подписки
 @router.callback_query(F.data == "renew_plan")
