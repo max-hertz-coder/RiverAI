@@ -8,7 +8,7 @@ from common.redis_utils import get_context_by_task_id, get_conversation, save_co
 
 load_dotenv()
 logger = logging.getLogger(__name__)
-
+#йоу
 # ТЕСТОВАЯ ФУНКЦИЯ - ДОЛЖНА БЫТЬ ВИДНА В ЛОГАХ
 def test_function():
     logger.info("=== ТЕСТОВАЯ ФУНКЦИЯ ЗАГРУЖЕНА ===")
