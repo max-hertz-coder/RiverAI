@@ -13,14 +13,12 @@ client = AsyncOpenAI(api_key=OPENAI_KEY)
 logger = logging.getLogger(__name__)
 
 
-async def chat_with_gpt(message: str) -> str:
+async def chat_with_gpt(messages: list) -> str:
     """
-    Обычный чат с GPT.
-    Принимает сообщение пользователя.
+    Чат с GPT с поддержкой истории диалога.
+    Принимает список сообщений в формате [{"role": "user", "content": "..."}, ...]
     """
     try:
-        messages = [{"role": "user", "content": message}]
-        
         response = await client.chat.completions.create(
             model="gpt-4o-mini",
             messages=messages,
@@ -83,7 +81,7 @@ async def handle_chat_gpt(task: Dict[str, Any]) -> Dict[str, Any]:
         
         # Получаем ответ от GPT
         logger.info(f"🔧 Отправляем запрос к GPT...")
-        response = await chat_with_gpt(message)
+        response = await chat_with_gpt(messages)
         logger.info(f"🔧 Получен ответ от GPT: {len(response)} символов")
         
         # Добавляем ответ в историю

@@ -80,7 +80,7 @@ async def process_redis_result(result_data: dict, bot: Bot):
         # === Chat response ===
         elif result_type == "chat":
             text = result_data.get("answer", "(нет ответа)")
-            await bot.send_message(user_id, text, reply_markup=chat_gpt_back_kb(student_id))
+            await bot.send_message(user_id, text, reply_markup=chat_gpt_back_kb())
 
         # === Study plan ===
         elif result_type == "plan":

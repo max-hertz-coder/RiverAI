@@ -2,8 +2,9 @@
 # 📁 Новый файл: worker/services/
 
 import logging
-from worker.services.gpt_service import chat_with_gpt
-from common.redis_utils import get_context_by_task_id
+import json
+from worker.services.chat_gpt_service import chat_with_gpt
+from common.redis_utils import get_context_by_task_id, get_conversation, save_conversation
 
 logger = logging.getLogger(__name__)
 
@@ -72,11 +73,49 @@ async def handle_chat(task: dict) -> dict:
                 "answer": "🗑️ Диалог очищен."
             }
 
-        # Простой ответ без GPT для тестирования
-        logger.info(f"🔧 handle_chat: отправляем простой ответ")
+        # Получаем историю диалога
+        logger.info(f"🔧 handle_chat: получаем историю диалога")
+        history_json = await get_conversation(user_id, student_id)
+        
+        if history_json:
+            try:
+                messages = json.loads(history_json)
+                logger.info(f"🔧 handle_chat: найдена история диалога: {len(messages)} сообщений")
+            except json.JSONDecodeError as e:
+                logger.error(f"🔴 handle_chat: ошибка декодирования истории диалога: {e}")
+                messages = []
+        else:
+            messages = []
+            logger.info(f"🔧 handle_chat: история диалога пуста, начинаем новый диалог")
+
+        # Добавляем новое сообщение пользователя
+        messages.append({"role": "user", "content": message})
+        
+        # Получаем ответ от GPT
+        logger.info(f"🔧 handle_chat: отправляем запрос к GPT...")
+        try:
+            response = await chat_with_gpt(messages)
+            logger.info(f"🔧 handle_chat: получен ответ от GPT: {len(response)} символов")
+        except Exception as e:
+            logger.exception(f"🔴 handle_chat: ошибка при обращении к GPT: {e}")
+            return {
+                "type": "error",
+                "message": f"Ошибка при обращении к GPT: {str(e)}"
+            }
+        
+        # Добавляем ответ в историю
+        messages.append({"role": "assistant", "content": response})
+        
+        # Сохраняем обновленную историю
+        try:
+            await save_conversation(user_id, student_id, json.dumps(messages, ensure_ascii=False))
+            logger.info(f"🔧 handle_chat: история диалога сохранена")
+        except Exception as e:
+            logger.error(f"🔴 handle_chat: ошибка сохранения истории диалога: {e}")
+
         result = {
             "type": "chat",
-            "answer": f"Тестовый ответ на сообщение: '{message}'. Worker работает!"
+            "answer": response.strip()
         }
         logger.info(f"🔧 handle_chat: результат = {result}")
         return result
