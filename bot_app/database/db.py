@@ -30,7 +30,6 @@ async def get_user_by_tg_id(telegram_id: int):
         """, tg_hash)
         return row
 
-
 async def create_user(telegram_id: int, name: str):
     pool = _get_pool()
     name_enc = encryption.encrypt_str(name) if name else ""
@@ -61,7 +60,6 @@ async def create_user(telegram_id: int, name: str):
              language, notifications, password_hash,
              ydisk_token_enc, hide_disk_prompt, trial_end, False)
         return await get_user_by_tg_id(telegram_id)
-
 
 async def update_user_name(user_id: int, new_name: str):
     pool = _get_pool()
@@ -126,7 +124,6 @@ async def get_students_by_user(user_id: int):
 
         return students
 
-
 async def get_student(student_id: int):
     pool = _get_pool()
     async with pool.acquire() as conn:
@@ -162,7 +159,6 @@ async def add_student(user_id: int, name: str, subject: str, level: str, notes: 
         encryption.encrypt_str(notes) if notes else "")
         return row["id"] if row else None
 
-
 async def update_student(student_id: int, name: str, subject: str, level: str, notes: str):
     pool = _get_pool()
     async with pool.acquire() as conn:
@@ -176,7 +172,6 @@ async def update_student(student_id: int, name: str, subject: str, level: str, n
         encryption.encrypt_str(level),
         encryption.encrypt_str(notes) if notes else "",
         student_id)
-
 
 async def delete_student(student_id: int):
     pool = _get_pool()
@@ -212,7 +207,6 @@ async def increment_student_token_usage(student_id: int, prompt_tokens: int, gen
                 tokens_gen_total = tokens_gen_total + $2
             WHERE id=$3
         """, prompt_tokens, gen_tokens, student_id)
-
 
 async def set_plan(user_id: int, plan: str, new_limit: int = None):
     pool = _get_pool()

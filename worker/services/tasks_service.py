@@ -14,6 +14,7 @@ async def handle_tasks(task: dict) -> dict:
         if task_type == "generate_tasks":
             if not prompt:
                 return {"task_id": task_id, "type": "error", "message": "Нет запроса."}
+            logger.info(f"🔧 handle_tasks: промпт для генерации: {prompt[:200]}...")
             raw_tasks = await generation_service.generate_raw_tasks(prompt)
         elif task_type == "generate_solutions":
             if not raw_tasks:
@@ -24,7 +25,24 @@ async def handle_tasks(task: dict) -> dict:
         if not raw_tasks or raw_tasks.strip() == "":
             return {"task_id": task_id, "type": "error", "message": "Генератор вернул пусто."}
 
-        cleaned = re.sub(r'(?si)Варианты ответа:.*?(?=(?:\n\s*\d+\.\s)|\Z)', '', raw_tasks).strip()
+        logger.info(f"🔧 handle_tasks: исходный текст, длина: {len(raw_tasks)}")
+        logger.info(f"🔧 handle_tasks: первые 200 символов: {raw_tasks[:200]}...")
+
+        # Удаляем решения и варианты ответов из текста заданий
+        cleaned = re.sub(r'(?si)(Решения?|Варианты ответа?):.*?(?=(?:\n\s*\d+\.\s)|\Z)', '', raw_tasks).strip()
+        
+        # Дополнительная очистка - удаляем строки, содержащие "решение" или "ответ"
+        lines = cleaned.split('\n')
+        filtered_lines = []
+        for line in lines:
+            line_lower = line.lower()
+            if not any(word in line_lower for word in ['решение', 'ответ', 'рассмотрим', 'для этого']):
+                filtered_lines.append(line)
+        cleaned = '\n'.join(filtered_lines).strip()
+        
+        logger.info(f"🔧 handle_tasks: после очистки, длина: {len(cleaned)}")
+        logger.info(f"🔧 handle_tasks: после очистки, первые 200 символов: {cleaned[:200]}...")
+        
         split_re = re.compile(r'(?m)^\s*(\d+)\.\s*([\s\S]*?)(?=^\s*\d+\.|\Z)')
         tasks_list = [m.group(2).strip() for m in split_re.finditer(cleaned)] or [cleaned]
 

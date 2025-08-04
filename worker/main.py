@@ -14,6 +14,7 @@ async def handle_message(message: aio_pika.IncomingMessage) -> None:
         # 1) Распаковываем задачу
         try:
             task_data = json.loads(message.body)
+            logging.info(f"🔧 Получена задача из очереди: {task_data}")
         except json.JSONDecodeError as e:
             logging.error(f"🔴 Failed to decode task message: {e}")
             return
@@ -25,9 +26,9 @@ async def handle_message(message: aio_pika.IncomingMessage) -> None:
         # 2) Обрабатываем задачу
         try:
             result = await task_consumer.process_task_message(task_data)
-            logging.info(f"✅ Task processed: type={task_type}")
-        except Exception:
-            logging.exception(f"🔴 Error processing task type={task_type}")
+            logging.info(f"✅ Task processed: type={task_type}, result={result}")
+        except Exception as e:
+            logging.exception(f"🔴 Error processing task type={task_type}: {e}")
             return
 
         if not result:
@@ -42,6 +43,7 @@ async def handle_message(message: aio_pika.IncomingMessage) -> None:
             logging.info(f"📤 Сохраняем результат в Redis:")
             logging.info(f"  Task ID: {task_id}")
             logging.info(f"  Type: {result.get('type')}")
+            logging.info(f"  Full result: {result}")
 
             from common.redis_utils import _get_client
             client = _get_client()
@@ -50,8 +52,8 @@ async def handle_message(message: aio_pika.IncomingMessage) -> None:
 
             logging.info(f"📤 Result saved to Redis: task_id={task_id}, type={result.get('type')}")
 
-        except Exception:
-            logging.exception("🔴 Error saving result to Redis")
+        except Exception as e:
+            logging.exception(f"🔴 Error saving result to Redis: {e}")
 
 
 async def main() -> None:

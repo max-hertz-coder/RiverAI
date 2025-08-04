@@ -1,6 +1,6 @@
 import aio_pika
 import os
-
+#йоу
 class RabbitBroker:
     def __init__(self):
         self.task_queue_name = os.getenv("TASK_QUEUE", "task_queue")

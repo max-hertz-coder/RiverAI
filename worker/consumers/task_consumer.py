@@ -5,7 +5,12 @@ from worker.services.plan_service import handle_plan
 from worker.services.tasks_service import handle_tasks
 from worker.tasks.check_homework import handle_check_homework
 from worker.services.chat_service import handle_chat
+from worker.services.homework_check_service import handle_homework_check
 from common.redis_utils import clear_conversation
+
+# Логируем импорт
+logging.info(f"handle_chat импортирован: {handle_chat}")
+logging.info(f"Тип handle_chat: {type(handle_chat)}")
 
 async def process_task_message(task: dict) -> dict | None:
     """
@@ -13,6 +18,9 @@ async def process_task_message(task: dict) -> dict | None:
     """
     task_id = task.get("task_id")
     task_type = task.get("type")
+
+    logging.info(f"🔧 Начинаем обработку задачи: task_id={task_id}, type={task_type}")
+    logging.info(f"🔧 Полная задача: {task}")
 
     if not task_id:
         logging.error("🔴 Task missing task_id")
@@ -24,6 +32,25 @@ async def process_task_message(task: dict) -> dict | None:
 
         if task_type == "ocr":
             return await handle_ocr(task)
+
+        if task_type == "ocr_and_check":
+            # OCR + проверка ДЗ
+            from worker.services.ocr_service import handle_ocr
+            logging.info(f"🔧 Начинаем OCR для проверки ДЗ: task_id={task_id}")
+            ocr_result = await handle_ocr(task)
+            logging.info(f"🔧 OCR результат: {ocr_result}")
+            
+            if ocr_result.get("type") == "error":
+                logging.error(f"🔴 OCR ошибка: {ocr_result}")
+                return ocr_result
+            
+            # Теперь проверяем ДЗ
+            check_task = {
+                "task_id": task_id,
+                "text": ocr_result.get("text", "")
+            }
+            logging.info(f"🔧 Отправляем на проверку ДЗ: text_length={len(check_task['text'])}")
+            return await handle_check_homework(check_task)
 
         if task_type == "generate_plan":
             return await handle_plan(task)
@@ -37,8 +64,18 @@ async def process_task_message(task: dict) -> dict | None:
         if task_type == "check_homework":
             return await handle_check_homework(task)
 
-        if task_type in ("chat_gpt", "chat"):
-            return await handle_chat(task)
+        if task_type in ("chat"):
+            logging.info(f"Обрабатываем чат: task_id={task_id}")
+            try:
+                result = await handle_chat(task)
+                logging.info(f"Результат чата: {result.get('type')}")
+                return result
+            except Exception as e:
+                logging.exception(f"Ошибка в чате: {e}")
+                return {
+                    "type": "error",
+                    "message": f"Ошибка в чате: {str(e)}"
+                }
 
         if task_type == "end_chat":
             # Очищаем историю диалога
@@ -60,9 +97,13 @@ async def process_task_message(task: dict) -> dict | None:
             }
 
         logging.warning("Unknown task type: %s", task_type)
+        return {
+            "type": "error",
+            "message": f"Неизвестный тип задачи: {task_type}"
+        }
 
-    except Exception:
-        logging.exception("🔴 Error processing task %r", task)
+    except Exception as e:
+        logging.exception(f"🔴 Error processing task {task_type} with task_id={task_id}: {e}")
         return {
             "type": "error",
             "message": "Внутренняя ошибка обработки задачи."

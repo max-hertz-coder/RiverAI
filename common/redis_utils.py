@@ -14,13 +14,20 @@ async def init_redis_pool(host: str, port: int, db: int) -> None:
     Инициализирует Redis-клиент для хранения промежуточных данных.
     """
     global _client
-    _client = redis.Redis(
-        host=host,
-        port=port,
-        db=db,
-        decode_responses=True,
-        encoding="utf-8"
-    )
+    try:
+        _client = redis.Redis(
+            host=host,
+            port=port,
+            db=db,
+            decode_responses=True,
+            encoding="utf-8"
+        )
+        # Проверяем подключение
+        await _client.ping()
+        print(f"✅ Redis подключен: {host}:{port}/{db}")
+    except Exception as e:
+        print(f"🔴 Ошибка подключения к Redis {host}:{port}/{db}: {e}")
+        raise
 
 # ========= Задания =========
 
@@ -43,13 +50,27 @@ async def get_raw_tasks(user_id: int, student_id: int) -> str | None:
 async def save_context(task_id: str, context: dict):
     """Сохраняет контекст задачи в Redis"""
     key = f"task_context:{task_id}"
-    await _get_client().set(key, json.dumps(context), ex=3600)
+    try:
+        await _get_client().set(key, json.dumps(context), ex=3600)
+        print(f"🔧 Контекст сохранен: {key}")
+    except Exception as e:
+        print(f"🔴 Ошибка сохранения контекста {key}: {e}")
+        raise
 
 async def get_context_by_task_id(task_id: str) -> dict | None:
     """Получает контекст задачи по task_id"""
     key = f"task_context:{task_id}"
-    data = await _get_client().get(key)
-    return json.loads(data) if data else None
+    try:
+        data = await _get_client().get(key)
+        if data:
+            print(f"🔧 Контекст найден: {key}")
+            return json.loads(data)
+        else:
+            print(f"🔴 Контекст не найден: {key}")
+            return None
+    except Exception as e:
+        print(f"🔴 Ошибка получения контекста {key}: {e}")
+        return None
 
 async def delete_context_by_task_id(task_id: str) -> None:
     """Удаляет контекст задачи"""

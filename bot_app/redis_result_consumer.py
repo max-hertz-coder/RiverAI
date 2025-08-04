@@ -39,6 +39,7 @@ async def process_redis_result(result_data: dict, bot: Bot):
             return
 
         logging.info(f"📥 Обрабатываем результат: task_id={task_id}, type={result_type}, user_id={user_id}")
+        logging.info(f"📥 Полный результат: {result_data}")
 
         # === Generated tasks ===
         if result_type == "tasks":
@@ -79,7 +80,7 @@ async def process_redis_result(result_data: dict, bot: Bot):
         # === Chat response ===
         elif result_type == "chat":
             text = result_data.get("answer", "(нет ответа)")
-            await bot.send_message(user_id, text, reply_markup=chat_gpt_back_kb(student_id))
+            await bot.send_message(user_id, text, reply_markup=chat_gpt_back_kb())
 
         # === Study plan ===
         elif result_type == "plan":
@@ -98,9 +99,49 @@ async def process_redis_result(result_data: dict, bot: Bot):
                 buf.name = "Homework_Report.pdf"
                 await bot.send_document(user_id, buf, caption="📎 Отчёт в PDF")
 
+        # === New Homework check (with PDF) ===
+        elif result_type == "homework_check":
+            report_text = result_data.get("check_result", "(нет отчёта)")
+            latex_content = result_data.get("latex_content", "")
+            
+            # Компилируем и отправляем PDF, если есть LaTeX код
+            if latex_content:
+                try:
+                    from bot_app.pdf_compiler import compile_latex_to_pdf
+                    from aiogram.types import BufferedInputFile
+                    
+                    pdf_path, log = compile_latex_to_pdf(latex_content)
+                    if pdf_path:
+                        with open(pdf_path, "rb") as f:
+                            file_bytes = f.read()
+                            document = BufferedInputFile(file_bytes, filename="Homework_Check.pdf")
+                            await bot.send_document(user_id, document, caption="📄 Результат проверки ДЗ")
+                        logging.info(f"✅ PDF Homework Check отправлен пользователю {user_id}")
+                    else:
+                        logging.error(f"🔴 Ошибка компиляции PDF Homework Check: {log}")
+                        await bot.send_message(user_id, "❌ Ошибка создания PDF с результатом проверки")
+                except Exception as e:
+                    logging.exception("Ошибка отправки PDF: %s", e)
+                    await bot.send_message(user_id, "❌ Ошибка создания PDF с результатом проверки")
+            else:
+                # Если нет LaTeX кода, отправляем только текстовый отчет
+                if len(report_text) > 4000:
+                    report_text = report_text[:4000] + "\n\n... (отчет обрезан)"
+                await bot.send_message(user_id, f"📋 **Результат проверки ДЗ:**\n\n{report_text}")
+
+        # === New Chat GPT response ===
+        elif result_type == "chat_gpt":
+            answer = result_data.get("gpt_response", "(нет ответа)")
+            
+            if len(answer) > 4000:
+                answer = answer[:4000] + "\n\n... (ответ обрезан)"
+            
+            await bot.send_message(user_id, answer)
+
         # === Error ===
         elif result_type == "error":
             error_msg = result_data.get("message", "Неизвестная ошибка")
+            logging.error(f"🔴 Получена ошибка от worker: {error_msg}")
             await bot.send_message(user_id, f"⚠️ Ошибка: {error_msg}")
 
         else:
@@ -110,9 +151,18 @@ async def process_redis_result(result_data: dict, bot: Bot):
 
     except Exception as e:
         logging.exception(f"🔴 Ошибка обработки результата: {e}")
+        # Попробуем отправить сообщение об ошибке пользователю
+        try:
+            if 'user_id' in locals():
+                await bot.send_message(user_id, "⚠️ Произошла ошибка при обработке результата. Попробуйте позже.")
+        except Exception as send_error:
+            logging.error(f"🔴 Не удалось отправить сообщение об ошибке: {send_error}")
 
     finally:
-        await cleanup_task_context(task_id)
+        try:
+            await cleanup_task_context(task_id)
+        except Exception as cleanup_error:
+            logging.error(f"🔴 Ошибка очистки контекста task_id={task_id}: {cleanup_error}")
 
 
 async def consume_redis_results(bot: Bot):
@@ -125,15 +175,21 @@ async def consume_redis_results(bot: Bot):
         try:
             client = _get_client()
             result_keys = await client.keys("result:*")
+            
+            if result_keys:
+                logging.info(f"🔧 Найдено {len(result_keys)} результатов в Redis")
 
             for key in result_keys:
                 try:
                     result_json = await client.get(key)
                     if result_json:
                         result_data = json.loads(result_json)
+                        logging.info(f"🔧 Обрабатываем результат: {key}, type={result_data.get('type')}")
                         await process_redis_result(result_data, bot)
                         await client.delete(key)
                         logging.info(f"✅ Обработан результат из Redis: {key}")
+                    else:
+                        logging.warning(f"⚠️ Результат {key} пустой")
                 except Exception as e:
                     logging.error(f"🔴 Ошибка обработки результата из Redis {key}: {e}")
 

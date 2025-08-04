@@ -23,6 +23,8 @@ from bot_app.handlers.generation import router as generation_router
 from bot_app.handlers.chatgpt import router as chatgpt_router
 from bot_app.handlers.subscription import router as subscription_router
 from bot_app.handlers.settings import router as settings_router
+from bot_app.handlers.homework_check import router as homework_check_router
+from bot_app.handlers.chat_gpt import router as chat_gpt_router
 
 
 async def consume_results(bot: Bot):
@@ -72,11 +74,11 @@ async def on_startup(bot_: Bot, dp: Dispatcher):
     # Ставим новые команды
     await bot_.set_my_commands([
         BotCommand("start", "Старт бота"),
-        BotCommand("back",  "Завершить чат с GPT"),
+        BotCommand("help", "Помощь"),
     ], language_code="ru")
     await bot_.set_my_commands([
         BotCommand("start", "Start bot"),
-        BotCommand("back",  "End chat with GPT"),
+        BotCommand("help", "Help"),
     ], language_code="en")
 
     # Обработчик результатов запускается в main()
@@ -84,9 +86,15 @@ async def on_startup(bot_: Bot, dp: Dispatcher):
 
 
 async def on_shutdown(bot_: Bot, dp: Dispatcher):
-    logging.info("🔌 Shutdown: закрываем пул БД")
+    logging.info("🔌 Shutdown: закрываем пул БД и RabbitMQ соединение")
     if db._pool:
         await db._pool.close()
+    
+    # Закрываем RabbitMQ соединение
+    import bot_app
+    if bot_app.rabbit_channel:
+        await bot_app.rabbit_channel.close()
+        logging.info("🔌 RabbitMQ канал закрыт")
 
 
 async def main():
@@ -116,6 +124,18 @@ async def main():
     )
     dp = Dispatcher(storage=storage)
 
+    # Инициализируем RabbitMQ канал
+    logging.info("🔧 Инициализация RabbitMQ канала...")
+    import bot_app
+    connection = await aio_pika.connect_robust(
+        host=app_config.RABBITMQ_HOST,
+        port=app_config.RABBITMQ_PORT,
+        login=app_config.RABBITMQ_USER,
+        password=app_config.RABBITMQ_PASS,
+    )
+    bot_app.rabbit_channel = await connection.channel()
+    logging.info("✅ RabbitMQ канал инициализирован")
+
     # Подключаем middleware
     dp.message.middleware(AuthMiddleware())
     dp.callback_query.middleware(AuthMiddleware())
@@ -128,6 +148,8 @@ async def main():
     dp.include_router(chatgpt_router)
     dp.include_router(subscription_router)
     dp.include_router(settings_router)
+    dp.include_router(homework_check_router)
+    dp.include_router(chat_gpt_router)
     
     # Запускаем polling в отдельной задаче
     polling_task = asyncio.create_task(
@@ -146,7 +168,16 @@ async def main():
     logging.info("✅ Обработчик результатов запущен")
     
     # Ждём завершения polling (это блокирует выполнение)
-    await polling_task
+    try:
+        await polling_task
+    except KeyboardInterrupt:
+        logging.info("🛑 Получен сигнал завершения")
+    finally:
+        consume_task.cancel()
+        try:
+            await consume_task
+        except asyncio.CancelledError:
+            pass
 
 
 if __name__ == "__main__":

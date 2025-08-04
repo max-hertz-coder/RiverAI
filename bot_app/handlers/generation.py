@@ -157,70 +157,16 @@ async def cb_refine_tasks(callback: CallbackQuery, state: FSMContext):
 
 @router.message(RefineTasksFSM.notes)
 async def proc_refine_tasks(message: Message, state: FSMContext):
-    from common.redis_utils import get_last_solutions_file  # новый импорт
-
-    if not await has_active_sub(message.from_user.id):
-        return await message.answer("❌ У вас нет активной подписки.")
-
-    data = await state.get_data()
-    chat_id = message.from_user.id
-    student_id = data.get("student_id")
-    prompt = message.text.strip()
-
-    file_name = "Solutions.pdf"
-
-    # 1. Попробовать взять из reply (стандартный путь)
-    if message.reply_to_message and message.reply_to_message.document:
-        doc = message.reply_to_message.document
-        file_name = doc.file_name or "Solutions.pdf"
-
-        from io import BytesIO
-        bio = BytesIO()
-        await message.bot.download(doc.file_id, destination=bio)
-        file_b64 = base64.b64encode(bio.getvalue()).decode()
-
-    else:
-        # 2. Попробовать взять из Redis
-        file_b64 = await get_last_solutions_file(chat_id)
-        if not file_b64:
-            return await message.answer("❌ Я не нашёл предыдущий Solutions.pdf. Пожалуйста, отправьте его повторно или ответьте на него.")
-
-    task = {
-        "type": "ocr_and_generate",
-        "user_id": chat_id,
-        "student_id": student_id,
-        "file_data": file_b64,
-        "file_name": file_name,
-        "prompt": prompt,
-        "refine": True
-    }
-    await _send_task(task)
-    await message.answer("📝 Переделываем задания по новым инструкциям…")
-    await state.clear()
-
-
-# --- Подтверждение ---
-@router.callback_query(F.data == "tasks_ok")
-async def cb_tasks_ok(callback: CallbackQuery):
-    await callback.answer("👍 Отлично!")
-    await callback.message.edit_reply_markup(None)
-
-
-# --- Отмена ---
-@router.callback_query(F.data == "back:chat")
-async def cb_back(callback: CallbackQuery):
-    await callback.message.edit_text("Возвращаюсь в главное меню.")
-
-
-@router.message(RefineTasksFSM.notes)
-async def proc_refine_tasks(message: Message, state: FSMContext):
     if not await has_active_sub(message.from_user.id):
         return await message.answer("❌ У вас нет активной подписки. Перейдите в 💳 Подписка и оформите доступ.")
 
     data = await state.get_data()
     chat_id = message.from_user.id
     student_id = data.get("student_id")
-    prompt = message.text.strip()
+    user_prompt = message.text.strip()
+    
+    # Добавляем четкое указание генерировать только задания
+    prompt = f"Сгенерируйте ТОЛЬКО задания без решений и ответов. {user_prompt}"
 
     # Используем последнее отправленное Solutions.pdf
     if not message.reply_to_message or not message.reply_to_message.document:
@@ -246,3 +192,30 @@ async def proc_refine_tasks(message: Message, state: FSMContext):
     await _send_task(task)
     await message.answer("📝 Переделываем задания по новым инструкциям…")
     await state.clear()
+
+
+# --- Отладка callback_query ---
+@router.callback_query()
+async def debug_callback(callback: CallbackQuery):
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"🔧 DEBUG: callback_data = '{callback.data}' от пользователя {callback.from_user.id}")
+
+# --- Подтверждение ---
+@router.callback_query(F.data == "tasks_ok")
+async def cb_tasks_ok(callback: CallbackQuery):
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"🔧 cb_tasks_ok: кнопка нажата пользователем {callback.from_user.id}")
+    logger.info(f"🔧 cb_tasks_ok: callback_data = '{callback.data}'")
+    logger.info(f"🔧 cb_tasks_ok: message_id = {callback.message.message_id}")
+    
+    await callback.answer("👍 Отлично!")
+    await callback.message.edit_text("🎉 Рад был помочь! Если понадобится что-то еще - обращайтесь!")
+    logger.info(f"🔧 cb_tasks_ok: сообщение изменено")
+
+
+# --- Отмена ---
+@router.callback_query(F.data == "back:chat")
+async def cb_back(callback: CallbackQuery):
+    await callback.message.edit_text("Возвращаюсь в главное меню.")

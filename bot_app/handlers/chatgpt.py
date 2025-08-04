@@ -6,7 +6,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 
 import bot_app
-from bot_app import config
+from bot_app import config, rabbit_channel
 from bot_app.keyboards.chat_menu import chat_menu_kb
 from bot_app.utils.task_utils import create_task_with_context
 
@@ -33,10 +33,12 @@ async def cb_chat_msg(message: Message, state: FSMContext):
     sid  = data["student_id"]
     txt  = message.text.strip()
 
+    logger.info(f"🔧 Получено сообщение чата: user_id={message.from_user.id}, student_id={sid}, text_length={len(txt)}")
+
     # если выходим
     ttype = "end_chat" if txt.lower() in ("/back","/exit") else "chat"
     task = {
-        "type": ttype,
+        "type": "generate_plan",
         "user_id": message.from_user.id,
         "student_id": sid,
         "message": txt
@@ -44,14 +46,23 @@ async def cb_chat_msg(message: Message, state: FSMContext):
 
     try:
         # Создаем задачу с контекстом
+        logger.info(f"🔧 Создаем задачу с контекстом: type={ttype}")
         task_with_context = await create_task_with_context(task)
+        logger.info(f"🔧 Задача создана: task_id={task_with_context.get('task_id')}")
+        logger.info(f"🔧 Полная задача для отправки: {task_with_context}")
         
-        if bot_app.rabbit_channel:
-            await bot_app.rabbit_channel.default_exchange.publish(
-                aio_pika.Message(body=json.dumps(task_with_context).encode("utf-8")),
+        if rabbit_channel:
+            logger.info(f"🔧 Используем существующий канал RabbitMQ")
+            message_body = json.dumps(task_with_context).encode("utf-8")
+            logger.info(f"🔧 Отправляем в RabbitMQ: {message_body}")
+            logger.info(f"🔧 Routing key: {config.TASK_QUEUE}")
+            await rabbit_channel.default_exchange.publish(
+                aio_pika.Message(body=message_body),
                 routing_key=config.TASK_QUEUE
             )
+            logger.info(f"✅ Сообщение отправлено в RabbitMQ")
         else:
+            logger.info(f"🔧 Создаем новое подключение к RabbitMQ")
             conn = await aio_pika.connect_robust(
                 host=config.RABBITMQ_HOST,
                 port=config.RABBITMQ_PORT,
@@ -59,17 +70,22 @@ async def cb_chat_msg(message: Message, state: FSMContext):
                 password=config.RABBITMQ_PASS,
             )
             ch = await conn.channel()
+            message_body = json.dumps(task_with_context).encode("utf-8")
+            logger.info(f"🔧 Отправляем в RabbitMQ: {message_body}")
+            logger.info(f"🔧 Routing key: {config.TASK_QUEUE}")
             await ch.default_exchange.publish(
-                aio_pika.Message(body=json.dumps(task_with_context).encode("utf-8")),
+                aio_pika.Message(body=message_body),
                 routing_key=config.TASK_QUEUE
             )
             await conn.close()
-    except Exception:
-        logging.exception("Ошибка публикации в очередь")
+            logger.info(f"✅ Сообщение отправлено в RabbitMQ")
+        
+        logger.info(f"✅ Задача отправлена в очередь: task_id={task_with_context.get('task_id')}")
+        
+    except Exception as e:
+        logger.exception(f"🔴 Ошибка публикации в очередь: {e}")
         return await message.answer("⚠️ Не удалось отправить, попробуйте позже")
 
     if ttype == "end_chat":
         await state.clear()
         await message.answer("🔚 Чат завершён", reply_markup=chat_menu_kb(sid))
-    else:
-        await message.answer("💭 Отправлено ИИ, ожидайте ответ…", reply_markup=chat_menu_kb(sid))
