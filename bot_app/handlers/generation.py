@@ -124,6 +124,7 @@ async def cb_tasks(callback: CallbackQuery, state: FSMContext):
         "Введите текстовый запрос для генерации заданий:",
         reply_markup=back_button("← Отмена", "back:chat")
     )
+    await callback.answer()
 
 @router.message(TasksFSM.desc)
 async def proc_tasks(message: Message, state: FSMContext):
@@ -154,6 +155,7 @@ async def cb_refine_tasks(callback: CallbackQuery, state: FSMContext):
         "✏️ Опишите, как изменить эти задания:",
         reply_markup=back_button("← Отмена", "back:chat")
     )
+    await callback.answer()
 
 @router.message(RefineTasksFSM.notes)
 async def proc_refine_tasks(message: Message, state: FSMContext):
@@ -200,6 +202,7 @@ async def debug_callback(callback: CallbackQuery):
     import logging
     logger = logging.getLogger(__name__)
     logger.info(f"🔧 DEBUG: callback_data = '{callback.data}' от пользователя {callback.from_user.id}")
+    await callback.answer()  # КРИТИЧНО: отвечаем на callback!
 
 # --- Подтверждение ---
 @router.callback_query(F.data == "tasks_ok")
@@ -218,4 +221,5 @@ async def cb_tasks_ok(callback: CallbackQuery):
 # --- Отмена ---
 @router.callback_query(F.data == "back:chat")
 async def cb_back(callback: CallbackQuery):
+    await callback.answer()
     await callback.message.edit_text("Возвращаюсь в главное меню.")

@@ -104,3 +104,4 @@ async def cb_back_to_main(callback: CallbackQuery):
         else f"🤖 ИИ-Ассистент для Репетитора\nДобро пожаловать, {first_name}!\nЧем займёмся сегодня?"
     )
     await callback.message.edit_text(welcome, reply_markup=main_menu_kb(lang))
+    await callback.answer()

@@ -35,6 +35,7 @@ async def cb_show_students(callback: CallbackQuery):
     students = await db.get_students_by_user(callback.from_user.id)
     text = _no_students_text() if not students else "Ваши ученики:"
     await callback.message.edit_text(text, reply_markup=student_kb.students_list_kb(students, lang="RU"))
+    await callback.answer()
 
 @router.message(F.text == "👤 Ученики")
 async def msg_show_students(message: Message):
@@ -65,6 +66,7 @@ async def cb_add_student(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer(
         "Введите ассоциацию с учеником (например: «девочка 7 класс», «мальчик по физике»):"
     )
+    await callback.answer()
 
 @router.message(F.text == "➕ Добавить ученика")
 async def msg_add_student(message: Message, state: FSMContext):
@@ -142,6 +144,7 @@ async def cb_select_student(callback: CallbackQuery):
         f"Действия с учеником: {student['name']}",
         reply_markup=student_kb.student_actions_kb(sid, lang="RU")
     )
+    await callback.answer()
 
 @router.callback_query(F.data.startswith("open_chat:"))
 async def cb_open_chat(callback: CallbackQuery):
@@ -151,6 +154,7 @@ async def cb_open_chat(callback: CallbackQuery):
         return await callback.answer("Ученик не найден.", show_alert=True)
     header = f"👤 {student['name']} | Предмет: {student['subject']} | Уровень: {student['level']}"
     await callback.message.edit_text(header, reply_markup=chat_menu_kb(sid))
+    await callback.answer()
 
 # --- Назад в меню ученика
 @router.callback_query(F.data == "back:chat")
@@ -166,6 +170,7 @@ async def cb_back_to_chat_menu(callback: CallbackQuery, state: FSMContext):
         students = await db.get_students_by_user(callback.from_user.id)
         text = _no_students_text() if not students else "Ваши ученики:"
         await callback.message.edit_text(text, reply_markup=student_kb.students_list_kb(students, lang="RU"))
+    await callback.answer()
 
 @router.callback_query(F.data == "back:students")
 async def cb_back_to_students(callback: CallbackQuery, state: FSMContext):
@@ -173,6 +178,7 @@ async def cb_back_to_students(callback: CallbackQuery, state: FSMContext):
     students = await db.get_students_by_user(callback.from_user.id)
     text = _no_students_text() if not students else "Ваши ученики:"
     await callback.message.edit_text(text, reply_markup=student_kb.students_list_kb(students, lang="RU"))
+    await callback.answer()
 
 # --- Удаление ученика
 @router.callback_query(F.data.startswith("delete_student:"))
@@ -182,6 +188,7 @@ async def cb_delete_student(callback: CallbackQuery):
         "Вы уверены, что хотите удалить этого ученика?",
         reply_markup=student_kb.confirm_delete_kb(sid, lang="RU")
     )
+    await callback.answer()
 
 @router.callback_query(F.data.startswith("confirm_delete:"))
 async def cb_confirm_delete(callback: CallbackQuery):
@@ -202,6 +209,7 @@ async def cb_confirm_delete(callback: CallbackQuery):
             text,
             reply_markup=student_kb.student_actions_kb(sid, lang="RU")
         )
+    await callback.answer()
 
 # --- Редактирование ученика
 @router.callback_query(F.data.startswith("edit_student:"))
