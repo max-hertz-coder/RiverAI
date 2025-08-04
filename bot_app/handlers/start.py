@@ -53,7 +53,7 @@ async def cmd_help(message: Message):
     """Показ справки."""
     user = await database.db.get_user_by_tg_id(message.from_user.id)
     lang = user["language"] if user and "language" in user else "RU"
-    
+
     help_text = (
         "🤖 **AI Assistant for Tutors - Help**\n\n"
         "**Available commands:**\n"
@@ -89,7 +89,7 @@ async def cmd_help(message: Message):
         "4. Общайтесь с ИИ для дополнительной помощи\n\n"
         "Для получения дополнительной информации используйте кнопки главного меню."
     )
-    
+
     await message.reply(help_text, parse_mode="Markdown")
 
 
@@ -101,6 +101,6 @@ async def cb_back_to_main(callback: CallbackQuery):
     welcome = (
         f"🤖 AI Assistant for Tutors\nWelcome, {first_name}!\nWhat shall we do today?"
         if lang == "EN"
-        else f"🤖 ИИ-Ассистент для Репетитора\nДобро пожаловать, {first_name}!\nЧем займёмся сегодня!"
+        else f"🤖 ИИ-Ассистент для Репетитора\nДобро пожаловать, {first_name}!\nЧем займёмся сегодня?"
     )
     await callback.message.edit_text(welcome, reply_markup=main_menu_kb(lang))
