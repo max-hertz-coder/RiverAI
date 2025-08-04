@@ -7,7 +7,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONPATH=/app
 
 RUN apt-get update \
-&& apt-get install -y --no-install-recommends \
+ && apt-get install -y --no-install-recommends \
     build-essential \
     python3-dev \
     libffi-dev \
@@ -22,7 +22,7 @@ RUN apt-get update \
     fonts-freefont-ttf \
     fonts-dejavu \
     lmodern \
-&& rm -rf /var/lib/apt/lists/*
+ && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -32,5 +32,5 @@ RUN pip install --upgrade pip setuptools wheel \
 
 COPY . .
 
-# ❗ Важно — migrate + main с переменными окружения
-ENTRYPOINT ["/bin/sh", "-c", "env && python3 scripts/migrate_telegram_hash.py && python3 -u -m worker.main"]
+# ❗ Без миграции, без env-дампинга
+ENTRYPOINT ["python3", "-u", "-m", "worker.main"]

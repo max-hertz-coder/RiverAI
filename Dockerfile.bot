@@ -29,5 +29,5 @@ RUN pip install --upgrade pip setuptools wheel \
 
 COPY . .
 
-# ❗ Заменим CMD на ENTRYPOINT и передадим окружение в migrate
-ENTRYPOINT ["/bin/sh", "-c", "env && python3 scripts/migrate_telegram_hash.py && python3 -u -m bot_app.main"]
+# ❗ Без миграции, без env-дампинга
+ENTRYPOINT ["python3", "-u", "-m", "bot_app.main"]

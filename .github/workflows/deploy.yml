@@ -1,4 +1,3 @@
-# === Итоговый файл .github/workflows/deploy.yml ===
 name: Автодеплой на сервера
 
 on:
@@ -56,13 +55,25 @@ jobs:
           mkdir -p ~/.ssh
           ssh-keyscan -H github.com >> ~/.ssh/known_hosts
 
+      - name: Map secret key
+        id: map_key
+        run: |
+          case "${{ matrix.secret_key }}" in
+            SSH_PRIVATE_KEY_QUEUE) echo "key=${{ secrets.SSH_PRIVATE_KEY_QUEUE }}" >> $GITHUB_OUTPUT ;;
+            SSH_PRIVATE_KEY_MAIN) echo "key=${{ secrets.SSH_PRIVATE_KEY_MAIN }}" >> $GITHUB_OUTPUT ;;
+            SSH_KEY_QUEUE) echo "key=${{ secrets.SSH_KEY_QUEUE }}" >> $GITHUB_OUTPUT ;;
+            SSH_KEY_BASED) echo "key=${{ secrets.SSH_KEY_BASED }}" >> $GITHUB_OUTPUT ;;
+            SSH_KEY_RESERVE) echo "key=${{ secrets.SSH_KEY_RESERVE }}" >> $GITHUB_OUTPUT ;;
+            SSH_KEY_WORKER) echo "key=${{ secrets.SSH_KEY_WORKER }}" >> $GITHUB_OUTPUT ;;
+          esac
+
       - name: Deploy to ${{ matrix.name }}
         uses: appleboy/ssh-action@v1.2.2
         with:
           host: ${{ matrix.host }}
           username: ${{ matrix.username }}
-          key: ${{ secrets[matrix.secret_key] }}
-          envs: TELEGRAM_ID_SALT,WORKER_ENCRYPTION_SECRET,YDKEY_V1,YDKEY_VERSION,WORKER_POSTGRES_DSN,ENCRYPTION_KEY
+          key: ${{ steps.map_key.outputs.key }}
+          envs: TELEGRAM_ID_SALT,WORKER_ENCRYPTION_SECRET,YDKEY_V1,YDKEY_VERSION,WORKER_POSTGRES_DSN
           script: |
             cd /opt
             if [ ! -d /opt/RiverAI/.git ]; then
@@ -81,7 +92,6 @@ jobs:
               ENV_PATH=".env"
             fi
 
-            # Чтение и обновление .env
             tmp_env="$(mktemp)"
             [ -f "$ENV_PATH" ] && cat "$ENV_PATH" > "$tmp_env"
 
