@@ -19,8 +19,12 @@ class EditStudentFSM(StatesGroup):
     name = State()
 
 async def _ensure_user(user_id: int, first_name: str):
-    if await db.get_user_by_tg_id(user_id) is None:
-        await db.create_user(user_id, first_name)
+    user = await db.get_user_by_tg_id(user_id)
+    if user is None:
+        user = await db.create_user(user_id, first_name)
+    # Патч существующих пользователей: если trial и students_limit < 1 – выдаём 1
+    if user and user.get("plan") == "trial" and (user.get("students_limit") or 0) < 1:
+        await db.set_subscription(user_id, "trial", 1, user.get("subscription_expires") or (datetime.now()+timedelta(days=14)))
 
 def _no_students_text():
     return (
