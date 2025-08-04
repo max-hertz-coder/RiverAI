@@ -66,6 +66,7 @@ async def cb_change_plan(callback: CallbackQuery, state: FSMContext):
     await state.clear()
     await state.set_state(PaymentFSM.waiting_students)
     await callback.message.edit_text("Сколько учеников вы планируете вести?")
+    await callback.answer()
 
 @router.message(PaymentFSM.waiting_students)
 async def process_students(message: Message, state: FSMContext):
@@ -133,6 +134,7 @@ async def cb_renew_plan(callback: CallbackQuery):
     until = datetime.now() + timedelta(days=30)
     await db.set_subscription(callback.from_user.id, plan, students, until)
     await callback.message.edit_text("Подписка продлена на 1 месяц ✅")
+    await callback.answer()
 
 # --- История
 @router.callback_query(F.data == "payment_history")
@@ -143,3 +145,4 @@ async def cb_payment_history(callback: CallbackQuery):
             [InlineKeyboardButton(text="← Назад", callback_data="back:main")]
         ])
     )
+    await callback.answer()

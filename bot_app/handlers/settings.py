@@ -42,6 +42,7 @@ async def cb_set_token(callback: CallbackQuery, state: FSMContext):
         "Авторизуйся под своей учёткой.\n"
         "Скопируй токен — и вставь в бота\n"
         "⚠️ Такой токен действителен до его отзыва вручную.\n")
+    await callback.answer()
 
 @router.message(StateFilter(YandexTokenFSM.waiting_for_token))
 async def process_token(message: Message, state: FSMContext):
@@ -69,6 +70,7 @@ async def cb_edit_token(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text("🔐 *Изменение токена Яндекс.Диска*\n\n"
         "🔗 https://yandex.ru/dev/disk/poligon/ \n"
         "Скопируйте новый токен и отправьте его сюда.")
+    await callback.answer()
 
 @router.message(StateFilter(YandexTokenFSM.editing_token))
 async def process_edit_token(message: Message, state: FSMContext):
