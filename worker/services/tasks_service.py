@@ -14,6 +14,7 @@ async def handle_tasks(task: dict) -> dict:
         if task_type == "generate_tasks":
             if not prompt:
                 return {"task_id": task_id, "type": "error", "message": "Нет запроса."}
+            logger.info(f"🔧 handle_tasks: промпт для генерации: {prompt[:200]}...")
             raw_tasks = await generation_service.generate_raw_tasks(prompt)
         elif task_type == "generate_solutions":
             if not raw_tasks:
