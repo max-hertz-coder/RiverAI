@@ -29,19 +29,23 @@ async def chat_with_gpt_simple(message: str, history: list = None) -> str:
     Простая функция для чата с GPT
     """
     try:
+        logger.info(f"🔧 chat_with_gpt_simple: начало, message_length={len(message)}")
+        
         # Формируем сообщения
         messages = []
         
         # Добавляем историю
         if history:
             messages.extend(history)
+            logger.info(f"🔧 chat_with_gpt_simple: добавлена история, {len(history)} сообщений")
         
         # Добавляем текущее сообщение
         messages.append({"role": "user", "content": message})
         
-        logger.info(f"Отправляем в GPT: {len(messages)} сообщений")
+        logger.info(f"🔧 chat_with_gpt_simple: отправляем в GPT, всего сообщений: {len(messages)}")
         
         # Вызываем GPT
+        logger.info(f"🔧 chat_with_gpt_simple: создаем запрос к OpenAI...")
         response = await client.chat.completions.create(
             model="gpt-4o-mini",
             messages=messages,
@@ -49,13 +53,15 @@ async def chat_with_gpt_simple(message: str, history: list = None) -> str:
             max_tokens=1000
         )
         
+        logger.info(f"🔧 chat_with_gpt_simple: получен ответ от OpenAI")
         answer = response.choices[0].message.content.strip()
-        logger.info(f"Получен ответ от GPT: {len(answer)} символов")
+        logger.info(f"🔧 chat_with_gpt_simple: ответ GPT, {len(answer)} символов")
         
         return answer
         
     except Exception as e:
-        logger.exception(f"Ошибка в GPT: {e}")
+        logger.exception(f"🔴 chat_with_gpt_simple: ошибка: {e}")
+        logger.error(f"🔴 Тип ошибки: {type(e).__name__}")
         return f"Ошибка при обращении к GPT: {str(e)}"
 
 async def handle_chat(task: dict) -> dict:
@@ -120,28 +126,36 @@ async def handle_chat(task: dict) -> dict:
             logger.info("История пуста")
         
         # Получаем ответ от GPT
-        logger.info("Вызываем GPT")
-        response = await chat_with_gpt_simple(message, history)
+        logger.info("🔧 handle_chat: вызываем GPT")
+        try:
+            response = await chat_with_gpt_simple(message, history)
+            logger.info(f"🔧 handle_chat: GPT вернул ответ, длина: {len(response)}")
+        except Exception as e:
+            logger.exception(f"🔴 handle_chat: ошибка при вызове GPT: {e}")
+            return {"type": "error", "message": f"Ошибка при вызове GPT: {str(e)}"}
         
         # Проверяем на ошибку
         if response.startswith("Ошибка"):
-            logger.error(f"GPT вернул ошибку: {response}")
+            logger.error(f"🔴 handle_chat: GPT вернул ошибку: {response}")
             return {"type": "error", "message": response}
+        
+        logger.info(f"🔧 handle_chat: успешно получили ответ от GPT")
         
         # Обновляем историю
         history.append({"role": "user", "content": message})
         history.append({"role": "assistant", "content": response})
+        logger.info(f"🔧 handle_chat: обновили историю, теперь {len(history)} сообщений")
         
         # Сохраняем историю
         try:
             await save_conversation(user_id, student_id, json.dumps(history, ensure_ascii=False))
-            logger.info("История сохранена")
+            logger.info("🔧 handle_chat: история сохранена в Redis")
         except Exception as e:
-            logger.error(f"Ошибка сохранения истории: {e}")
+            logger.error(f"🔴 handle_chat: ошибка сохранения истории: {e}")
         
         # Возвращаем результат
         result = {"type": "chat", "answer": response}
-        logger.info("=== УСПЕШНО ЗАВЕРШЕНО - НОВАЯ ВЕРСИЯ ===")
+        logger.info("🔧 handle_chat: УСПЕШНО ЗАВЕРШЕНО - НОВАЯ ВЕРСИЯ")
         return result
         
     except Exception as e:
