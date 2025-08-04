@@ -6,7 +6,6 @@ from worker.services.tasks_service import handle_tasks
 from worker.tasks.check_homework import handle_check_homework
 from worker.services.chat_service import handle_chat
 from worker.services.homework_check_service import handle_homework_check
-from worker.services.chat_gpt_service import handle_chat_gpt
 from common.redis_utils import clear_conversation
 
 # Проверяем импорт handle_chat
@@ -64,34 +63,14 @@ async def process_task_message(task: dict) -> dict | None:
         if task_type == "check_homework":
             return await handle_check_homework(task)
 
-        if task_type == "chat_gpt":
-            logging.info(f"🔧 Вызываем handle_chat_gpt для task_id={task_id}")
-            logging.info(f"🔧 Входные данные для handle_chat_gpt: {task}")
-            try:
-                result = await handle_chat_gpt(task)
-                logging.info(f"🔧 handle_chat_gpt вернул: type={result.get('type') if result else 'None'}")
-                logging.info(f"🔧 Полный результат handle_chat_gpt: {result}")
-                return result
-            except Exception as e:
-                logging.exception(f"🔴 Ошибка в handle_chat_gpt: {e}")
-                # Fallback - пробуем обработать как обычный чат
-                logging.info(f"🔧 Пробуем fallback через handle_chat")
-                task["type"] = "chat"
-                return await handle_chat(task)
-
         if task_type in ("chat"):
             logging.info(f"🔧 Вызываем handle_chat для task_id={task_id}")
-            logging.info(f"🔧 Входные данные для handle_chat: {task}")
             try:
-                logging.info(f"🔧 Начинаем вызов handle_chat")
                 result = await handle_chat(task)
                 logging.info(f"🔧 handle_chat вернул: type={result.get('type') if result else 'None'}")
-                logging.info(f"🔧 Полный результат handle_chat: {result}")
                 return result
             except Exception as e:
                 logging.exception(f"🔴 Ошибка в handle_chat: {e}")
-                logging.error(f"🔴 Тип ошибки: {type(e).__name__}")
-                logging.error(f"🔴 Детали ошибки: {str(e)}")
                 return {
                     "type": "error",
                     "message": f"Ошибка в handle_chat: {str(e)}"
