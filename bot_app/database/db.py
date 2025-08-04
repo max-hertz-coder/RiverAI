@@ -25,7 +25,7 @@ async def get_user_by_tg_id(telegram_id: int):
                    tokens_prompt_total, tokens_gen_total,
                    language, notifications, password_hash,
                    ydisk_token_enc, hide_disk_prompt,
-                   subscription_expires, trial_used
+                   subscription_expires, trial_used, students_limit
             FROM users WHERE telegram_hash=$1
         """, tg_hash)
         return row
@@ -42,8 +42,8 @@ async def create_user(telegram_id: int, name: str):
                 telegram_hash, name_enc, plan, usage_count, usage_limit,
                 tokens_prompt_total, tokens_gen_total,
                 language, notifications, password_hash,
-                ydisk_token_enc, hide_disk_prompt, subscription_expires, trial_used
-            ) VALUES ($1,$2,'basic',0,200,0,0,'RU',true,'','',false,$3,false)
+                ydisk_token_enc, hide_disk_prompt, subscription_expires, trial_used, students_limit
+            ) VALUES ($1,$2,'trial',0,200,0,0,'RU',true,'','',false,$3,false,1)
             ON CONFLICT (telegram_hash) DO NOTHING
         """, tg_hash, name_enc, trial_end)
         return await get_user_by_tg_id(telegram_id)

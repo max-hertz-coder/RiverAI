@@ -54,7 +54,7 @@ async def cb_add_student(callback: CallbackQuery, state: FSMContext):
     user_data = await db.get_user_by_tg_id(user.id)
     students = await db.get_students_by_user(user.id)
     
-    if user_data and len(students) >= user_data.get("max_students", 3):
+    if user_data and len(students) >= (user_data.get("students_limit") or user_data.get("max_students", 3) or (1 if user_data.get("plan")=='trial' else 3)):
         await callback.message.answer(
             "🚫 Вы достигли лимита по количеству учеников.\n\n"
             "Чтобы добавить больше, обновите тариф в разделе «Подписка»."
@@ -75,7 +75,7 @@ async def msg_add_student(message: Message, state: FSMContext):
     user_data = await db.get_user_by_tg_id(user.id)
     students = await db.get_students_by_user(user.id)
 
-    if user_data and len(students) >= user_data.get("max_students", 3):
+    if user_data and len(students) >= (user_data.get("students_limit") or user_data.get("max_students", 3) or (1 if user_data.get("plan")=='trial' else 3)):
         await message.answer(
             "🚫 Вы достигли лимита по количеству учеников.\n\n"
             "Чтобы добавить больше, обновите тариф в разделе «Подписка»."
