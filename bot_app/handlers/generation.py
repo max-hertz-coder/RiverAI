@@ -194,11 +194,25 @@ async def proc_refine_tasks(message: Message, state: FSMContext):
     await state.clear()
 
 
+# --- Отладка callback_query ---
+@router.callback_query()
+async def debug_callback(callback: CallbackQuery):
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"🔧 DEBUG: callback_data = '{callback.data}' от пользователя {callback.from_user.id}")
+
 # --- Подтверждение ---
 @router.callback_query(F.data == "tasks_ok")
 async def cb_tasks_ok(callback: CallbackQuery):
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"🔧 cb_tasks_ok: кнопка нажата пользователем {callback.from_user.id}")
+    logger.info(f"🔧 cb_tasks_ok: callback_data = '{callback.data}'")
+    logger.info(f"🔧 cb_tasks_ok: message_id = {callback.message.message_id}")
+    
     await callback.answer("👍 Отлично!")
     await callback.message.edit_text("🎉 Рад был помочь! Если понадобится что-то еще - обращайтесь!")
+    logger.info(f"🔧 cb_tasks_ok: сообщение изменено")
 
 
 # --- Отмена ---
