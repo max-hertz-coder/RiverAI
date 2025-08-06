@@ -25,6 +25,7 @@ from bot_app.handlers.subscription import router as subscription_router
 from bot_app.handlers.settings import router as settings_router
 from bot_app.handlers.homework_check import router as homework_check_router
 from bot_app.handlers.chat_gpt import router as chat_gpt_router
+from bot_app.handlers.main_menu import router as main_menu_router
 
 
 async def consume_results(bot: Bot):
@@ -150,6 +151,7 @@ async def main():
     dp.include_router(settings_router)
     dp.include_router(homework_check_router)
     dp.include_router(chat_gpt_router)
+    dp.include_router(main_menu_router)
     
     # Запускаем polling в отдельной задаче
     polling_task = asyncio.create_task(

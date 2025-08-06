@@ -63,7 +63,7 @@ class HomeworkCheckFSM(StatesGroup):
     text = State()
 
 
-# --- Обработчик кнопки "Проверка ДЗ" ---
+# --- Обработчик кнопки "Проверка ДЗ" (для учеников) ---
 @router.callback_query(F.data.startswith("check_homework:"))
 async def cb_check_homework(callback: CallbackQuery, state: FSMContext):
     if not await has_active_sub(callback.from_user.id):

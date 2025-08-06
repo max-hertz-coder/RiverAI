@@ -6,15 +6,17 @@ from aiogram.types import InlineKeyboardMarkup, ReplyKeyboardMarkup
 def main_menu_kb(lang: str = "RU") -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     if lang.upper() == "EN":
-        kb.button(text="👤 My Students",   callback_data="show_students")
-        kb.button(text="➕ Add Student",   callback_data="add_student")
-        kb.button(text="💳 Subscription",  callback_data="subscription")
-        kb.button(text="⚙️ Settings",     callback_data="settings")
+        kb.button(text="📚 Generate Tasks", callback_data="generate_tasks")
+        kb.button(text="📝 Check Homework", callback_data="check_homework")
+        kb.button(text="💬 Chat with GPT", callback_data="chat_gpt")
+        kb.button(text="💳 Subscription", callback_data="subscription")
+        kb.button(text="⚙️ Settings", callback_data="settings")
     else:
-        kb.button(text="👤 Мои ученики",     callback_data="show_students")
-        kb.button(text="➕ Добавить ученика", callback_data="add_student")
-        kb.button(text="💳 Подписка",        callback_data="subscription")
-        kb.button(text="⚙️ Настройки",       callback_data="settings")
+        kb.button(text="📚 Генерировать задания", callback_data="generate_tasks")
+        kb.button(text="📝 Проверить ДЗ", callback_data="check_homework")
+        kb.button(text="💬 Чат с GPT", callback_data="chat_gpt")
+        kb.button(text="💳 Подписка", callback_data="subscription")
+        kb.button(text="⚙️ Настройки", callback_data="settings")
     kb.adjust(1)
     return kb.as_markup()
 
@@ -26,9 +28,9 @@ def back_button(text: str = "← Назад", cb_data: str = "back:main") -> Inl
 
 def bottom_menu_kb(lang: str = "RU") -> ReplyKeyboardMarkup:
     labels = (
-        ["👤 Students", "➕ Add Student", "⚙️ Settings", "💳 Payment"]
+        ["📚 Generate Tasks", "📝 Check Homework", "💬 Chat with GPT", "⚙️ Settings", "💳 Payment"]
         if lang.upper() == "EN"
-        else ["👤 Ученики", "➕ Добавить ученика", "⚙️ Настройки", "💳 Подписка"]
+        else ["📚 Генерировать задания", "📝 Проверить ДЗ", "💬 Чат с GPT", "⚙️ Настройки", "💳 Подписка"]
     )
     rb = ReplyKeyboardBuilder()
     for label in labels:

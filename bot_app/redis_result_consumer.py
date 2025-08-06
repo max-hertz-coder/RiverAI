@@ -15,6 +15,7 @@ from bot_app.keyboards.chat_menu import (
     result_tasks_kb,
     result_check_kb
 )
+from bot_app.keyboards.main_menu import back_button
 
 
 async def process_redis_result(result_data: dict, bot: Bot):
@@ -53,7 +54,7 @@ async def process_redis_result(result_data: dict, bot: Bot):
             kb = {
                 "inline_keyboard": [[
                     {"text": "✅ Всё отлично",    "callback_data": "tasks_ok"},
-                    {"text": "✏️ Переделать", "callback_data": f"refine_tasks:{student_id}"}
+                    {"text": "✏️ Переделать", "callback_data": "refine_tasks"}
                 ]]
             }
 
@@ -80,7 +81,7 @@ async def process_redis_result(result_data: dict, bot: Bot):
         # === Chat response ===
         elif result_type == "chat":
             text = result_data.get("answer", "(нет ответа)")
-            await bot.send_message(user_id, text, reply_markup=chat_gpt_back_kb())
+            await bot.send_message(user_id, text, reply_markup=back_button("← Назад", "back:main"))
 
         # === Study plan ===
         elif result_type == "plan":
@@ -127,7 +128,7 @@ async def process_redis_result(result_data: dict, bot: Bot):
                 # Если нет LaTeX кода, отправляем только текстовый отчет
                 if len(report_text) > 4000:
                     report_text = report_text[:4000] + "\n\n... (отчет обрезан)"
-                await bot.send_message(user_id, f"📋 **Результат проверки ДЗ:**\n\n{report_text}")
+                await bot.send_message(user_id, f"📋 **Результат проверки ДЗ:**\n\n{report_text}", reply_markup=back_button("← Назад", "back:main"))
 
         # === New Chat GPT response ===
         elif result_type == "chat_gpt":
@@ -136,13 +137,13 @@ async def process_redis_result(result_data: dict, bot: Bot):
             if len(answer) > 4000:
                 answer = answer[:4000] + "\n\n... (ответ обрезан)"
             
-            await bot.send_message(user_id, answer)
+            await bot.send_message(user_id, answer, reply_markup=back_button("← Назад", "back:main"))
 
         # === Error ===
         elif result_type == "error":
             error_msg = result_data.get("message", "Неизвестная ошибка")
             logging.error(f"🔴 Получена ошибка от worker: {error_msg}")
-            await bot.send_message(user_id, f"⚠️ Ошибка: {error_msg}")
+            await bot.send_message(user_id, f"⚠️ Ошибка: {error_msg}", reply_markup=back_button("← Назад", "back:main"))
 
         else:
             logging.warning(f"❓ Unknown result type: {result_type}")

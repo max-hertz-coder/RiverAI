@@ -114,7 +114,7 @@ async def doc_to_generate(message: Message, bot: Bot):
     await message.answer("🕔 Распознаю и генерирую задания, ожидайте PDF…")
 
 
-# --- Кнопка генерации ---
+# --- Кнопка генерации (для учеников) ---
 @router.callback_query(F.data.startswith("generate_tasks:"))
 async def cb_tasks(callback: CallbackQuery, state: FSMContext):
     sid = int(callback.data.split(":", 1)[1])
@@ -145,15 +145,12 @@ async def proc_tasks(message: Message, state: FSMContext):
 
 
 # --- Refine (уточнение) ---
-@router.callback_query(F.data.startswith("refine_tasks:"))
+@router.callback_query(F.data == "refine_tasks")
 async def cb_refine_tasks(callback: CallbackQuery, state: FSMContext):
-    sid_str = callback.data.split(":", 1)[1]
-    sid = int(sid_str) if sid_str.isdigit() else None
-    await state.update_data(student_id=sid)
     await state.set_state(RefineTasksFSM.notes)
     await callback.message.edit_text(
         "✏️ Опишите, как изменить эти задания:",
-        reply_markup=back_button("← Отмена", "back:chat")
+        reply_markup=back_button("← Отмена", "back:main")
     )
     await callback.answer()
 
@@ -162,9 +159,6 @@ async def proc_refine_tasks(message: Message, state: FSMContext):
     if not await has_active_sub(message.from_user.id):
         return await message.answer("❌ У вас нет активной подписки. Перейдите в 💳 Подписка и оформите доступ.")
 
-    data = await state.get_data()
-    chat_id = message.from_user.id
-    student_id = data.get("student_id")
     user_prompt = message.text.strip()
     
     # Добавляем четкое указание генерировать только задания
@@ -184,8 +178,8 @@ async def proc_refine_tasks(message: Message, state: FSMContext):
 
     task = {
         "type": "ocr_and_generate",
-        "user_id": chat_id,
-        "student_id": student_id,
+        "user_id": message.from_user.id,
+        "student_id": None,  # Общая обработка без привязки к ученику
         "file_data": b64,
         "file_name": file_name,
         "prompt": prompt,

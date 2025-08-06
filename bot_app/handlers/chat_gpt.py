@@ -60,7 +60,7 @@ class ChatGPTFSM(StatesGroup):
     message = State()
 
 
-# --- Кнопка "Чат с GPT" ---
+# --- Кнопка "Чат с GPT" (для учеников) ---
 @router.callback_query(F.data.startswith("chat_gpt:"))
 async def cb_chat_gpt(callback: CallbackQuery, state: FSMContext):
     if not await has_active_sub(callback.from_user.id):
