@@ -4,9 +4,7 @@ from aiogram.filters import Command
 from aiogram import F
 
 from bot_app.keyboards.main_menu import main_menu_kb, bottom_menu_kb
-from bot_app.keyboards.settings import yandex_prompt_kb
 from bot_app import database
-from bot_app.utils.encryption import decrypt_str
 
 router = Router()
 
@@ -29,23 +27,6 @@ async def cmd_start(message: Message):
 
     # 2. Reply-меню (под строкой ввода)
     await message.answer("⬇ Меню под полем ввода:", reply_markup=bottom_menu_kb(lang))
-
-    # 3. Предложение подключить Яндекс.Диск
-    if user:
-        token_enc = user.get("ydisk_token_enc", "")
-        try:
-            token = decrypt_str(token_enc)
-        except Exception:
-            token = ""
-
-        if not token and not user.get("hide_disk_prompt"):
-            prompt_text = (
-                "📦 Вы ещё не подключили Яндекс.Диск!\n"
-                "Подключите, чтобы сохранять PDF-документы и отчёты в облако."
-                if lang == "RU"
-                else "📦 You haven't connected Yandex.Disk yet!\nConnect it to store PDF reports in the cloud."
-            )
-            await message.answer(prompt_text, reply_markup=yandex_prompt_kb(lang))
 
 
 @router.message(Command("help"))
