@@ -40,3 +40,30 @@ async def increment_usage(user_id: int):
     pool = _get_pool()
     async with pool.acquire() as conn:
         await conn.execute("UPDATE users SET usage_count = usage_count + 1 WHERE telegram_id=$1", user_id)
+
+async def increment_token_usage(user_id: int, prompt_tokens: int, gen_tokens: int):
+    """
+    Увеличивает счетчики токенов для пользователя
+    """
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("""
+            UPDATE users SET
+                tokens_prompt_total = tokens_prompt_total + $1,
+                tokens_gen_total = tokens_gen_total + $2
+            WHERE telegram_id=$3
+        """, prompt_tokens, gen_tokens, user_id)
+
+async def increment_student_token_usage(student_id: int, prompt_tokens: int, gen_tokens: int):
+    """
+    Увеличивает счетчики токенов для ученика
+    """
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("""
+            UPDATE students SET
+                usage_count = usage_count + 1,
+                tokens_prompt_total = tokens_prompt_total + $1,
+                tokens_gen_total = tokens_gen_total + $2
+            WHERE id=$3
+        """, prompt_tokens, gen_tokens, student_id)

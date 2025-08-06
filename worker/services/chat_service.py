@@ -1,18 +1,17 @@
 # ===== НОВАЯ ВЕРСИЯ CHAT_SERVICE.PY - 2025-08-04 =====
-import logging
-import json
 import os
+import json
+import logging
 from openai import AsyncOpenAI
-from dotenv import load_dotenv
 from common.redis_utils import get_context_by_task_id, get_conversation, save_conversation
+from worker.services.gpt_service import chat_with_gpt
+from worker import db
 
-load_dotenv()
 logger = logging.getLogger(__name__)
-#йоуe
+
 # ТЕСТОВАЯ ФУНКЦИЯ - ДОЛЖНА БЫТЬ ВИДНА В ЛОГАХ
 def test_function():
-    logger.info("=== ТЕСТОВАЯ ФУНКЦИЯ ЗАГРУЖЕНА ===")
-    return "НОВЫЙ КОД РАБОТАЕТ"
+    logger.info("🔧 ТЕСТОВАЯ ФУНКЦИЯ ВЫЗВАНА - chat_service.py загружен")
 
 # Вызываем тестовую функцию при загрузке модуля
 test_function()
@@ -26,7 +25,7 @@ client = AsyncOpenAI(api_key=OPENAI_KEY)
 
 async def chat_with_gpt_simple(message: str, history: list = None) -> str:
     """
-    Простая функция для чата с GPT
+    Простая функция для чата с GPT (для обратной совместимости)
     """
     try:
         logger.info(f"🔧 chat_with_gpt_simple: начало, message_length={len(message)}")
@@ -44,17 +43,12 @@ async def chat_with_gpt_simple(message: str, history: list = None) -> str:
         
         logger.info(f"🔧 chat_with_gpt_simple: отправляем в GPT, всего сообщений: {len(messages)}")
         
-        # Вызываем GPT
+        # Вызываем GPT с подсчетом токенов
         logger.info(f"🔧 chat_with_gpt_simple: создаем запрос к OpenAI...")
-        response = await client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=messages,
-            temperature=0.7,
-            max_tokens=1000
-        )
+        response = await chat_with_gpt(messages, temperature=0.7, max_tokens=1000)
         
         logger.info(f"🔧 chat_with_gpt_simple: получен ответ от OpenAI")
-        answer = response.choices[0].message.content.strip()
+        answer = response["text"]
         logger.info(f"🔧 chat_with_gpt_simple: ответ GPT, {len(answer)} символов")
         
         return answer
@@ -66,7 +60,7 @@ async def chat_with_gpt_simple(message: str, history: list = None) -> str:
 
 async def handle_chat(task: dict) -> dict:
     """
-    Обработчик чата с GPT - НОВАЯ ВЕРСИЯ 2025-08-04
+    Обработчик чата с GPT - НОВАЯ ВЕРСИЯ 2025-08-04 с подсчетом токенов
     """
     logger.info("=== НАЧАЛО ОБРАБОТКИ ЧАТА - НОВАЯ ВЕРСИЯ ===")
     
@@ -125,25 +119,40 @@ async def handle_chat(task: dict) -> dict:
         else:
             logger.info("История пуста")
         
-        # Получаем ответ от GPT
+        # Получаем ответ от GPT с подсчетом токенов
         logger.info("🔧 handle_chat: вызываем GPT")
         try:
-            response = await chat_with_gpt_simple(message, history)
-            logger.info(f"🔧 handle_chat: GPT вернул ответ, длина: {len(response)}")
+            # Формируем сообщения для GPT
+            messages = []
+            if history:
+                messages.extend(history)
+            messages.append({"role": "user", "content": message})
+            
+            response = await chat_with_gpt(messages, temperature=0.7, max_tokens=1000)
+            logger.info(f"🔧 handle_chat: GPT вернул ответ, длина: {len(response['text'])}")
+            
+            # Сохраняем статистику токенов в БД
+            try:
+                await db.increment_token_usage(user_id, response["prompt_tokens"], response["completion_tokens"])
+                await db.increment_student_token_usage(student_id, response["prompt_tokens"], response["completion_tokens"])
+                logger.info(f"🔧 handle_chat: статистика токенов сохранена в БД")
+            except Exception as e:
+                logger.error(f"🔴 handle_chat: ошибка сохранения статистики токенов: {e}")
+            
         except Exception as e:
             logger.exception(f"🔴 handle_chat: ошибка при вызове GPT: {e}")
             return {"type": "error", "message": f"Ошибка при вызове GPT: {str(e)}"}
         
         # Проверяем на ошибку
-        if response.startswith("Ошибка"):
-            logger.error(f"🔴 handle_chat: GPT вернул ошибку: {response}")
-            return {"type": "error", "message": response}
+        if response["text"].startswith("Ошибка"):
+            logger.error(f"🔴 handle_chat: GPT вернул ошибку: {response['text']}")
+            return {"type": "error", "message": response["text"]}
         
         logger.info(f"🔧 handle_chat: успешно получили ответ от GPT")
         
         # Обновляем историю
         history.append({"role": "user", "content": message})
-        history.append({"role": "assistant", "content": response})
+        history.append({"role": "assistant", "content": response["text"]})
         logger.info(f"🔧 handle_chat: обновили историю, теперь {len(history)} сообщений")
         
         # Сохраняем историю
@@ -154,7 +163,7 @@ async def handle_chat(task: dict) -> dict:
             logger.error(f"🔴 handle_chat: ошибка сохранения истории: {e}")
         
         # Возвращаем результат
-        result = {"type": "chat", "answer": response}
+        result = {"type": "chat", "answer": response["text"]}
         logger.info("🔧 handle_chat: УСПЕШНО ЗАВЕРШЕНО - НОВАЯ ВЕРСИЯ")
         return result
         

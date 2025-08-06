@@ -20,9 +20,10 @@ def _get_openai_client():
     
     return AsyncOpenAI(api_key=key)
 
-async def chat_with_gpt(messages: list[dict], temperature=0.7, max_tokens=1000) -> str:
+async def chat_with_gpt(messages: list[dict], temperature=0.7, max_tokens=1000) -> dict:
     """
-    Универсальный вызов GPT (chat-based).
+    Универсальный вызов GPT (chat-based) с подсчетом токенов.
+    Возвращает словарь с ответом и информацией о токенах.
     """
     logger.info(f"🔧 Начинаем вызов GPT API:")
     logger.info(f"  Количество сообщений: {len(messages)}")
@@ -44,7 +45,20 @@ async def chat_with_gpt(messages: list[dict], temperature=0.7, max_tokens=1000) 
             logger.info(f"🔧 Получен ответ от GPT API")
             result = response.choices[0].message.content.strip()
             logger.info(f"🔧 Ответ GPT: {len(result)} символов")
-            return result
+            
+            # Подсчитываем токены
+            prompt_tokens = response.usage.prompt_tokens
+            completion_tokens = response.usage.completion_tokens
+            total_tokens = response.usage.total_tokens
+            
+            logger.info(f"🔧 Токены: prompt={prompt_tokens}, completion={completion_tokens}, total={total_tokens}")
+            
+            return {
+                "text": result,
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": total_tokens
+            }
             
         except Exception as e:
             logger.error(f"🔴 Попытка {attempt + 1}/{max_retries} с gpt-4o: {e}")
@@ -63,7 +77,20 @@ async def chat_with_gpt(messages: list[dict], temperature=0.7, max_tokens=1000) 
                     logger.info(f"🔧 Получен ответ от GPT-3.5 API")
                     result = response.choices[0].message.content.strip()
                     logger.info(f"🔧 Ответ GPT-3.5: {len(result)} символов")
-                    return result
+                    
+                    # Подсчитываем токены
+                    prompt_tokens = response.usage.prompt_tokens
+                    completion_tokens = response.usage.completion_tokens
+                    total_tokens = response.usage.total_tokens
+                    
+                    logger.info(f"🔧 Токены: prompt={prompt_tokens}, completion={completion_tokens}, total={total_tokens}")
+                    
+                    return {
+                        "text": result,
+                        "prompt_tokens": prompt_tokens,
+                        "completion_tokens": completion_tokens,
+                        "total_tokens": total_tokens
+                    }
                 except Exception as e2:
                     logger.exception(f"🔴 Ошибка в chat_with_gpt (оба варианта): {e2}")
                     logger.error(f"🔴 Тип второй ошибки: {type(e2).__name__}")

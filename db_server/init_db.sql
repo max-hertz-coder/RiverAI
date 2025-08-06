@@ -8,10 +8,16 @@ CREATE TABLE IF NOT EXISTS users (
     plan          VARCHAR(50)   NOT NULL DEFAULT 'basic',
     usage_count   INT           NOT NULL DEFAULT 0,
     usage_limit   INT           NOT NULL DEFAULT 0,
+    tokens_prompt_total BIGINT  NOT NULL DEFAULT 0,
+    tokens_gen_total    BIGINT  NOT NULL DEFAULT 0,
     language      VARCHAR(5)    NOT NULL DEFAULT 'RU',
     notifications BOOLEAN      NOT NULL DEFAULT TRUE,
     password_hash TEXT          NOT NULL DEFAULT '',
-    ydisk_token_enc TEXT         NOT NULL DEFAULT ''
+    ydisk_token_enc TEXT         NOT NULL DEFAULT '',
+    hide_disk_prompt BOOLEAN   NOT NULL DEFAULT FALSE,
+    subscription_expires TIMESTAMP,
+    trial_used    BOOLEAN      NOT NULL DEFAULT FALSE,
+    students_limit INT          NOT NULL DEFAULT 1
 );
 
 -- Таблица учеников
@@ -23,7 +29,10 @@ CREATE TABLE IF NOT EXISTS students (
     name_enc     TEXT         NOT NULL,
     subject_enc  TEXT         NOT NULL,
     level_enc    TEXT         NOT NULL,
-    notes_enc    TEXT
+    notes_enc    TEXT,
+    usage_count  INT          NOT NULL DEFAULT 0,
+    tokens_prompt_total BIGINT NOT NULL DEFAULT 0,
+    tokens_gen_total    BIGINT NOT NULL DEFAULT 0
 );
 
 -- Индекс для быстрого поиска учеников по пользователю

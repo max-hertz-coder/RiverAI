@@ -1,9 +1,10 @@
 import os
 import asyncio
+import logging
 from openai import OpenAI
+from worker.services.gpt_service import chat_with_gpt
 
-# Инициализируем клиент OpenAI
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+logger = logging.getLogger(__name__)
 
 # Системные подсказки под разные роли из OnlyGPT
 _system_prompts = {
@@ -17,7 +18,7 @@ _system_prompts = {
     'solutions': (
         "Вы — педагог-математик. Пользователь прислал список задач с подпунктами a), b), c) и т.д.\n"
         "Верните ровно столько пунктов решения, сколько было задано (одно \\item на подпункт), "
-        "но внутри каждого пункта **никакой дополнительной нумерации** и списков не должно быть. "
+        "но внутри каждого пункта **никакой дополнительной нумарации** и списков не должно быть. "
         "Каждое решение подавайте одним сплошным абзацем:\n"
         " 1) В начале одним предложением повторите условие подпункта.\n"
         " 2) Далее свободным текстом опишите ход решения без каких-либо меток «1.», «2.» и т.п.\n"
@@ -27,38 +28,41 @@ _system_prompts = {
 }
 
 
-def _sync_call(prompt: str, role: str) -> str:
+async def _async_call(prompt: str, role: str) -> dict:
     """
-    Внутренняя синхронная функция для обращения к OpenAI по роли.
+    Асинхронная функция для обращения к OpenAI по роли с подсчетом токенов.
     """
     messages = [
         {"role": "system", "content": _system_prompts[role]},
         {"role": "user",   "content": prompt}
     ]
-    resp = client.chat.completions.create(
-        model="gpt-4.1-mini",
-        messages=messages,
-        temperature=0.0,
-        max_tokens=1500
-    )
-    text = resp.choices[0].message.content.strip()
+    
+    response = await chat_with_gpt(messages, temperature=0.0, max_tokens=1500)
+    text = response["text"]
+    
     # Убираем ```-обёртку, если есть
     if text.startswith("```") and text.endswith("```"):
         text = text.strip('`\n')
-    return text
+    
+    return {
+        "text": text,
+        "prompt_tokens": response["prompt_tokens"],
+        "completion_tokens": response["completion_tokens"],
+        "total_tokens": response["total_tokens"]
+    }
 
 
-async def generate_raw_tasks(prompt: str) -> str:
-    """Генерирует список задач по запросу."""
-    return await asyncio.to_thread(_sync_call, prompt, 'tasks')
+async def generate_raw_tasks(prompt: str) -> dict:
+    """Генерирует список задач по запросу с подсчетом токенов."""
+    return await _async_call(prompt, 'tasks')
 
-async def generate_raw_solutions(tasks: str) -> str:
-    """Генерирует решения к списку задач."""
-    return await asyncio.to_thread(_sync_call, tasks, 'solutions')
+async def generate_raw_solutions(tasks: str) -> dict:
+    """Генерирует решения к списку задач с подсчетом токенов."""
+    return await _async_call(tasks, 'solutions')
 
-async def generate_solutions_continuation(original_sols: str, prompt: str) -> str:
+async def generate_solutions_continuation(original_sols: str, prompt: str) -> dict:
     """
-    Продолжает генерацию решений на основании уже полученных.
+    Продолжает генерацию решений на основании уже полученных с подсчетом токенов.
     """
     full = original_sols.strip() + "\n\n" + prompt.strip()
-    return await asyncio.to_thread(_sync_call, full, 'solutions')
+    return await _async_call(full, 'solutions')
