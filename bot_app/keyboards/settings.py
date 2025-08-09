@@ -1,6 +1,8 @@
 from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.types import InlineKeyboardMarkup
 
-def settings_menu_kb(lang: str = "RU"):
+
+def settings_menu_kb(lang: str = "RU") -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     if lang.upper() == "EN":
         kb.button(text="← Back", callback_data="back:main")
@@ -9,7 +11,8 @@ def settings_menu_kb(lang: str = "RU"):
     kb.adjust(1)
     return kb.as_markup()
 
-def yandex_prompt_kb(lang: str = "RU"):
+
+def yandex_prompt_kb(lang: str = "RU") -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     if lang.upper() == "EN":
         kb.button(text="🔗 Connect", callback_data="set_ydisk_token")

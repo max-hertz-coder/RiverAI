@@ -16,22 +16,23 @@ class YandexTokenFSM(StatesGroup):
 # --- Обработка кнопки "Настройки" из CallbackQuery
 @router.callback_query(F.data == "settings")
 async def cb_settings(callback: CallbackQuery):
+    """Показать меню настроек профиля."""
     user = await database.db.get_user_by_tg_id(callback.from_user.id)
     lang = user["language"] if user else "RU"
     text = "Настройки профиля:" if lang == "RU" else "Profile Settings:"
     await callback.message.edit_text(text, reply_markup=settings_kb.settings_menu_kb(lang))
     await callback.answer()
 
-# --- Обработка текстовой кнопки "⚙️ Настройки" из обычного сообщения
 @router.message(F.text == "⚙️ Настройки")
 async def msg_settings_menu(message: Message):
+    """Обработка текстовой кнопки настроек (для меню под полем ввода)."""
     user = await database.db.get_user_by_tg_id(message.from_user.id)
     lang = user["language"] if user else "RU"
     text = "Настройки профиля:" if lang == "RU" else "Profile Settings:"
     await message.answer(text, reply_markup=settings_kb.settings_menu_kb(lang))
 
 # --- Установка Яндекс.Токена
-@router.callback_query(F.data == "set_ydisk_token")
+#@router.callback_query(F.data == "set_ydisk_token")
 async def cb_set_token(callback: CallbackQuery, state: FSMContext):
     await state.set_state(YandexTokenFSM.waiting_for_token)
     await callback.message.edit_text("🔐 *Подключение Яндекс.Диска*\n\n"
@@ -45,7 +46,7 @@ async def cb_set_token(callback: CallbackQuery, state: FSMContext):
         "⚠️ Такой токен действителен до его отзыва вручную.\n")
     await callback.answer()
 
-@router.message(StateFilter(YandexTokenFSM.waiting_for_token))
+#@router.message(StateFilter(YandexTokenFSM.waiting_for_token))
 async def process_token(message: Message, state: FSMContext):
     token = message.text.strip()
     await database.db.update_user_ydisk_token(message.from_user.id, token)
@@ -53,19 +54,21 @@ async def process_token(message: Message, state: FSMContext):
     await state.clear()
 
 # --- Отключить напоминание про Диск
-@router.callback_query(F.data == "dismiss_disk_prompt")
+#@router.callback_query(F.data == "dismiss_disk_prompt")
 async def cb_dismiss_prompt(callback: CallbackQuery):
     await database.db.set_user_disk_prompt_disabled(callback.from_user.id)
     await callback.answer("Ок, больше не будем напоминать.\nНо знайте что всегда можете добавить его в соответствующем меню настроек", show_alert=False)
 
-# --- Удаление аккаунта
+
 @router.callback_query(F.data == "delete_account")
 async def cb_delete_account(callback: CallbackQuery):
+    """Удаление аккаунта пользователя и всех данных."""
     await database.db.delete_user(callback.from_user.id)
     await callback.message.edit_text("Ваш аккаунт и все данные удалены.")
+    await callback.answer()
 
 # --- Редактирование Яндекс токена
-@router.callback_query(F.data == "edit_ydisk_token")
+#@router.callback_query(F.data == "edit_ydisk_token")
 async def cb_edit_token(callback: CallbackQuery, state: FSMContext):
     await state.set_state(YandexTokenFSM.editing_token)
     await callback.message.edit_text("🔐 *Изменение токена Яндекс.Диска*\n\n"
@@ -73,7 +76,7 @@ async def cb_edit_token(callback: CallbackQuery, state: FSMContext):
         "Скопируйте новый токен и отправьте его сюда.")
     await callback.answer()
 
-@router.message(StateFilter(YandexTokenFSM.editing_token))
+#@router.message(StateFilter(YandexTokenFSM.editing_token))
 async def process_edit_token(message: Message, state: FSMContext):
     token = message.text.strip()
     await database.db.update_user_ydisk_token(message.from_user.id, token)

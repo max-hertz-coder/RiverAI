@@ -1,11 +1,22 @@
-\documentclass{article}
+% report_template.tex — шаблон pdf для отчёта проверки ДЗ
+\documentclass[12pt]{article}
+
+\usepackage[T2A]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[russian]{babel}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amsfonts,amssymb}
+
 \begin{document}
-\section*{Отчёт проверки}
-% The generated report content will be placed here.
-% Example:
-%\begin{itemize}
-%  \item Задача 1: верно.
-%  \item Задача 2: ошибка в шаге 3.
-%  \item Задача 3: пропущено решение.
-%\end{itemize}
+
+\begin{center}
+{\LARGE\bfseries Результат проверки домашнего задания}
+\end{center}
+
+\vspace{0.8em}
+
+% В этот блок вставляется уже подготовленный текст LaTeX с секциями, enumerate и т.п.
+% Пример Jinja: {{ check_result }}
+{{ check_result }}
+
 \end{document}

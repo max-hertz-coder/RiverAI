@@ -1,59 +1,100 @@
-# /opt/RiverAI/worker/config.py
-
-import string
+# worker/config.py
 import os
+import logging
+from typing import List
 from dotenv import load_dotenv
 
 load_dotenv()
+logger = logging.getLogger(__name__)
 
+def _parse_encryption_key(raw: str) -> bytes:
+    if not raw:
+        raise RuntimeError("ENCRYPTION_KEY is not set for worker")
+    raw = raw.strip()
+    if len(raw) == 64 and all(c in "0123456789abcdefABCDEF" for c in raw):
+        return bytes.fromhex(raw)
+    b = raw.encode("utf-8")
+    if len(b) not in (16, 24, 32):
+        raise RuntimeError("Invalid ENCRYPTION_KEY length: must be 16/24/32 bytes or 64-hex")
+    return b
 
-DB_HOST = os.getenv("POSTGRES_HOST")
-DB_PORT = int(os.getenv("POSTGRES_PORT", "5432"))
-DB_NAME = os.getenv("POSTGRES_DB")
-DB_USER = os.getenv("POSTGRES_USER")
-DB_PASSWORD = os.getenv("POSTGRES_PASSWORD")
+def _read_openai_keys() -> List[str]:
+    keys: List[str] = []
+    combined = ",".join(
+        filter(None, [os.getenv("OPENAI_API_KEYS"), os.getenv("OPENAI_API_KEY")])
+    )
+    for chunk in combined.replace("\n", ",").split(","):
+        k = chunk.strip()
+        if k:
+            keys.append(k)
+    return keys
 
+# ——————————————
+# PostgreSQL
+# ——————————————
+POSTGRES_HOST = os.getenv("POSTGRES_HOST")
+POSTGRES_PORT = int(os.getenv("POSTGRES_PORT", "5432"))
+POSTGRES_DB = os.getenv("POSTGRES_DB")
+POSTGRES_USER = os.getenv("POSTGRES_USER")
+POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD")
+
+def POSTGRES_DSN() -> str:
+    if all([POSTGRES_HOST, POSTGRES_DB, POSTGRES_USER, POSTGRES_PASSWORD]):
+        return f"postgresql://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
+    # Альтернатива: прямой DSN (если прокинут)
+    return os.getenv("WORKER_POSTGRES_DSN", "")
+
+# ——————————————
+# Redis
+# ——————————————
 REDIS_HOST = os.getenv("REDIS_HOST", "redis")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
-# Здесь — единственная переменная для номера БД:
-REDIS_DB   = int(os.getenv("REDIS_DB_CACHE", "1"))
+REDIS_DB = int(os.getenv("REDIS_DB_CACHE", "1"))  # единый номер БД для кэша
 
-RABBITMQ_HOST = os.getenv("RABBITMQ_HOST")
+# ——————————————
+# RabbitMQ
+# ——————————————
+RABBITMQ_HOST = os.getenv("RABBITMQ_HOST", "rabbitmq")
 RABBITMQ_PORT = int(os.getenv("RABBITMQ_PORT", "5672"))
-RABBITMQ_USER = os.getenv("RABBITMQ_USER")
-RABBITMQ_PASS = os.getenv("RABBITMQ_PASS")
-
-TASK_QUEUE   = os.getenv("RABBITMQ_TASK_QUEUE",   "task_queue")
+RABBITMQ_USER = os.getenv("RABBITMQ_USER", "guest")
+RABBITMQ_PASS = os.getenv("RABBITMQ_PASS", "guest")
+TASK_QUEUE = os.getenv("RABBITMQ_TASK_QUEUE", "task_queue")
 RESULT_QUEUE = os.getenv("RABBITMQ_RESULT_QUEUE", "result_queue")
 
-# Отладочная информация
-print(f"🔧 Worker config loaded:")
-print(f"  RABBITMQ_HOST: {RABBITMQ_HOST}")
-print(f"  RABBITMQ_PORT: {RABBITMQ_PORT}")
-print(f"  RABBITMQ_USER: {RABBITMQ_USER}")
-print(f"  RESULT_QUEUE: {RESULT_QUEUE}")
+def RABBITMQ_AMQP_URL() -> str:
+    return f"amqp://{RABBITMQ_USER}:{RABBITMQ_PASS}@{RABBITMQ_HOST}:{RABBITMQ_PORT}/"
 
-OPENAI_API_KEYS = [k.strip() for k in os.getenv("OPENAI_API_KEYS", "").split(",") if k.strip()]
+# ——————————————
+# OpenAI
+# ——————————————
+OPENAI_API_KEYS = _read_openai_keys()
 if not OPENAI_API_KEYS:
-    raise RuntimeError("OPENAI_API_KEYS not set")
+    raise RuntimeError("OPENAI_API_KEYS is not set for worker")
 
-print(f"🔧 OpenAI API Keys loaded: {len(OPENAI_API_KEYS)} keys")
-for i, key in enumerate(OPENAI_API_KEYS):
-    print(f"  Key {i+1}: {key[:10]}...")
+# ——————————————
+# Security / Crypto
+# ——————————————
+ENCRYPTION_KEY = _parse_encryption_key(os.getenv("ENCRYPTION_KEY", ""))
 
+# ——————————————
+# Observability
+# ——————————————
+SENTRY_DSN = os.getenv("SENTRY_DSN", "")
+DEBUG = os.getenv("DEBUG", "").lower() in {"1", "true", "t", "yes", "y", "on"}
 
-# Encryption key (hex-строка 64 символа → 32 байта)
-_key_str = os.getenv("ENCRYPTION_KEY")
-if not _key_str:
-    raise RuntimeError("ENCRYPTION_KEY not set for worker")
+def log_config_safely() -> None:
+    logger.info("🔧 Worker config loaded:")
+    logger.info(f"  POSTGRES_HOST: {POSTGRES_HOST}")
+    logger.info(f"  POSTGRES_DB: {POSTGRES_DB}")
+    logger.info(f"  RABBITMQ_HOST: {RABBITMQ_HOST}")
+    logger.info(f"  TASK_QUEUE: {TASK_QUEUE}")
+    logger.info(f"  RESULT_QUEUE: {RESULT_QUEUE}")
+    logger.info(f"  REDIS_HOST: {REDIS_HOST}")
+    logger.info(f"  OPENAI_KEYS_COUNT: {len(OPENAI_API_KEYS)}")
+    logger.info(f"  DEBUG: {DEBUG}")
+    logger.info(f"  SENTRY_DSN_SET: {bool(SENTRY_DSN)}")
 
-# Если это 64-символьная hex-строка, конвертируем в 32 байта
-if len(_key_str) == 64 and all(c in string.hexdigits for c in _key_str):
-    ENCRYPTION_KEY = bytes.fromhex(_key_str)
-else:
-    # Иначе используем как raw-bytes (UTF-8), но длина должна быть 16/24/32
-    key_bytes = _key_str.encode("utf-8")
-    if len(key_bytes) not in (16, 24, 32):
-        raise RuntimeError(f"Invalid ENCRYPTION_KEY length: {len(key_bytes)} bytes")
-    ENCRYPTION_KEY = key_bytes
-
+try:
+    log_config_safely()
+except Exception:
+    pass

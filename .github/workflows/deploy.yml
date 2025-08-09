@@ -4,10 +4,19 @@ on:
   push:
     branches: [ main ]
 
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     strategy:
+      fail-fast: false
       matrix:
         include:
           - name: очередь_RU
@@ -21,24 +30,6 @@ jobs:
             key_secret: SSH_PRIVATE_KEY_MAIN
             role: app
             username: user1
-
-          - name: очередь
-            host: 185.200.176.96
-            key_secret: SSH_KEY_QUEUE
-            role: queue
-            username: root
-
-          - name: основной
-            host: 185.200.176.99
-            key_secret: SSH_KEY_BASED
-            role: app
-            username: root
-
-          - name: резервный
-            host: 185.200.176.97
-            key_secret: SSH_KEY_RESERVE
-            role: app
-            username: root
 
           - name: воркер1
             host: 185.200.176.95
@@ -55,11 +46,72 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Add GitHub to known_hosts
+      - name: Add hosts to known_hosts
         run: |
           mkdir -p ~/.ssh
           ssh-keyscan -H github.com >> ~/.ssh/known_hosts
+          ssh-keyscan -H ${{ matrix.host }} >> ~/.ssh/known_hosts
+
+      # <<< ВАЖНО: пробрасываем Secrets/Variables в окружение раннера
+      - name: Set env from GitHub Secrets/Variables
+        shell: bash
+        run: echo "envs prepared"
+        env:
+          # Telegram
+          BOT_TOKEN:              ${{ secrets.BOT_TOKEN }}
+          ADMIN_CHAT_ID:          ${{ secrets.ADMIN_CHAT_ID }}
+
+          # Crypto/IDs
+          ENCRYPTION_KEY:         ${{ secrets.ENCRYPTION_KEY }}
+          TELEGRAM_ID_SALT:       ${{ secrets.TELEGRAM_ID_SALT }}
+
+          # Postgres (бот)
+          POSTGRES_HOST:          ${{ secrets.POSTGRES_HOST }}
+          POSTGRES_PORT:          ${{ secrets.POSTGRES_PORT }}
+          POSTGRES_DB:            ${{ secrets.POSTGRES_DB }}
+          POSTGRES_USER:          ${{ secrets.POSTGRES_USER }}
+          POSTGRES_PASSWORD:      ${{ secrets.POSTGRES_PASSWORD }}
+
+          # Postgres DSN (воркер)
+          WORKER_POSTGRES_DSN:    ${{ secrets.WORKER_POSTGRES_DSN }}
+
+          # RabbitMQ (внешний хост — сервер очереди)
+          RABBITMQ_HOST:          ${{ secrets.RABBITMQ_HOST }}
+          RABBITMQ_PORT:          ${{ secrets.RABBITMQ_PORT }}
+          RABBITMQ_USER:          ${{ secrets.RABBITMQ_USER }}
+          RABBITMQ_PASS:          ${{ secrets.RABBITMQ_PASS }}
+          RABBITMQ_TASK_QUEUE:    ${{ vars.RABBITMQ_TASK_QUEUE || 'task_queue' }}
+          RABBITMQ_RESULT_QUEUE:  ${{ vars.RABBITMQ_RESULT_QUEUE || 'result_queue' }}
+
+          # Redis (расположен на сервере очереди)
+          REDIS_HOST:             ${{ secrets.REDIS_HOST }}
+          REDIS_PORT:             ${{ secrets.REDIS_PORT }}
+          REDIS_DB_FSM:           ${{ vars.REDIS_DB_FSM || '0' }}
+          REDIS_DB_CACHE:         ${{ vars.REDIS_DB_CACHE || '1' }}
+
+          # OpenAI
+          OPENAI_API_KEY:         ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_API_KEYS:        ${{ secrets.OPENAI_API_KEYS }}
+
+          # Yandex Disk (если используешь)
+          YDKEY_V1:               ${{ secrets.YDKEY_V1 }}
+          YDKEY_VERSION:          ${{ secrets.YDKEY_VERSION }}
+
+          # Payments (YooKassa)
+          YOOKASSA_SHOP_ID:       ${{ secrets.YOOKASSA_SHOP_ID }}
+          YOOKASSA_SECRET_KEY:    ${{ secrets.YOOKASSA_SECRET_KEY }}
+          PAYMENT_RETURN_URL:     ${{ secrets.PAYMENT_RETURN_URL }}
+          PAYMENT_SUCCESS_URL:    ${{ secrets.PAYMENT_SUCCESS_URL }}
+          PAYMENT_FAIL_URL:       ${{ secrets.PAYMENT_FAIL_URL }}
+          PAYMENT_WEBHOOK_TOKEN:  ${{ secrets.PAYMENT_WEBHOOK_TOKEN }}
+          PAYMENT_WEBHOOK_PORT:   ${{ vars.PAYMENT_WEBHOOK_PORT || '8080' }}
+
+          # Observability
+          SENTRY_DSN:             ${{ secrets.SENTRY_DSN }}
+          DEBUG:                  ${{ vars.DEBUG || '0' }}
 
       - name: Deploy to ${{ matrix.name }}
         uses: appleboy/ssh-action@v1.2.2
@@ -67,17 +119,41 @@ jobs:
           host: ${{ matrix.host }}
           username: ${{ matrix.username }}
           key: ${{ secrets[matrix.key_secret] }}
-          envs: TELEGRAM_ID_SALT,WORKER_ENCRYPTION_SECRET,YDKEY_V1,YDKEY_VERSION,WORKER_POSTGRES_DSN
+          script_stop: true
+          # этот список говорит ssh-action, какие переменные окружения пробрасывать на удалённый сервер
+          envs: |
+            GITHUB_REPOSITORY, \
+            BOT_TOKEN, ADMIN_CHAT_ID, \
+            ENCRYPTION_KEY, TELEGRAM_ID_SALT, \
+            POSTGRES_HOST, POSTGRES_PORT, POSTGRES_DB, POSTGRES_USER, POSTGRES_PASSWORD, \
+            WORKER_POSTGRES_DSN, \
+            RABBITMQ_HOST, RABBITMQ_PORT, RABBITMQ_USER, RABBITMQ_PASS, RABBITMQ_TASK_QUEUE, RABBITMQ_RESULT_QUEUE, \
+            REDIS_HOST, REDIS_PORT, REDIS_DB_FSM, REDIS_DB_CACHE, \
+            OPENAI_API_KEYS, OPENAI_API_KEY, \
+            YDKEY_V1, YDKEY_VERSION, \
+            YOOKASSA_SHOP_ID, YOOKASSA_SECRET_KEY, \
+            PAYMENT_RETURN_URL, PAYMENT_SUCCESS_URL, PAYMENT_FAIL_URL, PAYMENT_WEBHOOK_TOKEN, PAYMENT_WEBHOOK_PORT, \
+            SENTRY_DSN, DEBUG
           script: |
-            cd /opt
-            if [ ! -d /opt/RiverAI/.git ]; then
-              git clone git@github.com:max-hertz-coder/RiverAI.git /opt/RiverAI
-            fi
-            cd /opt/RiverAI
-            git pull origin main || { git fetch origin main && git reset --hard origin/main && git clean -fd; }
+            set -euo pipefail
 
-            mkdir -p /opt/RiverAI/logs
-            exec > >(tee -a /opt/RiverAI/logs/deploy.log) 2>&1
+            REPO_SSH="git@github.com:${GITHUB_REPOSITORY}.git"
+            APP_DIR="/opt/RiverAI"
+
+            echo "==> Target: ${{ matrix.name }} (${GITHUB_REPOSITORY})"
+            sudo mkdir -p /opt || true
+
+            if [ ! -d "${APP_DIR}/.git" ]; then
+              sudo git clone "${REPO_SSH}" "${APP_DIR}"
+            fi
+
+            cd "${APP_DIR}"
+            sudo git fetch origin main
+            sudo git reset --hard origin/main
+            sudo git clean -fdx
+
+            sudo mkdir -p "${APP_DIR}/logs"
+            exec > >(tee -a "${APP_DIR}/logs/deploy.log") 2>&1
             echo "$(date +'%F %T') — Деплой стартовал на ${{ matrix.name }}"
 
             if [ "${{ matrix.role }}" = "queue" ]; then
@@ -85,28 +161,71 @@ jobs:
             else
               ENV_PATH=".env"
             fi
+            sudo mkdir -p "$(dirname "${ENV_PATH}")"
 
             tmp_env="$(mktemp)"
-            [ -f "$ENV_PATH" ] && cat "$ENV_PATH" > "$tmp_env"
+            [ -f "${ENV_PATH}" ] && sudo cat "${ENV_PATH}" > "${tmp_env}" || true
 
             declare -A secrets=(
-              [TELEGRAM_ID_SALT]="$TELEGRAM_ID_SALT"
-              [WORKER_ENCRYPTION_SECRET]="$WORKER_ENCRYPTION_SECRET"
-              [YDKEY_V1]="$YDKEY_V1"
-              [YDKEY_VERSION]="$YDKEY_VERSION"
-              [WORKER_POSTGRES_DSN]="$WORKER_POSTGRES_DSN"
+              [BOT_TOKEN]="${BOT_TOKEN:-}"
+              [ADMIN_CHAT_ID]="${ADMIN_CHAT_ID:-}"
+              [ENCRYPTION_KEY]="${ENCRYPTION_KEY:-}"
+              [TELEGRAM_ID_SALT]="${TELEGRAM_ID_SALT:-}"
+
+              [POSTGRES_HOST]="${POSTGRES_HOST:-}"
+              [POSTGRES_PORT]="${POSTGRES_PORT:-}"
+              [POSTGRES_DB]="${POSTGRES_DB:-}"
+              [POSTGRES_USER]="${POSTGRES_USER:-}"
+              [POSTGRES_PASSWORD]="${POSTGRES_PASSWORD:-}"
+              [WORKER_POSTGRES_DSN]="${WORKER_POSTGRES_DSN:-}"
+
+              [RABBITMQ_HOST]="${RABBITMQ_HOST:-}"
+              [RABBITMQ_PORT]="${RABBITMQ_PORT:-}"
+              [RABBITMQ_USER]="${RABBITMQ_USER:-}"
+              [RABBITMQ_PASS]="${RABBITMQ_PASS:-}"
+              [RABBITMQ_TASK_QUEUE]="${RABBITMQ_TASK_QUEUE:-}"
+              [RABBITMQ_RESULT_QUEUE]="${RABBITMQ_RESULT_QUEUE:-}"
+
+              [REDIS_HOST]="${REDIS_HOST:-}"
+              [REDIS_PORT]="${REDIS_PORT:-}"
+              [REDIS_DB_FSM]="${REDIS_DB_FSM:-}"
+              [REDIS_DB_CACHE]="${REDIS_DB_CACHE:-}"
+
+              [OPENAI_API_KEYS]="${OPENAI_API_KEYS:-}"
+              [OPENAI_API_KEY]="${OPENAI_API_KEY:-}"
+
+              [YDKEY_V1]="${YDKEY_V1:-}"
+              [YDKEY_VERSION]="${YDKEY_VERSION:-}"
+
+              [YOOKASSA_SHOP_ID]="${YOOKASSA_SHOP_ID:-}"
+              [YOOKASSA_SECRET_KEY]="${YOOKASSA_SECRET_KEY:-}"
+              [PAYMENT_RETURN_URL]="${PAYMENT_RETURN_URL:-}"
+              [PAYMENT_SUCCESS_URL]="${PAYMENT_SUCCESS_URL:-}"
+              [PAYMENT_FAIL_URL]="${PAYMENT_FAIL_URL:-}"
+              [PAYMENT_WEBHOOK_TOKEN]="${PAYMENT_WEBHOOK_TOKEN:-}"
+              [PAYMENT_WEBHOOK_PORT]="${PAYMENT_WEBHOOK_PORT:-}"
+
+              [SENTRY_DSN]="${SENTRY_DSN:-}"
+              [DEBUG]="${DEBUG:-}"
             )
 
             for key in "${!secrets[@]}"; do
-              grep -q "^$key=" "$tmp_env" && sed -i "s|^$key=.*|$key=${secrets[$key]}|" "$tmp_env" || echo "$key=${secrets[$key]}" >> "$tmp_env"
+              val="${secrets[$key]}"
+              if [ -n "$val" ]; then
+                if grep -qE "^${key}=" "$tmp_env"; then
+                  sudo sed -i "s|^${key}=.*|${key}=${val}|" "$tmp_env"
+                else
+                  echo "${key}=${val}" | sudo tee -a "$tmp_env" >/dev/null
+                fi
+              fi
             done
 
-            mv "$tmp_env" "$ENV_PATH"
+            sudo mv "$tmp_env" "$ENV_PATH"
 
             if command -v docker compose &> /dev/null; then
-              docker compose up -d --build --remove-orphans
+              sudo docker compose up -d --build --remove-orphans
             else
-              docker-compose up -d --build --remove-orphans
+              sudo docker-compose up -d --build --remove-orphans
             fi
 
             echo "$(date +'%F %T') — Деплой завершён на ${{ matrix.name }}"

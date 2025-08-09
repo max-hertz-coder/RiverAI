@@ -1,24 +1,24 @@
 import json
 import aio_pika
+
 from bot_app import config
 from bot_app.utils.task_utils import create_task_with_context
 
+
 async def enqueue_generate_plan(user_id: int, student_id: int, description: str):
+    """
+    Ставит задачу генерации учебного плана.
+    Тип — 'plan' (совместим с worker.services.plan_service.handle_plan).
+    """
     task = {
-        "type": "generate_plan",
+        "type": "plan",
         "user_id": user_id,
         "student_id": student_id,
-        "description": description
+        "description": description,
     }
 
-    # Создаем задачу с контекстом
     task_with_context = await create_task_with_context(task)
-    task_id = task_with_context["task_id"]
-
-    # Лог задачи
-    print(f"[BOT_APP] 🔄 Отправка задачи в Worker: task_id={task_id}, user_id={user_id}")
-
-    message_body = json.dumps(task_with_context).encode()
+    body = json.dumps(task_with_context, ensure_ascii=False).encode("utf-8")
 
     connection = await aio_pika.connect_robust(
         host=config.RABBITMQ_HOST,
@@ -28,7 +28,7 @@ async def enqueue_generate_plan(user_id: int, student_id: int, description: str)
     )
     channel = await connection.channel()
     await channel.default_exchange.publish(
-        aio_pika.Message(body=message_body),
-        routing_key=config.TASK_QUEUE
+        aio_pika.Message(body=body),
+        routing_key=config.TASK_QUEUE,
     )
     await connection.close()

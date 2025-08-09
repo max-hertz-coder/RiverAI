@@ -1,25 +1,22 @@
 import json
-import base64
 import logging
-from io import BytesIO
 from datetime import datetime
 
 import aio_pika
-from aiogram import Router, F, Bot
+from aiogram import Router, F
 from aiogram.types import CallbackQuery, Message
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 
 from bot_app import config, rabbit_channel
-from bot_app.rabbit import pending_tasks
 from bot_app.keyboards.main_menu import back_button
 from bot_app.database import db
 from bot_app.utils.task_utils import create_task_with_context
 
 router = Router()
+logger = logging.getLogger(__name__)
 
 
-# --- Проверка подписки ---
 async def has_active_sub(user_id: int) -> bool:
     user = await db.get_user_by_tg_id(user_id)
     if not user:
@@ -27,19 +24,21 @@ async def has_active_sub(user_id: int) -> bool:
     expiry = user.get("subscription_expires")
     if not expiry:
         return False
-    return datetime.fromisoformat(str(expiry)) > datetime.now()
+    try:
+        return datetime.fromisoformat(str(expiry)) > datetime.now()
+    except Exception:
+        return False
 
 
-# --- Отправка задачи ---
 async def _send_task(task: dict):
     try:
-        # Создаем задачу с контекстом
         task_with_context = await create_task_with_context(task)
-        
+        body = json.dumps(task_with_context).encode("utf-8")
+
         if rabbit_channel:
             await rabbit_channel.default_exchange.publish(
-                aio_pika.Message(body=json.dumps(task_with_context).encode()),
-                routing_key=config.TASK_QUEUE
+                aio_pika.Message(body=body),
+                routing_key=config.TASK_QUEUE,
             )
         else:
             conn = await aio_pika.connect_robust(
@@ -50,46 +49,54 @@ async def _send_task(task: dict):
             )
             ch = await conn.channel()
             await ch.default_exchange.publish(
-                aio_pika.Message(body=json.dumps(task_with_context).encode()),
-                routing_key=config.TASK_QUEUE
+                aio_pika.Message(body=body),
+                routing_key=config.TASK_QUEUE,
             )
             await conn.close()
-    except Exception:
-        logging.exception("Ошибка отправки задачи в очередь")
+    except Exception as e:
+        logger.exception("Ошибка отправки задачи в очередь: %s", e)
+        raise
 
 
-# FSM-состояния для проверки ДЗ
 class HomeworkCheckFSM(StatesGroup):
     text = State()
 
 
-# --- Обработчик кнопки "Проверка ДЗ" (для учеников) ---
 @router.callback_query(F.data.startswith("check_homework:"))
 async def cb_check_homework(callback: CallbackQuery, state: FSMContext):
     if not await has_active_sub(callback.from_user.id):
-        return await callback.answer("❌ У вас нет активной подписки. Перейдите в 💳 Подписка и оформите доступ.", show_alert=True)
+        return await callback.answer(
+            "❌ У вас нет активной подписки. Перейдите в 💳 Подписка и оформите доступ.",
+            show_alert=True,
+        )
 
-    student_id = int(callback.data.split(":", 1)[1])
+    try:
+        student_id = int(callback.data.split(":", 1)[1])
+    except (IndexError, ValueError):
+        return await callback.answer("❌ Неверный формат ID", show_alert=True)
+
     await state.set_state(HomeworkCheckFSM.text)
     await state.update_data(student_id=student_id)
-    
+
     await callback.message.edit_text(
         "✅ **Режим проверки ДЗ**\n\n"
-        "Пришлите фото, PDF или текст домашней работы.\n"
-        "Бот проверит её и даст рекомендации в PDF формате.",
-        reply_markup=back_button("← Назад", f"student:{student_id}")
+        "Пришлите текст, фото или PDF домашней работы.\n"
+        "Текст пришлите прямо сюда; фото/PDF — просто отправьте файлом/фото.",
+        reply_markup=back_button("← Назад", f"student:{student_id}"),
     )
+    await callback.answer()
 
 
-# --- Обработка текста для проверки ДЗ ---
 @router.message(HomeworkCheckFSM.text)
 async def text_to_check(message: Message, state: FSMContext):
     if not await has_active_sub(message.from_user.id):
-        return await message.answer("❌ У вас нет активной подписки. Перейдите в 💳 Подписка и оформите доступ.")
+        return await message.answer(
+            "❌ У вас нет активной подписки. Перейдите в 💳 Подписка и оформите доступ."
+        )
 
     data = await state.get_data()
     student_id = data.get("student_id")
-    text = message.text.strip()
+    text = (message.text or "").strip()
 
     if not text:
         return await message.answer("❌ Текст не может быть пустым. Введите домашнее задание:")
@@ -100,49 +107,12 @@ async def text_to_check(message: Message, state: FSMContext):
         "student_id": student_id,
         "text": text,
     }
-    await _send_task(task)
+
+    try:
+        await _send_task(task)
+    except Exception:
+        return await message.answer("⚠️ Не удалось запустить проверку. Попробуйте ещё раз.")
+
     await state.clear()
     await message.answer("🕔 Проверяю ДЗ, ожидайте PDF…")
-
-
-# --- Обработка результатов проверки ДЗ ---
-@router.callback_query(F.data.startswith("check_homework_result:"))
-async def cb_check_homework_result(callback: CallbackQuery):
-    task_id = callback.data.split(":", 1)[1]
-    result = pending_tasks.get(task_id)
-    
-    if not result:
-        return await callback.answer("❌ Результат не найден", show_alert=True)
-    
-    if result.get("type") == "error":
-        await callback.message.edit_text(
-            f"❌ Ошибка при проверке ДЗ:\n{result.get('message', 'Неизвестная ошибка')}",
-            reply_markup=back_button("← Назад", f"student:{result.get('student_id')}")
-        )
-        return
-    
-    # Отправляем PDF, если есть
-    if result.get("pdf_path"):
-        try:
-            from aiogram.types import FSInputFile
-            await callback.message.answer_document(
-                FSInputFile(result["pdf_path"]),
-                caption="📄 Результат проверки ДЗ"
-            )
-        except Exception as e:
-            logging.exception("Ошибка отправки PDF: %s", e)
-    
-    # Отправляем текстовый отчет
-    report_text = result.get("report_text", "")
-    if report_text:
-        # Ограничиваем длину сообщения
-        if len(report_text) > 4000:
-            report_text = report_text[:4000] + "\n\n... (отчет обрезан)"
-        
-        await callback.message.answer(
-            f"📋 **Результат проверки ДЗ:**\n\n{report_text}",
-            reply_markup=back_button("← Назад", f"student:{result.get('student_id')}")
-        )
-    
-    # Удаляем исходное сообщение
-    await callback.message.delete() 
+    # Результат придёт через result_consumer напрямую пользователю.

@@ -1,25 +1,24 @@
 import json
 import base64
 import logging
-from io import BytesIO
 from datetime import datetime
+from io import BytesIO
 
 import aio_pika
-from aiogram import Router, F, Bot
+from aiogram import Router, F
 from aiogram.types import CallbackQuery, Message
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 
 from bot_app import config, rabbit_channel
-from bot_app.rabbit import pending_tasks
 from bot_app.keyboards.main_menu import back_button
 from bot_app.database import db
 from bot_app.utils.task_utils import create_task_with_context
 
 router = Router()
+logger = logging.getLogger(__name__)
 
 
-# --- Проверка подписки ---
 async def has_active_sub(user_id: int) -> bool:
     user = await db.get_user_by_tg_id(user_id)
     if not user:
@@ -27,19 +26,21 @@ async def has_active_sub(user_id: int) -> bool:
     expiry = user.get("subscription_expires")
     if not expiry:
         return False
-    return datetime.fromisoformat(str(expiry)) > datetime.now()
+    try:
+        return datetime.fromisoformat(str(expiry)) > datetime.now()
+    except Exception:
+        return False
 
 
-# --- Отправка задачи ---
 async def _send_task(task: dict):
     try:
-        # Создаем задачу с контекстом
         task_with_context = await create_task_with_context(task)
-        
+        body = json.dumps(task_with_context).encode("utf-8")
+
         if rabbit_channel:
             await rabbit_channel.default_exchange.publish(
-                aio_pika.Message(body=json.dumps(task_with_context).encode()),
-                routing_key=config.TASK_QUEUE
+                aio_pika.Message(body=body),
+                routing_key=config.TASK_QUEUE,
             )
         else:
             conn = await aio_pika.connect_robust(
@@ -50,170 +51,141 @@ async def _send_task(task: dict):
             )
             ch = await conn.channel()
             await ch.default_exchange.publish(
-                aio_pika.Message(body=json.dumps(task_with_context).encode()),
-                routing_key=config.TASK_QUEUE
+                aio_pika.Message(body=body),
+                routing_key=config.TASK_QUEUE,
             )
             await conn.close()
-    except Exception:
-        logging.exception("Ошибка отправки задачи в очередь")
+    except Exception as e:
+        logger.exception("Ошибка отправки задачи в очередь: %s", e)
+        raise
 
 
-# FSM-состояния
 class TasksFSM(StatesGroup):
     desc = State()
+
 
 class RefineTasksFSM(StatesGroup):
     notes = State()
 
 
-# --- Генерация из фото ---
-@router.message(F.photo)
-async def photo_to_generate(message: Message, bot: Bot):
-    if not await has_active_sub(message.from_user.id):
-        return await message.answer("❌ У вас нет активной подписки. Перейдите в 💳 Подписка и оформите доступ.")
-
-    caption = (message.caption or "").strip()
-    bio = BytesIO()
-    await bot.download(message.photo[-1].file_id, destination=bio)
-    b64 = base64.b64encode(bio.getvalue()).decode()
-
-    task = {
-        "type": "ocr_and_generate",
-        "user_id": message.from_user.id,
-        "student_id": None,
-        "file_data": b64,
-        "file_name": "photo.jpg",
-        "prompt": caption,
-    }
-    await _send_task(task)
-    await message.answer("🕔 Распознаю и генерирую задания, ожидайте PDF…")
+# ВНИМАНИЕ: обработку F.photo/F.document вынес в ocr_and_generate.py,
+# чтобы исключить дублирование и двойные триггеры.
 
 
-
-# --- Генерация из документа ---
-@router.message(F.document)
-async def doc_to_generate(message: Message, bot: Bot):
-    if not await has_active_sub(message.from_user.id):
-        return await message.answer("❌ У вас нет активной подписки. Перейдите в 💳 Подписка и оформите доступ.")
-
-    caption = (message.caption or "").strip()
-    bio = BytesIO()
-    await bot.download(message.document.file_id, destination=bio)
-    b64 = base64.b64encode(bio.getvalue()).decode()
-    name = message.document.file_name or "file.pdf"
-
-    task = {
-        "type": "ocr_and_generate",
-        "user_id": message.from_user.id,
-        "student_id": None,
-        "file_data": b64,
-        "file_name": name,
-        "prompt": caption,
-    }
-    await _send_task(task)
-    await message.answer("🕔 Распознаю и генерирую задания, ожидайте PDF…")
-
-
-# --- Кнопка генерации (для учеников) ---
 @router.callback_query(F.data.startswith("generate_tasks:"))
 async def cb_tasks(callback: CallbackQuery, state: FSMContext):
-    sid = int(callback.data.split(":", 1)[1])
+    if not await has_active_sub(callback.from_user.id):
+        return await callback.answer(
+            "❌ У вас нет активной подписки. Перейдите в 💳 Подписка и оформите доступ.", show_alert=True
+        )
+
+    try:
+        sid = int(callback.data.split(":", 1)[1])
+    except (IndexError, ValueError):
+        return await callback.answer("❌ Неверный формат запроса", show_alert=True)
+
     await state.update_data(student_id=sid)
     await state.set_state(TasksFSM.desc)
     await callback.message.edit_text(
         "Введите текстовый запрос для генерации заданий:",
-        reply_markup=back_button("← Отмена", "back:chat")
+        reply_markup=back_button("← Отмена", "back:chat"),
     )
     await callback.answer()
+
 
 @router.message(TasksFSM.desc)
 async def proc_tasks(message: Message, state: FSMContext):
     if not await has_active_sub(message.from_user.id):
-        return await message.answer("❌ У вас нет активной подписки. Перейдите в 💳 Подписка и оформите доступ.")
+        return await message.answer(
+            "❌ У вас нет активной подписки. Перейдите в 💳 Подписка и оформите доступ."
+        )
 
     data = await state.get_data()
-    prompt = message.text.strip()
+    prompt = (message.text or "").strip()
+    if not prompt:
+        return await message.answer("❌ Пустой запрос. Введите текст для генерации.")
+
     task = {
-        "type":       "generate_tasks",
-        "user_id":    message.from_user.id,
+        "type": "generate_tasks",
+        "user_id": message.from_user.id,
         "student_id": data.get("student_id"),
-        "prompt":     prompt,
+        "prompt": prompt,
     }
-    await _send_task(task)
-    await message.answer("🕔 Генерируются задания, ожидайте...")
+
+    try:
+        await _send_task(task)
+    except Exception:
+        await message.answer("⚠️ Не удалось запустить генерацию. Попробуйте ещё раз.")
+        return
+
+    await message.answer("🕔 Генерируются задания, ожидайте…")
     await state.clear()
 
 
-# --- Refine (уточнение) ---
+# ——— Refine (исправить) ———
+# По ТЗ: исправление работает через повторную отправку Solutions.pdf + текст-промпт.
 @router.callback_query(F.data == "refine_tasks")
 async def cb_refine_tasks(callback: CallbackQuery, state: FSMContext):
     await state.set_state(RefineTasksFSM.notes)
     await callback.message.edit_text(
-        "✏️ Опишите, как изменить эти задания:",
-        reply_markup=back_button("← Отмена", "back:main")
+        "✏️ Ответьте на сообщение с **Solutions.pdf** и опишите, как изменить задания.\n"
+        "Бот перезапустит генерацию по вашему промпту.",
+        reply_markup=back_button("← Отмена", "back:main"),
     )
     await callback.answer()
+
 
 @router.message(RefineTasksFSM.notes)
 async def proc_refine_tasks(message: Message, state: FSMContext):
     if not await has_active_sub(message.from_user.id):
-        return await message.answer("❌ У вас нет активной подписки. Перейдите в 💳 Подписка и оформите доступ.")
+        return await message.answer(
+            "❌ У вас нет активной подписки. Перейдите в 💳 Подписка и оформите доступ."
+        )
 
-    user_prompt = message.text.strip()
-    
-    # Добавляем четкое указание генерировать только задания
-    prompt = f"Сгенерируйте ТОЛЬКО задания без решений и ответов. {user_prompt}"
+    user_prompt = (message.text or "").strip()
+    if not user_prompt:
+        return await message.answer("❌ Пустой запрос. Опишите правки к заданиям.")
 
-    # Используем последнее отправленное Solutions.pdf
+    # Требуем, чтобы это был ответ на Solutions.pdf
     if not message.reply_to_message or not message.reply_to_message.document:
-        return await message.answer("📎 Пожалуйста, отправьте новый текст в ответ на Solutions.pdf.")
+        return await message.answer("📎 Пожалуйста, отправьте ваш текст **в ответ** на сообщение с Solutions.pdf.")
 
     doc = message.reply_to_message.document
-    file_name = doc.file_name or "file.pdf"
+    file_name = doc.file_name or "Solutions.pdf"
 
-    from io import BytesIO
     bio = BytesIO()
     await message.bot.download(doc.file_id, destination=bio)
     b64 = base64.b64encode(bio.getvalue()).decode()
 
+    # Явно просим сгенерировать только задания
+    final_prompt = f"Сгенерируйте ТОЛЬКО задания без решений и ответов. {user_prompt}"
+
     task = {
         "type": "ocr_and_generate",
         "user_id": message.from_user.id,
-        "student_id": None,  # Общая обработка без привязки к ученику
+        "student_id": None,  # исправление без привязки к ученику
         "file_data": b64,
         "file_name": file_name,
-        "prompt": prompt,
-        "refine": True
+        "prompt": final_prompt,
+        "refine": True,
     }
-    await _send_task(task)
-    await message.answer("📝 Переделываем задания по новым инструкциям…")
+
+    try:
+        await _send_task(task)
+    except Exception:
+        await message.answer("⚠️ Не удалось запустить переделку. Попробуйте позже.")
+        return
+
+    await message.answer("📝 Переделываю задания по вашим инструкциям…")
     await state.clear()
 
 
-# --- Отладка callback_query ---
-@router.callback_query(F.data.startswith("debug:"))
-async def debug_callback(callback: CallbackQuery):
-    import logging
-    logger = logging.getLogger(__name__)
-    logger.info(f"🔧 DEBUG: callback_data = '{callback.data}' от пользователя {callback.from_user.id}")
-    await callback.answer()  # КРИТИЧНО: отвечаем на callback!
-
-# --- Подтверждение ---
 @router.callback_query(F.data == "tasks_ok")
 async def cb_tasks_ok(callback: CallbackQuery):
-    import logging
-    logger = logging.getLogger(__name__)
-    logger.info(f"🔧 cb_tasks_ok: кнопка нажата пользователем {callback.from_user.id}")
-    logger.info(f"🔧 cb_tasks_ok: callback_data = '{callback.data}'")
-    logger.info(f"🔧 cb_tasks_ok: message_id = {callback.message.message_id}")
-    
+    logger.info("tasks_ok от пользователя %s", callback.from_user.id)
     await callback.answer("👍 Отлично!")
-    await callback.message.edit_text("🎉 Рад был помочь! Если понадобится что-то еще - обращайтесь!")
-    logger.info(f"🔧 cb_tasks_ok: сообщение изменено")
-
-
-# --- Отмена ---
-@router.callback_query(F.data == "back:chat")
-async def cb_back(callback: CallbackQuery):
-    await callback.answer()
-    await callback.message.edit_text("Возвращаюсь в главное меню.")
+    try:
+        await callback.message.edit_text("🎉 Супер! Если понадобится что-то ещё — пишите.")
+    except Exception:
+        # Сообщение могло быть уже отредактировано/удалено пользователем
+        pass

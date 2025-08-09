@@ -1,36 +1,41 @@
+# Воркер (GPT / OCR / LaTeX PDF)
 FROM python:3.10-slim
 
 ENV DEBIAN_FRONTEND=noninteractive \
-    LANG=C.UTF-8 \
-    LC_ALL=C.UTF-8 \
-    PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/app
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
 
-RUN apt-get update \
- && apt-get install -y --no-install-recommends \
-    build-essential \
-    python3-dev \
-    libffi-dev \
-    libpq-dev \
-    libssl-dev \
-    tesseract-ocr \
-    texlive-xetex \
-    texlive-latex-recommended \
-    texlive-latex-extra \
-    texlive-fonts-recommended \
-    texlive-lang-cyrillic \
-    fonts-freefont-ttf \
-    fonts-dejavu \
-    lmodern \
- && rm -rf /var/lib/apt/lists/*
+# Системные зависимости:
+# - build deps для asyncpg/cryptography
+# - TeX Live (pdflatex + кириллица) для компиляции .tex → PDF
+# - tesseract-ocr (если пригодится локальный OCR)
+# - базовые шрифты
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      build-essential python3-dev libffi-dev libpq-dev libssl-dev \
+      tesseract-ocr \
+      texlive-latex-base texlive-xetex texlive-latex-recommended texlive-latex-extra \
+      texlive-fonts-recommended texlive-lang-cyrillic \
+      fonts-dejavu fonts-freefont-ttf lmodern \
+      ca-certificates git curl \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-COPY requirements.txt .
+# Зависимости — отдельным слоем (лучше кэшируется)
+COPY requirements.txt pyproject.toml ./
 RUN pip install --upgrade pip setuptools wheel \
  && pip install --no-cache-dir -r requirements.txt
 
+# Исходники
 COPY . .
 
-# ❗ Без миграции, без env-дампинга
-ENTRYPOINT ["python3", "-u", "-m", "worker.main"]
+# Непривилегированный пользователь
+RUN useradd -m appuser && chown -R appuser:appuser /app
+USER appuser
+
+# HEALTHCHECK: проверяем доступность RabbitMQ (если коннект не удался — python вернёт ненулевой код)
+HEALTHCHECK --interval=30s --timeout=5s --retries=10 \
+  CMD python -c "import os,socket; s=socket.socket(); s.settimeout(3); s.connect((os.getenv('RABBITMQ_HOST','rabbitmq'), int(os.getenv('RABBITMQ_PORT','5672'))))"
+
+# Запуск воркера
+CMD ["python3", "-u", "-m", "worker.main"]

@@ -1,33 +1,42 @@
+# Telegram-бот + pdflatex + aiohttp вебхук (порт 8080)
 FROM python:3.10-slim
 
-RUN apt-get update \
- && apt-get install -y --no-install-recommends \
-    build-essential \
-    python3-dev \
-    libffi-dev \
-    libpq-dev \
-    libssl-dev \
-    tesseract-ocr \
-    texlive-xetex \
-    texlive-latex-recommended \
-    texlive-latex-extra \
-    texlive-fonts-recommended \
-    texlive-lang-cyrillic \
-    fonts-freefont-ttf \
-    fonts-dejavu \
-    lmodern \
- && rm -rf /var/lib/apt/lists/*
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
 
-ENV PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/app
+# Системные зависимости:
+#  - build deps для asyncpg/cryptography
+#  - TeX Live (pdflatex + кириллица) для генерации PDF
+#  - базовые шрифты
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      build-essential python3-dev libffi-dev libpq-dev libssl-dev \
+      texlive-latex-base texlive-latex-recommended texlive-latex-extra texlive-lang-cyrillic \
+      fonts-dejavu lmodern ghostscript ca-certificates git curl \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-COPY requirements.txt ./
+# Устанавливаем зависимости отдельным слоем для кэширования
+COPY requirements.txt pyproject.toml ./
 RUN pip install --upgrade pip setuptools wheel \
  && pip install --no-cache-dir -r requirements.txt
 
+# Копируем исходники
 COPY . .
 
-# ❗ Без миграции, без env-дампинга
-ENTRYPOINT ["python3", "-u", "-m", "bot_app.main"]
+# Непривилегированный пользователь
+RUN useradd -m appuser && chown -R appuser:appuser /app
+USER appuser
+
+# Вебхук оплаты слушает 8080 (aiohttp)
+EXPOSE 8080
+
+# Простой HEALTHCHECK: порт доступен
+HEALTHCHECK --interval=30s --timeout=5s --retries=10 \
+  CMD python -c "import os, socket, sys; s=socket.socket(); s.settimeout(3); host='127.0.0.1'; port=int(os.getenv('PAYMENT_WEBHOOK_PORT','8080')); \
+  \
+  (sys.exit(0) if (s.connect((host,port)) or True) else sys.exit(1)) if not s.close() else None" || exit 1
+
+# Запуск бота (наш main.py в корне)
+CMD ["python", "-u", "main.py"]

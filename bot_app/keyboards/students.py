@@ -1,27 +1,25 @@
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-
 from aiogram.types import InlineKeyboardMarkup
 
-from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-def students_list_kb(students: list, lang: str = "RU"):
+def students_list_kb(students: list, lang: str = "RU") -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     for s in students:
-        name = s["name"] or ("Без имени" if lang.upper() == "RU" else "No Name")
+        name = s.get("name") or ("Без имени" if lang.upper() == "RU" else "No Name")
         kb.button(text=name, callback_data=f"student:{s['id']}")
     kb.button(
         text="➕ Добавить нового" if lang.upper() == "RU" else "➕ Add new",
-        callback_data="add_student"
+        callback_data="add_student",
     )
     kb.button(
         text="← Назад" if lang.upper() == "RU" else "← Back",
-        callback_data="back:main"
+        callback_data="back:main",
     )
     kb.adjust(1)
     return kb.as_markup()
 
 
-def student_actions_kb(student_id: int, lang: str = "RU"):
+def student_actions_kb(student_id: int, lang: str = "RU") -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     if lang.upper() == "EN":
         kb.button(text="📄 Generate tasks", callback_data=f"generate_tasks:{student_id}")
@@ -38,10 +36,8 @@ def student_actions_kb(student_id: int, lang: str = "RU"):
     kb.adjust(1)
     return kb.as_markup()
 
-def confirm_delete_kb(student_id: int, lang: str = "RU"):
-    """
-    Confirmation keyboard for deleting a student profile.
-    """
+
+def confirm_delete_kb(student_id: int, lang: str = "RU") -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     yes_text = "Да" if lang.upper() == "RU" else "Yes"
     no_text = "Нет" if lang.upper() == "RU" else "No"
@@ -50,7 +46,9 @@ def confirm_delete_kb(student_id: int, lang: str = "RU"):
     kb.adjust(2)
     return kb.as_markup()
 
+
 def back_button(text: str = "← Назад", callback: str = "back:main") -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.button(text=text, callback_data=callback)
+    kb.adjust(1)
     return kb.as_markup()

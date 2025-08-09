@@ -1,12 +1,31 @@
-\documentclass{article}
+% tasks_template.tex — шаблон для заданий и решений
+\documentclass[12pt]{article}
+
+\usepackage[T2A]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[russian]{babel}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amsfonts,amssymb}
 \usepackage{enumitem}
+
+\setlist[enumerate]{itemsep=6pt,topsep=6pt}
+
 \begin{document}
-\section*{Сгенерированные задания}
-% The tasks and solutions will be formatted as an enumerate list.
-%\begin{enumerate}[leftmargin=*]
-%  \item Task 1 text...
-%        \newline \textbf{Решение:} Solution for task 1...
-%  \item Task 2 text...
-%        \newline \textbf{Решение:} Solution for task 2...
-%\end{enumerate}
+
+\begin{center}
+{\LARGE\bfseries {{ title }}}
+\end{center}
+
+\section*{Задачи}
+\begin{enumerate}
+% Список задач (\item ...)
+{{ content_tasks }}
+\end{enumerate}
+
+\section*{Решения}
+\begin{enumerate}
+% Список решений (\item ...) — в том же количестве, что и задачи
+{{ content_solutions }}
+\end{enumerate}
+
 \end{document}

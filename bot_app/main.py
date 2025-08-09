@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
+import os
 import asyncio
 import logging
-import aio_pika
+import contextlib
+
+from aiohttp import web
+from bot_app.webhooks.payment_webhook_aiohttp import build_app as build_payment_app
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.bot import DefaultBotProperties
@@ -9,70 +13,43 @@ from aiogram.enums import ParseMode
 from aiogram.fsm.storage.redis import RedisStorage
 from aiogram.types import BotCommand, BotCommandScopeDefault
 
-import bot_app.config as app_config
-import worker.config as worker_config
 from common.redis_utils import init_redis_pool
-from bot_app.database import db
-from bot_app.rabbit import process_result
-from bot_app.middlewares.auth import AuthMiddleware
+import bot_app.config as app_config
 
+# DB
+from bot_app.database import db
+
+# Роутеры хэндлеров
 from bot_app.handlers.start import router as start_router
 from bot_app.handlers.students import router as students_router
 from bot_app.handlers.ocr_and_generate import router as ocr_and_generate_router
 from bot_app.handlers.generation import router as generation_router
-from bot_app.handlers.chatgpt import router as chatgpt_router
+from bot_app.handlers.chatgpt import router as chatgpt_router  # ⟵ один роутер
 from bot_app.handlers.subscription import router as subscription_router
 from bot_app.handlers.settings import router as settings_router
 from bot_app.handlers.homework_check import router as homework_check_router
-from bot_app.handlers.chat_gpt import router as chat_gpt_router
 from bot_app.handlers.main_menu import router as main_menu_router
+from bot_app.handlers.payment import router as payment_router
 
+# Результаты (AMQP + Redis)
+from bot_app.result_consumer import run_result_consumers
 
-async def consume_results(bot: Bot):
-    try:
-        logging.info(f"🔧 Подключение к RabbitMQ для result_queue:")
-        logging.info(f"  Host: {app_config.RABBITMQ_HOST}")
-        logging.info(f"  Port: {app_config.RABBITMQ_PORT}")
-        logging.info(f"  User: {app_config.RABBITMQ_USER}")
-        logging.info(f"  Queue: {app_config.RESULT_QUEUE}")
-        
-        connection = await aio_pika.connect_robust(
-            host=app_config.RABBITMQ_HOST,
-            port=app_config.RABBITMQ_PORT,
-            login=app_config.RABBITMQ_USER,
-            password=app_config.RABBITMQ_PASS,
-        )
-        channel = await connection.channel()
-        await channel.set_qos(prefetch_count=5)
-        queue = await channel.declare_queue(app_config.RESULT_QUEUE, durable=True)
-        
-        logging.info(f"✅ Подписались на очередь '{app_config.RESULT_QUEUE}', ожидаем результаты...")
+# Middleware
+from bot_app.middlewares.auth import AuthMiddleware
 
-        async with queue.iterator() as queue_iter:
-            async for message in queue_iter:
-                try:
-                    await process_result(message, bot)
-                except Exception as e:
-                    logging.error(f"Ошибка обработки result_queue: {e}")
-    except Exception as e:
-        logging.error(f"🔴 Критическая ошибка в consume_results: {e}")
-        raise
+# RabbitMQ общий канал для быстрой публикации из хэндлеров
+import aio_pika
+import bot_app  # чтобы положить connection/channel в пространство пакета
 
 
 async def on_startup(bot_: Bot, dp: Dispatcher):
     logging.info("🚀 Startup: очищаем команды и инициализируем сервисы")
-    logging.info("🔧 Проверяем конфигурацию RabbitMQ:")
-    logging.info(f"  RABBITMQ_HOST: {app_config.RABBITMQ_HOST}")
-    logging.info(f"  RABBITMQ_PORT: {app_config.RABBITMQ_PORT}")
-    logging.info(f"  RABBITMQ_USER: {app_config.RABBITMQ_USER}")
-    logging.info(f"  RESULT_QUEUE: {app_config.RESULT_QUEUE}")
 
-    # Удаляем все старые команды
+    # Сбрасываем команды (RU/EN)
     await bot_.delete_my_commands(scope=BotCommandScopeDefault(), language_code="ru")
     await bot_.delete_my_commands(scope=BotCommandScopeDefault(), language_code="en")
     await bot_.delete_my_commands(scope=None)
 
-    # Ставим новые команды
     await bot_.set_my_commands([
         BotCommand("start", "Старт бота"),
         BotCommand("help", "Помощь"),
@@ -82,104 +59,107 @@ async def on_startup(bot_: Bot, dp: Dispatcher):
         BotCommand("help", "Help"),
     ], language_code="en")
 
-    # Обработчик результатов запускается в main()
-    logging.info("✅ Startup завершен")
+    logging.info("✅ Startup завершён")
 
 
 async def on_shutdown(bot_: Bot, dp: Dispatcher):
-    logging.info("🔌 Shutdown: закрываем пул БД и RabbitMQ соединение")
-    if db._pool:
-        await db._pool.close()
-    
-    # Закрываем RabbitMQ соединение
-    import bot_app
-    if bot_app.rabbit_channel:
-        await bot_app.rabbit_channel.close()
-        logging.info("🔌 RabbitMQ канал закрыт")
+    logging.info("🔌 Shutdown: закрываем ресурсы")
+    # Закрываем пул БД
+    try:
+        if db._pool:
+            await db._pool.close()
+            logging.info("🔌 DB pool закрыт")
+    except Exception:
+        logging.exception("Ошибка закрытия DB pool")
+
+    # Закрываем RabbitMQ канал и соединение
+    try:
+        if getattr(bot_app, "rabbit_channel", None):
+            await bot_app.rabbit_channel.close()
+            logging.info("🔌 RabbitMQ канал закрыт")
+    except Exception:
+        logging.exception("Ошибка закрытия RabbitMQ канала")
+
+    try:
+        if getattr(bot_app, "rabbit_connection", None):
+            await bot_app.rabbit_connection.close()
+            logging.info("🔌 RabbitMQ соединение закрыто")
+    except Exception:
+        logging.exception("Ошибка закрытия RabbitMQ соединения")
 
 
 async def main():
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s"
+    )
 
-    # 1) Инициализация Redis (должна быть первой!)
+    # 1) Redis pool (общий для проекта)
     await init_redis_pool(
-        worker_config.REDIS_HOST,
-        worker_config.REDIS_PORT,
-        worker_config.REDIS_DB
+        app_config.REDIS_HOST,
+        app_config.REDIS_PORT,
+        app_config.REDIS_DB_CACHE,  # пул по умолчанию для кэша/контекстов
     )
 
-    # 2) Инициализация PostgreSQL
-    dsn = (
-        f"postgresql://{app_config.DB_USER}:{app_config.DB_PASSWORD}"
-        f"@{app_config.DB_HOST}:{app_config.DB_PORT}/{app_config.DB_NAME}"
-    )
-    await db.init_db_pool(dsn)
+    # 2) PostgreSQL pool
+    await db.init_db_pool(app_config.POSTGRES_DSN())
 
-    # 3) Настройка Bot и Dispatcher
-    bot = Bot(
-        token=app_config.BOT_TOKEN,
-        default=DefaultBotProperties(parse_mode=ParseMode.HTML)
-    )
+    # 3) Bot + Dispatcher
+    bot = Bot(token=app_config.BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     storage = RedisStorage.from_url(
-        f"redis://{worker_config.REDIS_HOST}:{worker_config.REDIS_PORT}/{app_config.REDIS_DB_FSM}"
+        f"redis://{app_config.REDIS_HOST}:{app_config.REDIS_PORT}/{app_config.REDIS_DB_FSM}"
     )
     dp = Dispatcher(storage=storage)
 
-    # Инициализируем RabbitMQ канал
-    logging.info("🔧 Инициализация RabbitMQ канала...")
-    import bot_app
-    connection = await aio_pika.connect_robust(
+    # 4) Инициализируем общий RabbitMQ channel (для публикации задач из UI)
+    logging.info("🔧 Инициализация RabbitMQ канала…")
+    bot_app.rabbit_connection = await aio_pika.connect_robust(
         host=app_config.RABBITMQ_HOST,
         port=app_config.RABBITMQ_PORT,
         login=app_config.RABBITMQ_USER,
         password=app_config.RABBITMQ_PASS,
     )
-    bot_app.rabbit_channel = await connection.channel()
+    bot_app.rabbit_channel = await bot_app.rabbit_connection.channel()
     logging.info("✅ RabbitMQ канал инициализирован")
 
-    # Подключаем middleware
+    # 5) Middleware
     dp.message.middleware(AuthMiddleware())
     dp.callback_query.middleware(AuthMiddleware())
 
-    # Регистрируем роутеры
+    # 6) Роутеры
     dp.include_router(start_router)
     dp.include_router(students_router)
     dp.include_router(ocr_and_generate_router)
     dp.include_router(generation_router)
-    dp.include_router(chatgpt_router)
+    dp.include_router(chatgpt_router)            # только один чат-роутер
     dp.include_router(subscription_router)
     dp.include_router(settings_router)
     dp.include_router(homework_check_router)
-    dp.include_router(chat_gpt_router)
     dp.include_router(main_menu_router)
-    
-    # Запускаем polling в отдельной задаче
-    polling_task = asyncio.create_task(
-        dp.start_polling(
-            bot,
-            skip_updates=True,
-            on_startup=on_startup,
-            on_shutdown=on_shutdown
-        )
-    )
-    
-    # Запускаем обработчик результатов из Redis
-    logging.info("🚀 Запускаем обработчик результатов из Redis...")
-    from bot_app.redis_result_consumer import consume_redis_results
-    consume_task = asyncio.create_task(consume_redis_results(bot))
-    logging.info("✅ Обработчик результатов запущен")
-    
-    # Ждём завершения polling (это блокирует выполнение)
+    dp.include_router(payment_router)
+
+    # 7) Поднимаем aiohttp-вебсервер для платежного вебхука
+    webhook_port = int(os.getenv("PAYMENT_WEBHOOK_PORT", "8080"))
+    payment_app = build_payment_app()
+    runner = web.AppRunner(payment_app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", webhook_port)
+    await site.start()
+    logging.info("🌐 Payment webhook is listening on 0.0.0.0:%d", webhook_port)
+
+    # 8) Параллельно запускаем консюмеры результатов (AMQP + Redis)
+    consumers_task = asyncio.create_task(run_result_consumers(bot), name="result_consumers")
+
+    # 9) Polling
     try:
-        await polling_task
-    except KeyboardInterrupt:
-        logging.info("🛑 Получен сигнал завершения")
+        await dp.start_polling(bot, skip_updates=True, on_startup=on_startup, on_shutdown=on_shutdown)
     finally:
-        consume_task.cancel()
-        try:
-            await consume_task
-        except asyncio.CancelledError:
-            pass
+        consumers_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await consumers_task
+        # останавливаем aiohttp вебсервер
+        with contextlib.suppress(Exception):
+            await runner.cleanup()
 
 
 if __name__ == "__main__":

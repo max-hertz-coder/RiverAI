@@ -1,8 +1,28 @@
-\documentclass{article}
+% plan_template.tex — шаблон для печати учебного плана
+\documentclass[12pt]{article}
+
+\usepackage[T2A]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[russian]{babel}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amsfonts,amssymb}
+\usepackage{enumitem}
+
+\setlist[enumerate]{itemsep=6pt,topsep=6pt}
+
 \begin{document}
-% The generated plan content will be inserted here.
-% Example:
-%\section*{Учебный план}
-%1. Topic 1 - description...
-%2. Topic 2 - description...
+
+\begin{center}
+{\LARGE\bfseries Индивидуальный учебный план}
+\end{center}
+
+\vspace{0.8em}
+
+\section*{План занятий}
+\begin{enumerate}
+% Сюда подставляется список пунктов плана (каждый пункт — \item ...)
+% Пример Jinja: {{ content }}
+{{ content }}
+\end{enumerate}
+
 \end{document}

@@ -1,4 +1,17 @@
-Host github.com
-  User git
-  IdentityFile ~/.ssh/github-<role>   # заменить <role> на queue, worker или based
-  IdentitiesOnly yes
+# config — служебный файл для pdf-шаблонов (опционально)
+# Он не обязателен для работы, но полезен, если хочешь хранить настройки LaTeX вне кода.
+# Его можно положить в bot_app/pdf_templates/config и читать в pdf_compiler/pdf_utils при инициализации.
+
+[TEMPLATES]
+# Абсолютные или относительные пути (относительно корня проекта)
+PLAN_TEMPLATE=bot_app/pdf_templates/plan_template.tex
+REPORT_TEMPLATE=bot_app/pdf_templates/report_template.tex
+TASKS_TEMPLATE=bot_app/pdf_templates/tasks_template.tex
+
+[PDFLATEX]
+# Ключи по умолчанию для pdflatex
+FLAGS=-halt-on-error -interaction=nonstopmode
+
+[LOCALE]
+# Язык оформления (если будет набор других шаблонов)
+LANG=ru

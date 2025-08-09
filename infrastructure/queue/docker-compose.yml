@@ -5,6 +5,18 @@ services:
     restart: unless-stopped
     ports:
       - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
     networks:
       - riverai-network
 
@@ -18,6 +30,18 @@ services:
     ports:
       - "5672:5672"
       - "15672:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD-SHELL", "rabbitmq-diagnostics -q ping || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
     networks:
       - riverai-network
 
@@ -28,16 +52,21 @@ services:
     container_name: queue-server
     restart: unless-stopped
     depends_on:
-      - redis
-      - rabbitmq
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
     env_file:
       - .env
     environment:
-      - TELEGRAM_ID_SALT=${TELEGRAM_ID_SALT}
-      - WORKER_ENCRYPTION_SECRET=${WORKER_ENCRYPTION_SECRET}
-      - YDKEY_V1=${YDKEY_V1}
-      - YDKEY_VERSION=${YDKEY_VERSION}
-      - WORKER_POSTGRES_DSN=${WORKER_POSTGRES_DSN}
+      TELEGRAM_ID_SALT: ${TELEGRAM_ID_SALT}
+      WORKER_ENCRYPTION_SECRET: ${WORKER_ENCRYPTION_SECRET}
+      YDKEY_V1: ${YDKEY_V1}
+      YDKEY_VERSION: ${YDKEY_VERSION}
+      WORKER_POSTGRES_DSN: ${WORKER_POSTGRES_DSN}
+      # RABBITMQ_HOST здесь должен ссылаться на IP/домен ЭТОГО сервера (или имя контейнера 'rabbitmq' внутри этой машины)
+      RABBITMQ_HOST: ${RABBITMQ_HOST:-rabbitmq}
+      RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
     logging:
       driver: "json-file"
       options:
@@ -45,6 +74,10 @@ services:
         max-file: "5"
     networks:
       - riverai-network
+
+volumes:
+  redis-data:
+  rabbitmq-data:
 
 networks:
   riverai-network:
