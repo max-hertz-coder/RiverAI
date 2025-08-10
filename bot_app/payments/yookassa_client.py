@@ -1,26 +1,36 @@
 # bot_app/payments/yookassa_client.py
 from __future__ import annotations
+
 import uuid
 from typing import Dict, Any
 
 from yookassa import Configuration, Payment
-
 from bot_app import config
 
 
-def _configure():
+def _configure() -> None:
+    """
+    Готовит SDK YooKassa к работе. Бросает RuntimeError, если конфиг не заполнен.
+    """
     if not config.YOOKASSA_SHOP_ID or not config.YOOKASSA_SECRET_KEY:
         raise RuntimeError("YOOKASSA_SHOP_ID/YOOKASSA_SECRET_KEY are not set")
-    Configuration.account_id = config.YOOKASSA_SHOP_ID
-    Configuration.secret_key = config.YOOKASSA_SECRET_KEY
+    Configuration.account_id = str(config.YOOKASSA_SHOP_ID)
+    Configuration.secret_key = str(config.YOOKASSA_SECRET_KEY)
 
 
 def create_invoice(amount_rub: int, description: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Создаёт платёж в YooKassa и возвращает {payment_id, pay_url}.
+    Создаёт платёж в YooKassa и возвращает словарь:
+    {
+      "payment_id": str,
+      "pay_url": str,
+      "status": str
+    }
+    Любая ошибка наружу — пусть её перехватывает хэндлер и делает фолбэк.
     """
     _configure()
     idem = str(uuid.uuid4())
+
     payment = Payment.create({
         "amount": {"value": f"{amount_rub:.2f}", "currency": "RUB"},
         "confirmation": {"type": "redirect", "return_url": config.PAYMENT_RETURN_URL},
@@ -28,6 +38,7 @@ def create_invoice(amount_rub: int, description: str, metadata: Dict[str, Any]) 
         "description": description[:127],
         "metadata": metadata or {},
     }, idem)
+
     return {
         "payment_id": payment.id,
         "pay_url": payment.confirmation.confirmation_url,
@@ -36,6 +47,9 @@ def create_invoice(amount_rub: int, description: str, metadata: Dict[str, Any]) 
 
 
 def fetch_status(payment_id: str) -> str:
+    """
+    Возвращает статус платежа ('pending' | 'waiting_for_capture' | 'succeeded' | 'canceled').
+    """
     _configure()
     payment = Payment.find_one(payment_id)
-    return payment.status  # 'pending' | 'waiting_for_capture' | 'succeeded' | 'canceled'
+    return str(payment.status)

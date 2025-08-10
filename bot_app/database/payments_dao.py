@@ -1,5 +1,6 @@
 # bot_app/database/payments_dao.py
 from __future__ import annotations
+
 from typing import Any, Dict, List, Optional
 from datetime import datetime
 import uuid
@@ -7,13 +8,15 @@ import uuid
 from bot_app.database.db import _get_pool
 from bot_app.utils.identity import hash_telegram_id
 
+
 def _gen_manual_invoice_id() -> str:
     return f"manual:{uuid.uuid4()}"
+
 
 async def create_payment(
     user_id: int,
     provider: str,
-    invoice_id: str | None,
+    invoice_id: Optional[str],
     amount_rub: int,
     label: str = "",
     currency: str = "RUB",
@@ -21,7 +24,7 @@ async def create_payment(
     meta: Optional[Dict[str, Any]] = None,
 ) -> str:
     """
-    Возвращает invoice_id (сгенерирует, если None и provider='manual').
+    Создаёт запись о платеже. Возвращает invoice_id (сгенерирует, если None и provider='manual').
     """
     inv = invoice_id or (_gen_manual_invoice_id() if provider == "manual" else None)
     if not inv:
@@ -40,27 +43,31 @@ async def create_payment(
         )
     return inv
 
+
 async def get_payment(invoice_id: str) -> Optional[Dict[str, Any]]:
     pool = _get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow("SELECT * FROM payments WHERE invoice_id=$1", invoice_id)
     return dict(row) if row else None
 
-async def update_status(invoice_id: str, status: str, paid_at: datetime | None = None) -> None:
+
+async def update_status(invoice_id: str, status: str, paid_at: Optional[datetime] = None) -> None:
     pool = _get_pool()
     async with pool.acquire() as conn:
         await conn.execute(
             "UPDATE payments SET status=$1, paid_at=$2 WHERE invoice_id=$3",
-            status, paid_at, invoice_id
+            status, paid_at, invoice_id,
         )
+
 
 async def mark_paid(invoice_id: str) -> None:
     pool = _get_pool()
     async with pool.acquire() as conn:
         await conn.execute(
             "UPDATE payments SET status='succeeded', paid_at=$1 WHERE invoice_id=$2",
-            datetime.utcnow(), invoice_id
+            datetime.utcnow(), invoice_id,
         )
+
 
 async def get_user_payments(user_id: int, limit: int = 20) -> List[Dict[str, Any]]:
     pool = _get_pool()

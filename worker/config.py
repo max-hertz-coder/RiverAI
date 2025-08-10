@@ -1,4 +1,4 @@
-# worker/config.py — ИТОГОВЫЙ
+# worker/config.py — ИТОГ
 
 import os
 import logging
@@ -7,9 +7,6 @@ from typing import List
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------
-# Helpers
-# ---------------------------
 def _req(name: str) -> str:
     v = os.getenv(name, "").strip()
     if not v:
@@ -21,11 +18,6 @@ def _opt(name: str, default: str = "") -> str:
     return default if v is None else v
 
 def _parse_encryption_key(raw: str) -> bytes:
-    """
-    Допускаем:
-      - 64-символьную hex-строку (32 байта)
-      - строку длиной 16/24/32 байта (AES)
-    """
     raw = (raw or "").strip()
     if not raw:
         raise RuntimeError("ENCRYPTION_KEY is not set for worker")
@@ -48,39 +40,34 @@ def _read_openai_keys() -> List[str]:
             keys.append(k)
     return keys
 
-# ---------------------------
-# OpenAI
-# ---------------------------
+# --- OpenAI
 OPENAI_API_KEYS = _read_openai_keys()
 OPENAI_API_KEY = OPENAI_API_KEYS[0] if OPENAI_API_KEYS else None
 if not OPENAI_API_KEY:
     raise RuntimeError("OPENAI_API_KEYS/OPENAI_API_KEY is not set for worker")
 
-# ---------------------------
-# RabbitMQ
-# ---------------------------
+# --- RabbitMQ
 RABBITMQ_HOST = _req("RABBITMQ_HOST")
 RABBITMQ_PORT = int(_opt("RABBITMQ_PORT", "5672"))
 RABBITMQ_USER = _req("RABBITMQ_USER")
 RABBITMQ_PASS = _req("RABBITMQ_PASS")
 RABBITMQ_TASK_QUEUE = _opt("RABBITMQ_TASK_QUEUE", "task_queue")
 RABBITMQ_RESULT_QUEUE = _opt("RABBITMQ_RESULT_QUEUE", "result_queue")
+# Алиасы для старого кода:
+TASK_QUEUE = RABBITMQ_TASK_QUEUE
+RESULT_QUEUE = RABBITMQ_RESULT_QUEUE
 
 def RABBITMQ_AMQP_URL() -> str:
     return f"amqp://{RABBITMQ_USER}:{RABBITMQ_PASS}@{RABBITMQ_HOST}:{RABBITMQ_PORT}/"
 
-# ---------------------------
-# Redis (кэш/контексты)
-# ---------------------------
+# --- Redis
 REDIS_HOST = _req("REDIS_HOST")
 REDIS_PORT = int(_opt("REDIS_PORT", "6379"))
-# Основной alias — чтобы старый код, который берёт REDIS_DB, не падал
 REDIS_DB_CACHE = int(_opt("REDIS_DB_CACHE", "1"))
-REDIS_DB = int(_opt("REDIS_DB", str(REDIS_DB_CACHE)))  # ← алиас для совместимости
+# алиас, чтобы старый код `config.REDIS_DB` не падал
+REDIS_DB = int(_opt("REDIS_DB", str(REDIS_DB_CACHE)))
 
-# ---------------------------
-# PostgreSQL (совм. режим)
-# ---------------------------
+# --- PostgreSQL
 DB_DSN = os.getenv("WORKER_POSTGRES_DSN", "").strip()
 if not DB_DSN:
     POSTGRES_HOST = _req("POSTGRES_HOST")
@@ -97,24 +84,20 @@ DB_NAME = (_parsed.path or "/").lstrip("/") or _opt("POSTGRES_DB")
 DB_USER = _parsed.username or _opt("POSTGRES_USER")
 DB_PASSWORD = _parsed.password or _opt("POSTGRES_PASSWORD")
 
-# ---------------------------
-# Security / Crypto
-# ---------------------------
+# --- Security
 ENCRYPTION_KEY = _parse_encryption_key(_req("ENCRYPTION_KEY"))
 TELEGRAM_ID_SALT = _req("TELEGRAM_ID_SALT")
 WORKER_ENCRYPTION_SECRET = _req("WORKER_ENCRYPTION_SECRET")
 
-# ---------------------------
-# Observability
-# ---------------------------
+# --- Observability
 SENTRY_DSN = _opt("SENTRY_DSN", "")
 DEBUG = _opt("DEBUG", "0").lower() in {"1", "true", "t", "yes", "y", "on"}
 
 def log_config_safely() -> None:
     try:
         logger.info("🔧 Worker config loaded:")
-        logger.info("  DB_DSN: postgresql://***:***@%s:%s/%s", DB_HOST, DB_PORT, DB_NAME)
-        logger.info("  RABBITMQ: %s:%s task=%s result=%s", RABBITMQ_HOST, RABBITMQ_PORT, RABBITMQ_TASK_QUEUE, RABBITMQ_RESULT_QUEUE)
+        logger.info("  DB: postgresql://***:***@%s:%s/%s", DB_HOST, DB_PORT, DB_NAME)
+        logger.info("  RABBITMQ: %s:%s task=%s result=%s", RABBITMQ_HOST, RABBITMQ_PORT, TASK_QUEUE, RESULT_QUEUE)
         logger.info("  REDIS: %s:%s/%s", REDIS_HOST, REDIS_PORT, REDIS_DB)
         logger.info("  OPENAI_KEYS: %d", len(OPENAI_API_KEYS))
         logger.info("  SENTRY: %s", "on" if SENTRY_DSN else "off")
