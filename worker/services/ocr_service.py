@@ -1,3 +1,4 @@
+# worker/services/ocr_service.py
 import os
 import base64
 import tempfile
@@ -5,16 +6,22 @@ import logging
 import asyncio
 
 import fitz  # PyMuPDF
-from dotenv import load_dotenv
 from openai import OpenAI
 
 from worker.services.tasks_service import handle_tasks
-load_dotenv()
 
-OPENAI_KEY = os.getenv("OPENAI_API_KEY")
-if not OPENAI_KEY:
-    raise RuntimeError("Missing OPENAI_API_KEY environment variable")
+def _pick_openai_key() -> str:
+    keys = []
+    raw = (os.getenv("OPENAI_API_KEYS") or "") + "," + (os.getenv("OPENAI_API_KEY") or "")
+    for k in raw.replace("\n", ",").split(","):
+        k = k.strip()
+        if k:
+            keys.append(k)
+    if not keys:
+        raise RuntimeError("Missing OPENAI_API_KEY/OPENAI_API_KEYS environment variable")
+    return keys[0]
 
+OPENAI_KEY = _pick_openai_key()
 client = OpenAI(api_key=OPENAI_KEY)
 logger = logging.getLogger(__name__)
 

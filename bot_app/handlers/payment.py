@@ -15,7 +15,6 @@ router = Router()
 
 
 def _provider_is_yookassa() -> bool:
-    # ЕДИНЫЙ переключатель: config.PAYMENTS_PROVIDER = 'yookassa' | 'manual'
     return (getattr(config, "PAYMENTS_PROVIDER", "") or "").lower() == "yookassa"
 
 
@@ -65,13 +64,9 @@ async def cb_pay(callback: CallbackQuery):
         return
 
     description = f"{model} x{students} / {callback.from_user.id}"
-    metadata = {
-        "user_id": callback.from_user.id,
-        "model": model,
-        "students": students,
-    }
+    metadata = {"user_id": callback.from_user.id, "model": model, "students": students}
 
-    # Попытка через YooKassa (если включена)
+    # Попытка YooKassa (если включена)
     if _provider_is_yookassa():
         try:
             from bot_app.payments.yookassa_client import create_invoice
@@ -94,13 +89,12 @@ async def cb_pay(callback: CallbackQuery):
             await callback.answer()
             return
         except Exception as e:
-            # Любая ошибка YooKassa → фолбэк на manual
             if config.ADMIN_CHAT_ID:
                 try:
                     await callback.bot.send_message(config.ADMIN_CHAT_ID, f"🔴 Ошибка YooKassa: {e}")
                 except Exception:
                     pass
-            # проваливаемся в manual ниже
+            # идём в manual ниже
 
     # Ручная оплата
     invoice_id = f"manual:{uuid.uuid4()}"
@@ -121,7 +115,7 @@ async def cb_pay(callback: CallbackQuery):
         f"Карта: <code>{card}</code>\n\n"
         "После перевода нажмите «Я оплатил». Мы проверим платёж и активируем подписку."
     )
-    await callback.message.edit_text(text, reply_markup=_kb_manual(invoice_id))
+    await callback.message.edit_text(text, parse_mode="HTML", reply_markup=_kb_manual(invoice_id))
     await callback.answer()
 
 
@@ -130,7 +124,6 @@ async def cb_manual_paid(callback: CallbackQuery):
     invoice_id = callback.data.split(":", 1)[1]
     await payments_dao.update_status(invoice_id, "manual_reported")
 
-    # Уведомим админа
     admin_id = int(getattr(config, "ADMIN_CHAT_ID", 0) or 0)
     if admin_id:
         p = await payments_dao.get_payment(invoice_id)
@@ -158,12 +151,10 @@ async def cb_manual_paid(callback: CallbackQuery):
 async def cb_check_payment(callback: CallbackQuery):
     invoice_id = callback.data.split(":", 1)[1]
 
-    # В manual-режиме просто напомним пользователю
     if invoice_id.startswith("manual:") or not _provider_is_yookassa():
         await callback.answer("Заявка на ручную оплату в обработке. Ожидайте подтверждения.", show_alert=True)
         return
 
-    # YooKassa-проверка
     try:
         from bot_app.payments.yookassa_client import fetch_status
         status = fetch_status(invoice_id)
@@ -182,8 +173,8 @@ async def cb_check_payment(callback: CallbackQuery):
         meta = (p or {}).get("meta") or {}
         model = meta.get("model", "standard")
         students = int(meta.get("students") or 0)
-        until = datetime.now() + timedelta(days=30)
 
+        until = datetime.now() + timedelta(days=30)
         await db.set_subscription(callback.from_user.id, model, students, until)
         await db.set_plan(callback.from_user.id, model)
         await database.db.reset_usage(callback.from_user.id)

@@ -1,9 +1,9 @@
-# bot_app/rabbit.py — финальная версия (TTL fix и аккуратные declare)
-
+# bot_app/rabbit.py
 import os
 import base64
 import json
 import logging
+from html import escape
 from typing import Any, Dict, Optional
 
 import aio_pika
@@ -18,6 +18,23 @@ from common.redis_utils import get_context_by_task_id, cleanup_task_context, sav
 
 logger = logging.getLogger(__name__)
 _channel: Optional[aio_pika.Channel] = None
+
+
+def _format_html(text: str) -> str:
+    """
+    Очень аккуратный форматтер:
+      - экранируем HTML
+      - преобразуем строки, начинающиеся с '-' или '*', в буллеты
+      - сохраняем переносы строк
+    """
+    t = escape(text or "").replace("\r", "")
+    lines = []
+    for ln in t.split("\n"):
+        s = ln.lstrip()
+        if s.startswith("- ") or s.startswith("* "):
+            ln = "• " + s[2:]
+        lines.append(ln)
+    return "\n".join(lines).strip()
 
 
 async def _get_channel() -> aio_pika.Channel:
@@ -80,22 +97,24 @@ async def handle_result_payload(bot: Bot, data: Dict[str, Any]) -> None:
 
     try:
         if result_type in {"chat", "chat_gpt"}:
-            text = data.get("answer") or data.get("gpt_response") or "(нет ответа)"
-            await bot.send_message(user_id, text, reply_markup=back_button("← Назад", "back:main"))
+            raw = data.get("answer") or data.get("gpt_response") or "(нет ответа)"
+            text = _format_html(raw)
+            await bot.send_message(user_id, text, parse_mode="HTML",
+                                   reply_markup=back_button("← Назад", "back:main"))
 
         elif result_type == "plan":
-            plan_text = data.get("plan_text", "(пусто)")
-            await bot.send_message(user_id, f"📄 План:\n{plan_text}", reply_markup=result_plan_kb(student_id))
+            plan_text = _format_html(data.get("plan_text", "(пусто)"))
+            await bot.send_message(user_id, f"📄 План:\n{plan_text}", parse_mode="HTML",
+                                   reply_markup=result_plan_kb(student_id))
 
         elif result_type == "tasks":
             prompt = (data.get("prompt") or "").strip()
             raw = (data.get("tasks_text") or "").strip()
-
             parts = []
             if prompt:
-                parts.append(f"🔄 Финальный запрос для генерации:\n{prompt}")
+                parts.append(f"🔄 Финальный запрос для генерации:\n{_format_html(prompt)}")
             if raw:
-                parts.append(f"📝 Задания:\n\n{raw}")
+                parts.append(f"📝 Задания:\n\n{_format_html(raw)}")
             parts.append("❓ Всё ли устраивает?")
             text = "\n\n".join(parts)
 
@@ -103,11 +122,10 @@ async def handle_result_payload(bot: Bot, data: Dict[str, Any]) -> None:
                 InlineKeyboardButton(text="✅ Всё норм", callback_data="tasks_ok"),
                 InlineKeyboardButton(text="✏️ Переделать", callback_data=f"refine_tasks:{student_id or 0}"),
             ]])
-            await bot.send_message(user_id, text, reply_markup=kb)
+            await bot.send_message(user_id, text, parse_mode="HTML", reply_markup=kb)
 
             t_b64 = data.get("tasks_pdf_b64") or data.get("file_tasks")
             s_b64 = data.get("solutions_pdf_b64") or data.get("file_solutions")
-
             if t_b64:
                 t_bytes = base64.b64decode(t_b64)
                 await bot.send_document(user_id, BufferedInputFile(t_bytes, "Tasks.pdf"), caption="📎 PDF: Задания")
@@ -120,24 +138,27 @@ async def handle_result_payload(bot: Bot, data: Dict[str, Any]) -> None:
                     logger.exception("Не удалось сохранить Solutions.pdf в Redis")
 
         elif result_type == "check":
-            report = data.get("report_text", "(нет отчёта)")
-            await bot.send_message(user_id, f"✔️ Результаты проверки:\n{report}", reply_markup=result_check_kb(student_id))
+            report = _format_html(data.get("report_text", "(нет отчёта)"))
+            await bot.send_message(user_id, f"✔️ Результаты проверки:\n{report}",
+                                   parse_mode="HTML", reply_markup=result_check_kb(student_id))
             file_b64 = data.get("file")
             if file_b64:
                 pdf_bytes = base64.b64decode(file_b64)
-                await bot.send_document(user_id, BufferedInputFile(pdf_bytes, "Homework_Report.pdf"), caption="📎 Отчёт в PDF")
+                await bot.send_document(user_id, BufferedInputFile(pdf_bytes, "Homework_Report.pdf"),
+                                        caption="📎 Отчёт в PDF")
 
         elif result_type == "homework_check":
-            report_text = data.get("check_result", "(нет отчёта)")
+            report_text = _format_html(data.get("check_result", "(нет отчёта)"))
             file_b64 = data.get("file")
             if file_b64:
                 pdf_bytes = base64.b64decode(file_b64)
-                await bot.send_document(user_id, BufferedInputFile(pdf_bytes, "Homework_Check.pdf"), caption="📄 Результат проверки ДЗ")
+                await bot.send_document(user_id, BufferedInputFile(pdf_bytes, "Homework_Check.pdf"),
+                                        caption="📄 Результат проверки ДЗ")
             else:
                 if len(report_text) > 4000:
                     report_text = report_text[:4000] + "\n\n… (ответ обрезан)"
                 await bot.send_message(user_id, f"📋 Результат проверки ДЗ:\n\n{report_text}",
-                                       reply_markup=result_check_kb(student_id))
+                                       parse_mode="HTML", reply_markup=result_check_kb(student_id))
 
         elif result_type == "ocr":
             user_prompt = (data.get("prompt") or "").strip()
@@ -146,7 +167,8 @@ async def handle_result_payload(bot: Bot, data: Dict[str, Any]) -> None:
                 await bot.send_message(user_id, "❌ Не удалось распознать текст на изображении.")
             else:
                 final_prompt = f"{user_prompt}\n\n{ocr_text}" if user_prompt else ocr_text
-                await bot.send_message(user_id, f"🔄 Финальный запрос для генерации:\n{final_prompt}")
+                await bot.send_message(user_id, f"🔄 Финальный запрос для генерации:\n{_format_html(final_prompt)}",
+                                       parse_mode="HTML")
                 try:
                     from bot_app.task_utils import create_task_with_context
                     task = {"type": "generate_tasks", "user_id": user_id, "student_id": student_id, "prompt": final_prompt}
@@ -159,9 +181,10 @@ async def handle_result_payload(bot: Bot, data: Dict[str, Any]) -> None:
 
         elif result_type == "error":
             error_msg = data.get("message", "Неизвестная ошибка")
-            await bot.send_message(user_id, f"⚠️ Ошибка: {error_msg}")
+            await bot.send_message(user_id, f"⚠️ Ошибка: {escape(error_msg)}", parse_mode="HTML")
             try:
-                await bot.send_message(config.ADMIN_CHAT_ID, f"🔴 Worker error (user {user_id}, task {task_id}): {error_msg}")
+                await bot.send_message(config.ADMIN_CHAT_ID, f"🔴 Worker error (user {user_id}, task {task_id}): {escape(error_msg)}",
+                                       parse_mode="HTML")
             except Exception:
                 logger.exception("Не удалось уведомить админа")
 
@@ -187,11 +210,6 @@ async def handle_result_payload(bot: Bot, data: Dict[str, Any]) -> None:
 
 
 async def start_result_consumer(bot: Bot) -> None:
-    """
-    Избегаем PRECONDITION_FAILED по TTL:
-    1) пытаемся passive=True
-    2) если нет очереди — создаём с TTL=900000 мс (или из ENV)
-    """
     connection = await aio_pika.connect_robust(config.RABBITMQ_AMQP_URL())
     channel = await connection.channel()
     await channel.set_qos(prefetch_count=8)
