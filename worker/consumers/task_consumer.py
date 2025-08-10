@@ -1,3 +1,4 @@
+# worker/task_consumer.py
 import logging
 
 from worker.services.ocr_service import handle_ocr, handle_ocr_and_generate
@@ -40,7 +41,7 @@ async def process_task_message(task: dict) -> dict | None:
 
             check_task = {"task_id": task_id, "text": ocr_result.get("text", "")}
             logging.info(f"🔧 Отправляем на проверку ДЗ (len={len(check_task['text'])})")
-            return await handle_check_homework(check_task)
+            return await handle_homework_check(check_task)
 
         if task_type == "generate_plan":
             return await handle_plan(task)
@@ -52,9 +53,9 @@ async def process_task_message(task: dict) -> dict | None:
             return result
 
         if task_type == "check_homework":
-            return await handle_check_homework(task)
+            return await handle_homework_check(task)
 
-        if task_type == "chat":  # ← важно: не `in ("chat")`
+        if task_type == "chat":
             logging.info(f"Обрабатываем чат: task_id={task_id}")
             try:
                 result = await handle_chat(task)

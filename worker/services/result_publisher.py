@@ -1,10 +1,10 @@
+# worker/services/result_publisher.py
 import json
 import logging
 import aio_pika
 from worker import config
 
 logger = logging.getLogger(__name__)
-
 
 async def publish_result(result: dict) -> None:
     """

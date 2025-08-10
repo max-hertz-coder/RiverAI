@@ -1,132 +1,168 @@
 # worker/services/pdf_utils.py
 """
-Утилиты для подготовки и безопасной компиляции LaTeX на ВОРКЕРЕ:
-- template_basic / template_solutions — Jinja2-шаблоны
-- escape_latex / sanitize_solutions — предобработка текста
-- compile_latex_to_pdf_bytes / compile_latex_to_b64 — компиляция через pdflatex
+Утилиты для LaTeX на воркере:
+- normalize_gpt_latex (если нужно чистить сырой LaTeX)
+- escape_text: экранирование текста (не трогаем math-блоки $...$)
+- build_document: простая преамбула + body
+- compile_latex: сборка в PDF (две прогонки pdflatex; при неудаче — xelatex)
+- compile_latex_to_b64 / compile_latex_to_pdf_bytes — совместимость со старым кодом
 """
+from __future__ import annotations
+
 import base64
-import tempfile
-import subprocess
 import re
+import subprocess
+import tempfile
 from pathlib import Path
 from typing import List, Tuple, Optional
 
-from jinja2 import Template
 
-BASIC_TEMPLATE = r"""\documentclass[12pt]{article}
-\usepackage[T2A]{fontenc}
+# ---------- Нормализация сырого LaTeX (если приходит из GPT) ----------
+
+_STRIP_DOC_RE = re.compile(r"\\documentclass[\s\S]*?\\begin\{document\}", flags=re.IGNORECASE)
+_END_DOC_RE = re.compile(r"\\end\{document\}\s*$", flags=re.IGNORECASE)
+
+def normalize_gpt_latex(s: str) -> str:
+    if not s:
+        return ""
+    s = _STRIP_DOC_RE.sub("", s)
+    s = _END_DOC_RE.sub("", s)
+    # упрощённая нормализация unicode
+    repl = {
+        "\u00A0": " ",
+        "–": "--",
+        "—": "---",
+        "“": "«", "”": "»",
+        "„": "«", "‟": "»",
+        "’": "'", "‘": "'",
+        "…": "...",
+    }
+    for a, b in repl.items():
+        s = s.replace(a, b)
+    return s.strip()
+
+
+# ---------- Экранирование обычного текста ----------
+
+_LATEX_SPECIALS = {
+    "\\": r"\textbackslash{}",
+    "&": r"\&",
+    "%": r"\%",
+    "$": r"\$",
+    "#": r"\#",
+    "_": r"\_",
+    "{": r"\{",
+    "}": r"\}",
+    "~": r"\textasciitilde{}",
+    "^": r"\textasciicircum{}",
+}
+_math_re = re.compile(r"(\$\$.*?\$\$|\$.*?\$|\\\[.*?\\\]|\\\(.*?\\\))", re.DOTALL)
+
+def escape_text(s: str) -> str:
+    """
+    Экранируем спецсимволы вне math-режимов ($...$, $$...$$, \[...\], \(...\)).
+    """
+    if not s:
+        return ""
+    parts: List[str] = []
+    idx = 0
+    for m in _math_re.finditer(s):
+        chunk = s[idx:m.start()]
+        parts.append("".join(_LATEX_SPECIALS.get(ch, ch) for ch in chunk))
+        parts.append(m.group(0))  # math как есть
+        idx = m.end()
+    tail = s[idx:]
+    parts.append("".join(_LATEX_SPECIALS.get(ch, ch) for ch in tail))
+    return "".join(parts)
+
+
+# ---------- Шаблон документа ----------
+
+LATEX_TEMPLATE = r"""
+\documentclass[12pt,a4paper]{article}
 \usepackage[utf8]{inputenc}
+\usepackage[T2A]{fontenc}
 \usepackage[russian]{babel}
-\usepackage[margin=1in]{geometry}
-\usepackage{amsmath,amsfonts,amssymb}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{enumitem}
+\usepackage{geometry}
+\geometry{margin=2cm}
+\usepackage{hyperref}
+\setlist{nosep}
+
+\title{%s}
+\date{}
+
 \begin{document}
-\begin{center}{\LARGE\bfseries {{ title }}} \end{center}
-\section*{Задачи}
-\begin{enumerate}
-{{ content }}
-\end{enumerate}
+\maketitle
+%s
 \end{document}
 """
 
-SOLUTIONS_TEMPLATE = r"""\documentclass[12pt]{article}
-\usepackage[T2A]{fontenc}
-\usepackage[utf8]{inputenc}
-\usepackage[russian]{babel}
-\usepackage[margin=1in]{geometry}
-\usepackage{amsmath,amsfonts,amssymb}
-\begin{document}
-\begin{center}{\LARGE\bfseries Решения} \end{center}
-\section*{Задачи}
-\begin{enumerate}
-{{ content_tasks }}
-\end{enumerate}
-\section*{Решения}
-\begin{enumerate}
-{{ content_solutions }}
-\end{enumerate}
-\end{document}
-"""
-
-template_basic = Template(BASIC_TEMPLATE)
-template_solutions = Template(SOLUTIONS_TEMPLATE)
+def build_document(title: str, body: str) -> str:
+    return LATEX_TEMPLATE % (escape_text(title or "Отчёт"), body or "")
 
 
-def compile_latex_to_pdf_bytes(latex: str, timeout: int = 40) -> Tuple[Optional[bytes], str]:
+# ---------- Компиляция ----------
+
+def _run(cmd: List[str], cwd: str, timeout: int) -> Tuple[int, str]:
+    p = subprocess.run(
+        cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=timeout
+    )
+    return p.returncode, p.stdout.decode("utf-8", errors="ignore")
+
+
+def compile_latex(tex_source: str, timeout: int = 60) -> Optional[bytes]:
     """
-    Компилирует LaTeX-строку в PDF и возвращает (pdf_bytes | None, log_text).
-    Делаем две прогонки pdflatex для устойчивости.
+    Компилирует полный LaTeX-документ → PDF (байты) или None при неудаче.
+    Сначала 2 прохода pdflatex; при провале — 2 прохода xelatex.
     """
-    try:
-        with tempfile.TemporaryDirectory() as td:
-            tex = Path(td) / "out.tex"
-            pdf = Path(td) / "out.pdf"
-            tex.write_text(latex or "", encoding="utf-8")
+    with tempfile.TemporaryDirectory() as td:
+        tex = Path(td) / "out.tex"
+        pdf = Path(td) / "out.pdf"
+        tex.write_text(tex_source or "", encoding="utf-8")
 
-            logs: List[str] = []
-            for _ in range(2):
-                proc = subprocess.run(
-                    ["pdflatex", "-halt-on-error", "-interaction=nonstopmode", tex.name],
-                    cwd=td,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    timeout=timeout,
-                )
-                logs.append(proc.stdout.decode("utf-8", errors="ignore"))
-                if proc.returncode != 0:
-                    break
+        logs: List[str] = []
 
-            if not pdf.exists():
-                return None, "\n\n".join(logs)
+        # pdflatex x2
+        for _ in range(2):
+            rc, out = _run(
+                ["pdflatex", "-halt-on-error", "-interaction=nonstopmode", tex.name],
+                cwd=td,
+                timeout=timeout,
+            )
+            logs.append(out)
+            if rc != 0:
+                break
+        if pdf.exists():
+            return pdf.read_bytes()
 
-            return pdf.read_bytes(), ""
-    except FileNotFoundError:
-        return None, "pdflatex not found in PATH"
-    except Exception as e:
-        return None, str(e)
+        # fallback: xelatex x2
+        for _ in range(2):
+            rc, out = _run(
+                ["xelatex", "-halt-on-error", "-interaction=nonstopmode", tex.name],
+                cwd=td,
+                timeout=timeout,
+            )
+            logs.append(out)
+            if rc != 0:
+                break
+        if pdf.exists():
+            return pdf.read_bytes()
 
-
-def compile_latex_to_b64(latex: str, timeout: int = 40) -> Tuple[Optional[str], str]:
-    """
-    Обертка над compile_latex_to_pdf_bytes: возвращает (base64 | None, log).
-    """
-    pdf_bytes, log = compile_latex_to_pdf_bytes(latex, timeout=timeout)
-    if not pdf_bytes:
-        return None, log
-    return base64.b64encode(pdf_bytes).decode("utf-8"), ""
+        return None
 
 
-def sanitize_solutions(sols_list: List[str]) -> List[str]:
-    """
-    Убирает оболочки itemize и \item, возвращает «чистый» текст решения.
-    """
-    sanitized: List[str] = []
-    for sol in sols_list:
-        clean = re.sub(r'\\begin\{itemize\}|\\end\{itemize\}', '', sol or '')
-        clean = re.sub(r'\\item\s*', '', clean)
-        sanitized.append(clean.strip())
-    return sanitized
+# ---- Совместимость со старым кодом (если где-то ещё дергается) ----
 
+def compile_latex_to_pdf_bytes(latex: str, timeout: int = 60) -> Tuple[Optional[bytes], str]:
+    data = compile_latex(latex, timeout=timeout)
+    if data is None:
+        return None, "compile failed"
+    return data, ""
 
-def escape_latex(text: str) -> str:
-    """
-    Экранирует спецсимволы за пределами math-режимов.
-    Math-режимы ($...$, $$...$$, \[...\], \(...\)) оставляем как есть.
-    """
-    math_pat = re.compile(r'(\$\$.*?\$\$|\$.*?\$|\\\[.*?\\\]|\\\(.*?\\\))', flags=re.DOTALL)
-    parts = math_pat.split(text or "")
-    safe: List[str] = []
-
-    for part in parts:
-        if math_pat.fullmatch(part or ""):
-            safe.append(part)
-        else:
-            part = (part or "").replace('\\', r'\textbackslash{}')
-            for ch, esc in {
-                '&': r'\&', '%': r'\%', '$': r'\$', '#': r'\#', '_': r'\_',
-                '{': r'\{', '}': r'\}', '~': r'\~{}', '^': r'\^{}',
-            }.items():
-                part = part.replace(ch, esc)
-            safe.append(part)
-
-    return ''.join(safe)
+def compile_latex_to_b64(latex: str, timeout: int = 60) -> Tuple[Optional[str], str]:
+    data = compile_latex(latex, timeout=timeout)
+    if data is None:
+        return None, "compile failed"
+    return base64.b64encode(data).decode("ascii"), ""

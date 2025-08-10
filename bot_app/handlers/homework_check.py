@@ -1,3 +1,4 @@
+# bot_app/handlers/homework_check.py
 import json
 import logging
 from datetime import datetime
@@ -8,16 +9,19 @@ from aiogram.types import CallbackQuery, Message
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 
-from bot_app import config, rabbit_channel
-from bot_app.keyboards.main_menu import back_button
+from bot_app import config
+from bot_app.keyboards.chat_menu import back_button
 from bot_app.database import db
 from bot_app.utils.task_utils import create_task_with_context
+from bot_app import rabbit  # publish_task
 
 router = Router()
 logger = logging.getLogger(__name__)
 
 
-async def has_active_sub(user_id: int) -> bool:
+# ---------- helpers ----------
+
+async def _has_active_sub(user_id: int) -> bool:
     user = await db.get_user_by_tg_id(user_id)
     if not user:
         return False
@@ -31,32 +35,33 @@ async def has_active_sub(user_id: int) -> bool:
 
 
 async def _send_task(task: dict):
+    """
+    Публикуем задачу в очередь. Сначала пробуем наш общий publish_task,
+    при недоступности — создаём соединение напрямую.
+    """
     try:
         task_with_context = await create_task_with_context(task)
-        body = json.dumps(task_with_context).encode("utf-8")
+        await rabbit.publish_task(task_with_context)
+        return
+    except Exception:
+        logger.warning("publish_task fallback to raw AMQP")
 
-        if rabbit_channel:
-            await rabbit_channel.default_exchange.publish(
-                aio_pika.Message(body=body),
-                routing_key=config.TASK_QUEUE,
-            )
-        else:
-            conn = await aio_pika.connect_robust(
-                host=config.RABBITMQ_HOST,
-                port=config.RABBITMQ_PORT,
-                login=config.RABBITMQ_USER,
-                password=config.RABBITMQ_PASS,
-            )
-            ch = await conn.channel()
-            await ch.default_exchange.publish(
-                aio_pika.Message(body=body),
-                routing_key=config.TASK_QUEUE,
-            )
-            await conn.close()
-    except Exception as e:
-        logger.exception("Ошибка отправки задачи в очередь: %s", e)
-        raise
+    # Fallback публикация напрямую (редкий случай)
+    body = json.dumps(task).encode("utf-8")
+    conn = await aio_pika.connect_robust(
+        host=config.RABBITMQ_HOST,
+        port=config.RABBITMQ_PORT,
+        login=config.RABBITMQ_USER,
+        password=config.RABBITMQ_PASS,
+    )
+    try:
+        ch = await conn.channel()
+        await ch.default_exchange.publish(aio_pika.Message(body=body), routing_key=config.TASK_QUEUE)
+    finally:
+        await conn.close()
 
+
+# ---------- FSM: ввод текста для проверки ----------
 
 class HomeworkCheckFSM(StatesGroup):
     text = State()
@@ -64,7 +69,7 @@ class HomeworkCheckFSM(StatesGroup):
 
 @router.callback_query(F.data.startswith("check_homework:"))
 async def cb_check_homework(callback: CallbackQuery, state: FSMContext):
-    if not await has_active_sub(callback.from_user.id):
+    if not await _has_active_sub(callback.from_user.id):
         return await callback.answer(
             "❌ У вас нет активной подписки. Перейдите в 💳 Подписка и оформите доступ.",
             show_alert=True,
@@ -89,30 +94,99 @@ async def cb_check_homework(callback: CallbackQuery, state: FSMContext):
 
 @router.message(HomeworkCheckFSM.text)
 async def text_to_check(message: Message, state: FSMContext):
-    if not await has_active_sub(message.from_user.id):
+    if not await _has_active_sub(message.from_user.id):
         return await message.answer(
             "❌ У вас нет активной подписки. Перейдите в 💳 Подписка и оформите доступ."
         )
 
     data = await state.get_data()
     student_id = data.get("student_id")
-    text = (message.text or "").strip()
 
-    if not text:
-        return await message.answer("❌ Текст не может быть пустым. Введите домашнее задание:")
+    # 1) Текст — отправляем задачу check_homework
+    if message.text:
+        text = message.text.strip()
+        if not text:
+            return await message.answer("❌ Текст не может быть пустым. Введите домашнее задание:")
+        task = {
+            "type": "check_homework",
+            "user_id": message.from_user.id,
+            "student_id": student_id,
+            "text": text,
+        }
+        try:
+            await _send_task(task)
+        except Exception:
+            return await message.answer("⚠️ Не удалось запустить проверку. Попробуйте ещё раз.")
+        await state.clear()
+        return await message.answer("🕔 Проверяю ДЗ, ожидайте PDF…")
+
+    # 2) Фото / документ — прокидываем в ocr_and_check (воркер сам сделает OCR)
+    if message.photo:
+        file_id = message.photo[-1].file_id
+        task = {
+            "type": "ocr_and_check",
+            "user_id": message.from_user.id,
+            "student_id": student_id,
+            "file_id": file_id,
+            "file_kind": "photo",
+        }
+        try:
+            await _send_task(task)
+        except Exception:
+            return await message.answer("⚠️ Не удалось запустить распознавание. Попробуйте ещё раз.")
+        await state.clear()
+        return await message.answer("🕔 Распознаю и проверяю ДЗ, ожидайте PDF…")
+
+    if message.document:
+        file_id = message.document.file_id
+        mime = (message.document.mime_type or "").lower()
+        task = {
+            "type": "ocr_and_check",
+            "user_id": message.from_user.id,
+            "student_id": student_id,
+            "file_id": file_id,
+            "file_kind": "document",
+            "mime": mime,
+        }
+        try:
+            await _send_task(task)
+        except Exception:
+            return await message.answer("⚠️ Не удалось запустить распознавание. Попробуйте ещё раз.")
+        await state.clear()
+        return await message.answer("🕔 Распознаю и проверяю ДЗ, ожидайте PDF…")
+
+    return await message.answer("❌ Отправьте текст, фото или PDF.")
+
+
+# ---------- «✏️ Исправить проверку» ----------
+
+class RefineCheck(StatesGroup):
+    waiting_text = State()
+
+
+@router.callback_query(F.data.startswith("refine_check:"))
+async def on_refine_check(cb: CallbackQuery, state: FSMContext):
+    await cb.answer()
+    await state.set_state(RefineCheck.waiting_text)
+    await cb.message.answer(
+        "✏️ Напишите, что нужно исправить/уточнить в проверке.\n"
+        "Отправьте одним сообщением.",
+        reply_markup=back_button("← Назад", "back:main"),
+    )
+
+
+@router.message(RefineCheck.waiting_text)
+async def on_refine_text(msg: Message, state: FSMContext):
+    refine_text = (msg.text or "").strip()
+    await state.clear()
 
     task = {
         "type": "check_homework",
-        "user_id": message.from_user.id,
-        "student_id": student_id,
-        "text": text,
+        "user_id": msg.from_user.id,
+        "text": refine_text,     # уточнение берём как новый текст к проверке
+        "refine": refine_text,   # дополнительно прокинем как «правки»
     }
+    task_with_ctx = await create_task_with_context(task)
+    await rabbit.publish_task(task_with_ctx)
 
-    try:
-        await _send_task(task)
-    except Exception:
-        return await message.answer("⚠️ Не удалось запустить проверку. Попробуйте ещё раз.")
-
-    await state.clear()
-    await message.answer("🕔 Проверяю ДЗ, ожидайте PDF…")
-    # Результат придёт через result_consumer напрямую пользователю.
+    await msg.answer("🕔 Повторно проверяю ДЗ с учётом ваших правок…")

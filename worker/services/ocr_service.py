@@ -25,7 +25,6 @@ OPENAI_KEY = _pick_openai_key()
 client = OpenAI(api_key=OPENAI_KEY)
 logger = logging.getLogger(__name__)
 
-
 def _pdf_to_png_bytes(path: str) -> bytes:
     doc = fitz.open(path)
     page = doc.load_page(0)
@@ -33,7 +32,6 @@ def _pdf_to_png_bytes(path: str) -> bytes:
     data = pix.tobytes("png")
     doc.close()
     return data
-
 
 def _to_data_uri(path: str) -> str:
     ext = os.path.splitext(path)[1].lower()
@@ -48,7 +46,6 @@ def _to_data_uri(path: str) -> str:
         raise ValueError("File too large for OCR")
     b64 = base64.b64encode(img_bytes).decode("utf-8")
     return f"data:image/{mime};base64,{b64}"
-
 
 def sync_ocr(path_or_url: str) -> str:
     logger.info("🔧 OCR: %s", path_or_url)
@@ -77,10 +74,8 @@ def sync_ocr(path_or_url: str) -> str:
         return ""
     return text
 
-
 async def ocr_openai_vision(path_or_url: str) -> str:
     return await asyncio.to_thread(sync_ocr, path_or_url)
-
 
 async def handle_ocr(task: dict) -> dict:
     task_id = task.get("task_id")
@@ -115,7 +110,6 @@ async def handle_ocr(task: dict) -> dict:
         "text": text,
         "prompt": (task.get("prompt") or "").strip(),
     }
-
 
 async def handle_ocr_and_generate(task: dict) -> dict:
     task_id = task.get("task_id")
