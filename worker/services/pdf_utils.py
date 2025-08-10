@@ -112,45 +112,47 @@ def _run(cmd: List[str], cwd: str, timeout: int) -> Tuple[int, str]:
     return p.returncode, p.stdout.decode("utf-8", errors="ignore")
 
 
-def compile_latex(tex_source: str, timeout: int = 60) -> Optional[bytes]:
-    """
-    Компилирует полный LaTeX-документ → PDF (байты) или None при неудаче.
-    Сначала 2 прохода pdflatex; при провале — 2 прохода xelatex.
-    """
-    with tempfile.TemporaryDirectory() as td:
-        tex = Path(td) / "out.tex"
-        pdf = Path(td) / "out.pdf"
-        tex.write_text(tex_source or "", encoding="utf-8")
+# worker/services/pdf_utils.py — кусок с компиляцией
 
-        logs: List[str] = []
+import base64
+import subprocess
+import tempfile
+from pathlib import Path
+from typing import Optional, Tuple
 
-        # pdflatex x2
-        for _ in range(2):
-            rc, out = _run(
-                ["pdflatex", "-halt-on-error", "-interaction=nonstopmode", tex.name],
-                cwd=td,
-                timeout=timeout,
-            )
-            logs.append(out)
-            if rc != 0:
-                break
-        if pdf.exists():
-            return pdf.read_bytes()
+def _compile(tex: str, engine: str = "xelatex") -> Tuple[Optional[bytes], Optional[str]]:
+    """Компилирует LaTeX в PDF и возвращает (pdf_bytes | None, log | None)."""
+    engine = engine or "xelatex"
+    cmd = [engine, "-interaction=nonstopmode", "-halt-on-error", "main.tex"]
 
-        # fallback: xelatex x2
-        for _ in range(2):
-            rc, out = _run(
-                ["xelatex", "-halt-on-error", "-interaction=nonstopmode", tex.name],
-                cwd=td,
-                timeout=timeout,
-            )
-            logs.append(out)
-            if rc != 0:
-                break
-        if pdf.exists():
-            return pdf.read_bytes()
+    with tempfile.TemporaryDirectory() as tmpd:
+        tmp = Path(tmpd)
+        (tmp / "main.tex").write_text(tex, encoding="utf-8")
 
-        return None
+        try:
+            # два прогона, как обычно
+            for _ in range(2):
+                proc = subprocess.run(
+                    cmd, cwd=tmp, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=120
+                )
+                if proc.returncode != 0:
+                    return None, proc.stdout
+            pdf_path = tmp / "main.pdf"
+            if not pdf_path.exists():
+                return None, "no pdf produced"
+            return pdf_path.read_bytes(), None
+        except Exception as e:
+            return None, str(e)
+
+def compile_latex(tex: str, engine: str = "xelatex") -> Optional[bytes]:
+    pdf, _ = _compile(tex, engine=engine)
+    return pdf
+
+def compile_latex_to_b64(tex: str, engine: str = "xelatex") -> Tuple[Optional[str], Optional[str]]:
+    pdf, log = _compile(tex, engine=engine)
+    if not pdf:
+        return None, log
+    return base64.b64encode(pdf).decode("ascii"), None
 
 
 # ---- Совместимость со старым кодом (если где-то ещё дергается) ----
@@ -161,8 +163,4 @@ def compile_latex_to_pdf_bytes(latex: str, timeout: int = 60) -> Tuple[Optional[
         return None, "compile failed"
     return data, ""
 
-def compile_latex_to_b64(latex: str, timeout: int = 60) -> Tuple[Optional[str], str]:
-    data = compile_latex(latex, timeout=timeout)
-    if data is None:
-        return None, "compile failed"
-    return base64.b64encode(data).decode("ascii"), ""
+
