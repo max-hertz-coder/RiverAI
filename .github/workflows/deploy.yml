@@ -62,13 +62,13 @@ jobs:
           ENCRYPTION_KEY:           ${{ secrets.ENCRYPTION_KEY }}
           TELEGRAM_ID_SALT:         ${{ secrets.TELEGRAM_ID_SALT }}
           WORKER_ENCRYPTION_SECRET: ${{ secrets.WORKER_ENCRYPTION_SECRET }}
-          # Postgres (bot)
+          # Postgres
           POSTGRES_HOST:            ${{ secrets.POSTGRES_HOST }}
           POSTGRES_PORT:            ${{ secrets.POSTGRES_PORT }}
           POSTGRES_DB:              ${{ secrets.POSTGRES_DB }}
           POSTGRES_USER:            ${{ secrets.POSTGRES_USER }}
           POSTGRES_PASSWORD:        ${{ secrets.POSTGRES_PASSWORD }}
-          # Postgres DSN (worker)
+          # Worker DSN
           WORKER_POSTGRES_DSN:      ${{ secrets.WORKER_POSTGRES_DSN }}
           # RabbitMQ
           RABBITMQ_HOST:            ${{ secrets.RABBITMQ_HOST }}
@@ -91,7 +91,6 @@ jobs:
           # Payments
           PAYMENTS_PROVIDER:        ${{ secrets.PAYMENTS_PROVIDER }}
           MANUAL_PAYMENT_CARD:      ${{ secrets.MANUAL_PAYMENT_CARD }}
-          # YooKassa (optional)
           YOOKASSA_SHOP_ID:         ${{ secrets.YOOKASSA_SHOP_ID }}
           YOOKASSA_SECRET_KEY:      ${{ secrets.YOOKASSA_SECRET_KEY }}
           PAYMENT_RETURN_URL:       ${{ secrets.PAYMENT_RETURN_URL }}
@@ -125,35 +124,28 @@ jobs:
             sudo git reset --hard origin/main
             sudo git clean -fdx
 
-            # Роль → каталоги compose и пути env/линка (ЛИНК ВНУТРЬ КАТАЛОГА COMPOSE!)
+            # Каталоги по ролям + путь к compose и env
             if [ "${{ matrix.role }}" = "queue" ]; then
               COMPOSE_DIR="infrastructure/queue"
               ENV_FILE="/etc/riverai/queue.env"
-              ENV_LINK="${APP_DIR}/${COMPOSE_DIR}/.env"
             elif [ "${{ matrix.role }}" = "bot" ]; then
               COMPOSE_DIR="infrastructure/bot"
               ENV_FILE="/etc/riverai/bot.env"
-              ENV_LINK="${APP_DIR}/${COMPOSE_DIR}/.env"
             else
               COMPOSE_DIR="infrastructure/worker"
               ENV_FILE="/etc/riverai/worker.env"
-              ENV_LINK="${APP_DIR}/${COMPOSE_DIR}/.env"
             fi
 
-            # Полный env (всегда пересоздаём)
+            # Сформируем env
             sudo mkdir -p /etc/riverai
             TMP_ENV="$(mktemp)"
 
-            # helper: печать строки KEY=VALUE с дефолтами
             put() {
               K="$1"; V="$(eval echo \"\${$1-}\")"
-
-              # Особые случаи и дефолты:
-              # 1) если нет OPENAI_API_KEY — берём первый ключ из OPENAI_API_KEYS
+              # если нет OPENAI_API_KEY — первый из OPENAI_API_KEYS
               if [ "$K" = "OPENAI_API_KEY" ] && [ -z "${V:-}" ] && [ -n "${OPENAI_API_KEYS:-}" ]; then
                 V="$(printf "%s" "$OPENAI_API_KEYS" | cut -d',' -f1)"
               fi
-
               case "$K" in
                 RABBITMQ_TASK_QUEUE)  [ -z "$V" ] && V="task_queue" ;;
                 RABBITMQ_RESULT_QUEUE)[ -z "$V" ] && V="result_queue" ;;
@@ -163,7 +155,6 @@ jobs:
                 PAYMENTS_PROVIDER)    [ -z "$V" ] && V="manual" ;;
                 DEBUG)                [ -z "$V" ] && V="0" ;;
               esac
-
               printf "%s=%s\n" "$K" "$V" >> "$TMP_ENV"
             }
 
@@ -182,36 +173,40 @@ jobs:
               SENTRY_DSN DEBUG \
             ; do put "$K"; done
 
-            # Права и симлинк рядом с docker-compose.yml
             CUR="$(id -un)"
             sudo install -o "$CUR" -g "$CUR" -m 600 "$TMP_ENV" "$ENV_FILE"
             rm -f "$TMP_ENV"
-            sudo ln -sfn "$ENV_FILE" "$ENV_LINK"
+
+            # Делаем ДВА симлинка на один ENV:
+            # 1) рядом с docker-compose.yml (на случай env_file: ./.env)
+            sudo ln -sfn "$ENV_FILE" "${APP_DIR}/${COMPOSE_DIR}/.env"
+            # 2) в корне репо (на случай env_file: ../../.env)
+            sudo ln -sfn "$ENV_FILE" "${APP_DIR}/.env"
 
             # Логи
             sudo mkdir -p "${APP_DIR}/logs"
             sudo sh -c "echo \"$(date +'%F %T') — Деплой стартовал на ${{ matrix.name }}\" >> '${APP_DIR}/logs/deploy.log'"
 
-            # Подготовка TMPDIR для сборки (фикс 'no space left on device')
+            # TMPDIR + BuildKit
             sudo mkdir -p /opt/tmp
             sudo chmod 1777 /opt/tmp
             export TMPDIR="/opt/tmp"
             export DOCKER_BUILDKIT=1
             export COMPOSE_DOCKER_CLI_BUILD=1
 
-            # Если / заполнен >85% — подчистим кэш Docker
+            # Чистка при нехватке места
             USAGE="$(df --output=pcent / | tail -1 | tr -dc '0-9' || echo 0)"
             if [ "$USAGE" -ge 85 ]; then
               docker system prune -af --volumes || true
               docker builder prune -af || true
             fi
 
-            # Запуск compose с явным --env-file (и .env лежит рядом с compose)
+            # Запуск compose (и .env теперь доступен по ОБОИМ путям)
             cd "${APP_DIR}/${COMPOSE_DIR}"
             if command -v docker compose >/dev/null 2>&1; then
               docker compose --env-file "$ENV_FILE" up -d --build --remove-orphans
             else
-              docker-compose --env-file "$ENV_FILE" up -d --build --remove-orphans
+              docker-compose --env-file "$ENV_FILE" up -d --remove-orphans --build
             fi
 
             sudo sh -c "echo \"$(date +'%F %T') — Деплой завершён на ${{ matrix.name }}\" >> '${APP_DIR}/logs/deploy.log'"
