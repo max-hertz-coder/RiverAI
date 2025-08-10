@@ -64,6 +64,7 @@ jobs:
           # Crypto/IDs
           ENCRYPTION_KEY:         ${{ secrets.ENCRYPTION_KEY }}
           TELEGRAM_ID_SALT:       ${{ secrets.TELEGRAM_ID_SALT }}
+          WORKER_ENCRYPTION_SECRET: ${{ secrets.WORKER_ENCRYPTION_SECRET }}
           # Postgres (bot)
           POSTGRES_HOST:          ${{ secrets.POSTGRES_HOST }}
           POSTGRES_PORT:          ${{ secrets.POSTGRES_PORT }}
@@ -111,7 +112,7 @@ jobs:
           envs: |
             GITHUB_REPOSITORY, \
             BOT_TOKEN, ADMIN_CHAT_ID, \
-            ENCRYPTION_KEY, TELEGRAM_ID_SALT, \
+            ENCRYPTION_KEY, TELEGRAM_ID_SALT, WORKER_ENCRYPTION_SECRET, \
             POSTGRES_HOST, POSTGRES_PORT, POSTGRES_DB, POSTGRES_USER, POSTGRES_PASSWORD, \
             WORKER_POSTGRES_DSN, \
             RABBITMQ_HOST, RABBITMQ_PORT, RABBITMQ_USER, RABBITMQ_PASS, RABBITMQ_TASK_QUEUE, RABBITMQ_RESULT_QUEUE, \
@@ -140,10 +141,12 @@ jobs:
             sudo git fetch origin main
             sudo git reset --hard origin/main
             sudo git clean -fdx
+            # гарантируем, что каталог принадлежит текущему пользователю
+            sudo chown -R "$USER":"$USER" "${APP_DIR}"
 
             # Логи
-            sudo mkdir -p "${APP_DIR}/logs"
-            echo "$(date +'%F %T') — Деплой стартовал на ${{ matrix.name }}" | sudo tee -a "${APP_DIR}/logs/deploy.log" >/dev/null
+            mkdir -p "${APP_DIR}/logs"
+            echo "$(date +'%F %T') — Деплой стартовал на ${{ matrix.name }}" | tee -a "${APP_DIR}/logs/deploy.log" >/dev/null
 
             # Выбираем каталог с compose по роли
             if [ "${{ matrix.role }}" = "queue" ]; then
@@ -156,28 +159,27 @@ jobs:
               COMPOSE_DIR="infrastructure/worker"
               ENV_PATH=".env"
             else
-              echo "Unknown role: ${{ matrix.role }}" | sudo tee -a "${APP_DIR}/logs/deploy.log" >/dev/null
+              echo "Unknown role: ${{ matrix.role }}" | tee -a "${APP_DIR}/logs/deploy.log" >/dev/null
               exit 2
             fi
 
-            sudo mkdir -p "$(dirname "${ENV_PATH}")"
+            mkdir -p "$(dirname "${ENV_PATH}")"
 
-            # Временный .env создаём в каталоге проекта (не в /tmp) и отдаём права текущему пользователю
+            # Временный .env в каталоге проекта
             tmp_env="$(mktemp -p "${APP_DIR}" .env.tmp.XXXXXX)"
-            sudo chown "$USER":"$USER" "$tmp_env"
 
-            # Если есть старый .env — копируем содержимое без sudo-перенаправления
+            # Если есть старый .env — копируем содержимое
             if [ -f "${ENV_PATH}" ]; then
-              sudo cp "${ENV_PATH}" "$tmp_env"
-              sudo chown "$USER":"$USER" "$tmp_env"
+              cp "${ENV_PATH}" "$tmp_env"
             fi
 
-            # Собираем новое содержимое .env (записываем как обычный пользователь)
+            # Собираем новое содержимое .env
             declare -A secrets=(
               [BOT_TOKEN]="${BOT_TOKEN:-}"
               [ADMIN_CHAT_ID]="${ADMIN_CHAT_ID:-}"
               [ENCRYPTION_KEY]="${ENCRYPTION_KEY:-}"
               [TELEGRAM_ID_SALT]="${TELEGRAM_ID_SALT:-}"
+              [WORKER_ENCRYPTION_SECRET]="${WORKER_ENCRYPTION_SECRET:-}"
 
               [POSTGRES_HOST]="${POSTGRES_HOST:-}"
               [POSTGRES_PORT]="${POSTGRES_PORT:-}"
@@ -230,8 +232,8 @@ jobs:
               fi
             done
 
-            # Кладём итоговый .env с правильными правами
-            sudo install -m 600 "$tmp_env" "$ENV_PATH"
+            # Кладём итоговый .env с владельцем текущего пользователя
+            sudo install -o "$USER" -g "$USER" -m 600 "$tmp_env" "$ENV_PATH"
             rm -f "$tmp_env"
 
             # Запускаем из каталога с compose
@@ -243,4 +245,4 @@ jobs:
               docker-compose up -d --build --remove-orphans
             fi
 
-            echo "$(date +'%F %T') — Деплой завершён на ${{ matrix.name }}" | sudo tee -a "${APP_DIR}/logs/deploy.log" >/dev/null
+            echo "$(date +'%F %T') — Деплой завершён на ${{ matrix.name }}" | tee -a "${APP_DIR}/logs/deploy.log" >/dev/null
