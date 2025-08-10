@@ -106,20 +106,7 @@ jobs:
           host: ${{ matrix.host }}
           username: ${{ matrix.username }}
           key: ${{ secrets[matrix.key_secret] }}
-          envs: |
-            GITHUB_REPOSITORY, \
-            BOT_TOKEN, ADMIN_CHAT_ID, \
-            ENCRYPTION_KEY, TELEGRAM_ID_SALT, WORKER_ENCRYPTION_SECRET, \
-            POSTGRES_HOST, POSTGRES_PORT, POSTGRES_DB, POSTGRES_USER, POSTGRES_PASSWORD, \
-            WORKER_POSTGRES_DSN, \
-            RABBITMQ_HOST, RABBITMQ_PORT, RABBITMQ_USER, RABBITMQ_PASS, RABBITMQ_TASK_QUEUE, RABBITMQ_RESULT_QUEUE, \
-            REDIS_HOST, REDIS_PORT, REDIS_DB_FSM, REDIS_DB_CACHE, \
-            OPENAI_API_KEYS, OPENAI_API_KEY, \
-            YDKEY_V1, YDKEY_VERSION, \
-            PAYMENTS_PROVIDER, MANUAL_PAYMENT_CARD, \
-            YOOKASSA_SHOP_ID, YOOKASSA_SECRET_KEY, \
-            PAYMENT_RETURN_URL, PAYMENT_SUCCESS_URL, PAYMENT_FAIL_URL, PAYMENT_WEBHOOK_TOKEN, PAYMENT_WEBHOOK_PORT, \
-            SENTRY_DSN, DEBUG
+          envs: GITHUB_REPOSITORY,BOT_TOKEN,ADMIN_CHAT_ID,ENCRYPTION_KEY,TELEGRAM_ID_SALT,WORKER_ENCRYPTION_SECRET,POSTGRES_HOST,POSTGRES_PORT,POSTGRES_DB,POSTGRES_USER,POSTGRES_PASSWORD,WORKER_POSTGRES_DSN,RABBITMQ_HOST,RABBITMQ_PORT,RABBITMQ_USER,RABBITMQ_PASS,RABBITMQ_TASK_QUEUE,RABBITMQ_RESULT_QUEUE,REDIS_HOST,REDIS_PORT,REDIS_DB_FSM,REDIS_DB_CACHE,OPENAI_API_KEYS,OPENAI_API_KEY,YDKEY_V1,YDKEY_VERSION,PAYMENTS_PROVIDER,MANUAL_PAYMENT_CARD,YOOKASSA_SHOP_ID,YOOKASSA_SECRET_KEY,PAYMENT_RETURN_URL,PAYMENT_SUCCESS_URL,PAYMENT_FAIL_URL,PAYMENT_WEBHOOK_TOKEN,PAYMENT_WEBHOOK_PORT,SENTRY_DSN,DEBUG
           script: |
             #!/bin/sh
             set -eu
@@ -211,7 +198,7 @@ jobs:
               docker builder prune -af || true
             fi
 
-            # Запуск compose с явным --env-file (чтобы не было WARN о "not set")
+            # Стартуем compose с явным --env-file (подстановки ${VAR} гарантированы)
             cd "${APP_DIR}/${COMPOSE_DIR}"
             if command -v docker compose >/dev/null 2>&1; then
               docker compose --env-file "$ENV_FILE" up -d --build --remove-orphans
