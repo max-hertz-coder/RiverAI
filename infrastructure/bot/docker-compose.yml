@@ -37,7 +37,7 @@ services:
       WORKER_POSTGRES_DSN: ${WORKER_POSTGRES_DSN}
       PAYMENT_WEBHOOK_PORT: ${PAYMENT_WEBHOOK_PORT:-8080}
       PAYMENT_WEBHOOK_TOKEN: ${PAYMENT_WEBHOOK_TOKEN}
-      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      BOT_TOKEN: ${BOT_TOKEN}
     command: python -m bot_app.run_payment_web
     ports:
       - "${PAYMENT_WEBHOOK_PORT:-8080}:8080"   # наружу:внутри

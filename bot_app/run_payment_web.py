@@ -23,7 +23,7 @@ POSTGRES_DSN = (
     getattr(config, "WORKER_POSTGRES_DSN", "") or os.environ.get("WORKER_POSTGRES_DSN", "")
 )
 WEB_PORT = int(os.environ.get("PAYMENT_WEBHOOK_PORT") or getattr(config, "PAYMENT_WEBHOOK_PORT", 8080) or 8080)
-BOT_TOKEN = getattr(config, "TELEGRAM_BOT_TOKEN", "") or os.environ.get("TELEGRAM_BOT_TOKEN", "")
+BOT_TOKEN = getattr(config, "BOT_TOKEN", "") or os.environ.get("BOT_TOKEN", "")
 
 
 async def _activate_subscription_if_needed(payment_id: str, new_status: str) -> None:
