@@ -85,10 +85,11 @@ PAYMENT_RETURN_URL = os.getenv("PAYMENT_RETURN_URL", "https://example.com/paymen
 PAYMENT_SUCCESS_URL = os.getenv("PAYMENT_SUCCESS_URL", "https://example.com/payment/success")
 PAYMENT_FAIL_URL = os.getenv("PAYMENT_FAIL_URL", "https://example.com/payment/fail")
 PAYMENT_WEBHOOK_TOKEN = os.getenv("PAYMENT_WEBHOOK_TOKEN", "")
-MANUAL_PAYMENT_CARD = os.getenv("MANUAL_PAYMENT_CARD", "")  # ← новый секрет
+MANUAL_PAYMENT_CARD = os.getenv("MANUAL_PAYMENT_CARD", "")
 
 IS_YOOKASSA_CONFIGURED = bool(YOOKASSA_SHOP_ID and YOOKASSA_SECRET_KEY)
 PAYMENT_MODE = "yookassa" if (PAYMENTS_PROVIDER == "yookassa" and IS_YOOKASSA_CONFIGURED) else "manual"
+RESULT_TTL_MS = int(os.getenv("RABBITMQ_RESULT_TTL_MS", "900000"))
 
 # — Observability —
 SENTRY_DSN = os.getenv("SENTRY_DSN", "")

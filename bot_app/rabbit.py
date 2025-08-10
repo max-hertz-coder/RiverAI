@@ -1,4 +1,4 @@
-# bot_app/rabbit.py — ИТОГОВЫЙ (исправление TTL и падений при declare)
+# bot_app/rabbit.py — финальная версия (TTL fix и аккуратные declare)
 
 import os
 import base64
@@ -6,7 +6,6 @@ import json
 import logging
 from typing import Any, Dict, Optional
 
-import aiormq
 import aio_pika
 from aio_pika import DeliveryMode, Message
 from aiogram import Bot
@@ -15,15 +14,11 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, BufferedIn
 from bot_app import config, database
 from bot_app.keyboards.chat_menu import result_plan_kb, result_check_kb
 from bot_app.keyboards.main_menu import back_button
-from common.redis_utils import (
-    get_context_by_task_id,
-    cleanup_task_context,
-    save_last_solutions_file,
-)
+from common.redis_utils import get_context_by_task_id, cleanup_task_context, save_last_solutions_file
 
 logger = logging.getLogger(__name__)
-
 _channel: Optional[aio_pika.Channel] = None
+
 
 async def _get_channel() -> aio_pika.Channel:
     global _channel
@@ -35,6 +30,7 @@ async def _get_channel() -> aio_pika.Channel:
     logger.info("✅ RabbitMQ channel ready (bot)")
     return _channel
 
+
 async def publish_task(payload: Dict[str, Any], routing_key: Optional[str] = None) -> None:
     ch = await _get_channel()
     rk = routing_key or config.TASK_QUEUE
@@ -44,6 +40,7 @@ async def publish_task(payload: Dict[str, Any], routing_key: Optional[str] = Non
         routing_key=rk,
     )
     logger.info("➡️  Task published to %s", rk)
+
 
 async def publish_result(payload: Dict[str, Any], routing_key: Optional[str] = None) -> None:
     ch = await _get_channel()
@@ -55,10 +52,12 @@ async def publish_result(payload: Dict[str, Any], routing_key: Optional[str] = N
     )
     logger.info("➡️  Result published to %s", rk)
 
+
 async def pending_tasks() -> int:
     ch = await _get_channel()
     q = await ch.declare_queue(config.TASK_QUEUE, durable=True, passive=True)
     return q.declaration_result.message_count or 0
+
 
 async def handle_result_payload(bot: Bot, data: Dict[str, Any]) -> None:
     task_id = data.get("task_id")
@@ -186,12 +185,12 @@ async def handle_result_payload(bot: Bot, data: Dict[str, Any]) -> None:
         except Exception:
             logger.exception("Ошибка очистки контекста task_id=%s", task_id)
 
-# ============ FIX: TTL mismatch ============
+
 async def start_result_consumer(bot: Bot) -> None:
     """
-    Сначала пассивно открываем очередь (не меняя её аргументы).
-    Если её нет — создаём с TTL=900000 мс (или из ENV).
-    Так избегаем PRECONDITION_FAILED при несовпадении x-message-ttl.
+    Избегаем PRECONDITION_FAILED по TTL:
+    1) пытаемся passive=True
+    2) если нет очереди — создаём с TTL=900000 мс (или из ENV)
     """
     connection = await aio_pika.connect_robust(config.RABBITMQ_AMQP_URL())
     channel = await connection.channel()
@@ -200,15 +199,13 @@ async def start_result_consumer(bot: Bot) -> None:
     ttl_ms = int(os.getenv("RABBITMQ_RESULT_TTL_MS", getattr(config, "RESULT_TTL_MS", 900000)))
 
     try:
-        # 1) пробуем не изменять существующую очередь
         queue = await channel.declare_queue(config.RESULT_QUEUE, durable=True, passive=True)
-        logger.info("📥 Result consumer attached to existing queue '%s'", config.RESULT_QUEUE)
+        logger.info("📥 Attached to existing result queue '%s'", config.RESULT_QUEUE)
     except Exception as e:
-        logger.warning("Result queue passive declare failed (%s). Creating with TTL=%s ms…", type(e).__name__, ttl_ms)
-        # 2) создаём с тем же TTL, что уже настроен на брокере (дефолт 900000)
-        args = {"x-message-ttl": ttl_ms}
-        queue = await channel.declare_queue(config.RESULT_QUEUE, durable=True, arguments=args)
-        logger.info("📥 Result consumer created queue '%s' with args=%s", config.RESULT_QUEUE, args)
+        logger.warning("Passive declare failed (%s). Creating result queue with TTL=%s ms…", type(e).__name__, ttl_ms)
+        queue = await channel.declare_queue(
+            config.RESULT_QUEUE, durable=True, arguments={"x-message-ttl": ttl_ms}
+        )
 
     async with queue.iterator() as q:
         async for message in q:
