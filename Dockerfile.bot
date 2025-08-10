@@ -1,4 +1,4 @@
-# Telegram-бот + pdflatex + aiohttp вебхук (порт 8080)
+# Telegram-бот + aiohttp вебхук (порт 8080)
 FROM python:3.10-slim
 
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -6,18 +6,16 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1
 
 # Системные зависимости:
-#  - build deps для asyncpg/cryptography
-#  - TeX Live (pdflatex + кириллица) для генерации PDF
-#  - базовые шрифты
+# - build deps для asyncpg/cryptography
+# - netcat для HEALTHCHECK порта
 RUN apt-get update && apt-get install -y --no-install-recommends \
       build-essential python3-dev libffi-dev libpq-dev libssl-dev \
-      texlive-latex-base texlive-latex-recommended texlive-latex-extra texlive-lang-cyrillic \
-      fonts-dejavu lmodern ghostscript ca-certificates git curl \
+      ca-certificates curl git netcat-openbsd \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Устанавливаем зависимости отдельным слоем для кэширования
+# Устанавливаем зависимости отдельным слоем
 COPY requirements.txt pyproject.toml ./
 RUN pip install --upgrade pip setuptools wheel \
  && pip install --no-cache-dir -r requirements.txt
@@ -32,11 +30,11 @@ USER appuser
 # Вебхук оплаты слушает 8080 (aiohttp)
 EXPOSE 8080
 
-# Простой HEALTHCHECK: порт доступен
+# HEALTHCHECK: TCP-порт вебхука доступен
 HEALTHCHECK --interval=30s --timeout=5s --retries=10 \
-  CMD python -c "import os, socket, sys; s=socket.socket(); s.settimeout(3); host='127.0.0.1'; port=int(os.getenv('PAYMENT_WEBHOOK_PORT','8080')); \
-  \
-  (sys.exit(0) if (s.connect((host,port)) or True) else sys.exit(1)) if not s.close() else None" || exit 1
+  CMD sh -c 'nc -z 127.0.0.1 "${PAYMENT_WEBHOOK_PORT:-8080}"'
 
-# Запуск бота (наш main.py в корне)
-CMD ["python", "-u", "main.py"]
+# Запуск бота:
+# 1) пробуем модуль bot_app.main
+# 2) если в проекте остался корневой main.py — используем его
+CMD ["sh", "-c", "python -u -m bot_app.main || python -u main.py"]

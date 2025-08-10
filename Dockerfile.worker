@@ -7,8 +7,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 # Системные зависимости:
 # - build deps для asyncpg/cryptography
-# - TeX Live (pdflatex + кириллица) для компиляции .tex → PDF
-# - tesseract-ocr (если пригодится локальный OCR)
+# - TeX Live (pdflatex/xelatex + кириллица) для компиляции .tex → PDF
+# - tesseract-ocr (если нужен локальный OCR)
 # - базовые шрифты
 RUN apt-get update && apt-get install -y --no-install-recommends \
       build-essential python3-dev libffi-dev libpq-dev libssl-dev \
@@ -16,12 +16,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       texlive-latex-base texlive-xetex texlive-latex-recommended texlive-latex-extra \
       texlive-fonts-recommended texlive-lang-cyrillic \
       fonts-dejavu fonts-freefont-ttf lmodern \
-      ca-certificates git curl \
+      ca-certificates curl git \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Зависимости — отдельным слоем (лучше кэшируется)
+# Зависимости — отдельным слоем
 COPY requirements.txt pyproject.toml ./
 RUN pip install --upgrade pip setuptools wheel \
  && pip install --no-cache-dir -r requirements.txt
@@ -33,9 +33,14 @@ COPY . .
 RUN useradd -m appuser && chown -R appuser:appuser /app
 USER appuser
 
-# HEALTHCHECK: проверяем доступность RabbitMQ (если коннект не удался — python вернёт ненулевой код)
+# HEALTHCHECK: проверяем доступность RabbitMQ
 HEALTHCHECK --interval=30s --timeout=5s --retries=10 \
-  CMD python -c "import os,socket; s=socket.socket(); s.settimeout(3); s.connect((os.getenv('RABBITMQ_HOST','rabbitmq'), int(os.getenv('RABBITMQ_PORT','5672'))))"
+  CMD python -c "import os,socket,sys; s=socket.socket(); s.settimeout(3); \
+host=os.getenv('RABBITMQ_HOST','rabbitmq'); port=int(os.getenv('RABBITMQ_PORT','5672')); \
+import errno; \
+try: s.connect((host,port)); rc=0 \
+except Exception: rc=1 \
+finally: s.close(); sys.exit(rc)"
 
 # Запуск воркера
-CMD ["python3", "-u", "-m", "worker.main"]
+CMD ["python", "-u", "-m", "worker.main"]

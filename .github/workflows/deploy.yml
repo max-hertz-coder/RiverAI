@@ -24,19 +24,16 @@ jobs:
             key_secret: SSH_PRIVATE_KEY_QUEUE
             role: queue
             username: user1
-
           - name: основной_RU
             host: 176.123.160.14
             key_secret: SSH_PRIVATE_KEY_MAIN
             role: bot
             username: user1
-
           - name: воркер1
             host: 185.200.176.95
             key_secret: SSH_KEY_WORKER
             role: worker
             username: root
-
           - name: воркер2
             host: 185.200.176.98
             key_secret: SSH_KEY_WORKER
@@ -61,22 +58,18 @@ jobs:
           # Telegram
           BOT_TOKEN:                ${{ secrets.BOT_TOKEN }}
           ADMIN_CHAT_ID:            ${{ secrets.ADMIN_CHAT_ID }}
-
           # Crypto/IDs
           ENCRYPTION_KEY:           ${{ secrets.ENCRYPTION_KEY }}
           TELEGRAM_ID_SALT:         ${{ secrets.TELEGRAM_ID_SALT }}
           WORKER_ENCRYPTION_SECRET: ${{ secrets.WORKER_ENCRYPTION_SECRET }}
-
           # Postgres (bot)
           POSTGRES_HOST:            ${{ secrets.POSTGRES_HOST }}
           POSTGRES_PORT:            ${{ secrets.POSTGRES_PORT }}
           POSTGRES_DB:              ${{ secrets.POSTGRES_DB }}
           POSTGRES_USER:            ${{ secrets.POSTGRES_USER }}
           POSTGRES_PASSWORD:        ${{ secrets.POSTGRES_PASSWORD }}
-
           # Postgres DSN (worker)
           WORKER_POSTGRES_DSN:      ${{ secrets.WORKER_POSTGRES_DSN }}
-
           # RabbitMQ
           RABBITMQ_HOST:            ${{ secrets.RABBITMQ_HOST }}
           RABBITMQ_PORT:            ${{ secrets.RABBITMQ_PORT }}
@@ -84,24 +77,21 @@ jobs:
           RABBITMQ_PASS:            ${{ secrets.RABBITMQ_PASS }}
           RABBITMQ_TASK_QUEUE:      ${{ secrets.RABBITMQ_TASK_QUEUE }}
           RABBITMQ_RESULT_QUEUE:    ${{ secrets.RABBITMQ_RESULT_QUEUE }}
-
           # Redis
           REDIS_HOST:               ${{ secrets.REDIS_HOST }}
           REDIS_PORT:               ${{ secrets.REDIS_PORT }}
           REDIS_DB_FSM:             ${{ secrets.REDIS_DB_FSM }}
           REDIS_DB_CACHE:           ${{ secrets.REDIS_DB_CACHE }}
-
           # OpenAI
           OPENAI_API_KEY:           ${{ secrets.OPENAI_API_KEY }}
           OPENAI_API_KEYS:          ${{ secrets.OPENAI_API_KEYS }}
-
           # Yandex Disk
           YDKEY_V1:                 ${{ secrets.YDKEY_V1 }}
           YDKEY_VERSION:            ${{ secrets.YDKEY_VERSION }}
-
           # Payments
           PAYMENTS_PROVIDER:        ${{ secrets.PAYMENTS_PROVIDER }}
           MANUAL_PAYMENT_CARD:      ${{ secrets.MANUAL_PAYMENT_CARD }}
+          # YooKassa (optional)
           YOOKASSA_SHOP_ID:         ${{ secrets.YOOKASSA_SHOP_ID }}
           YOOKASSA_SECRET_KEY:      ${{ secrets.YOOKASSA_SECRET_KEY }}
           PAYMENT_RETURN_URL:       ${{ secrets.PAYMENT_RETURN_URL }}
@@ -109,7 +99,6 @@ jobs:
           PAYMENT_FAIL_URL:         ${{ secrets.PAYMENT_FAIL_URL }}
           PAYMENT_WEBHOOK_TOKEN:    ${{ secrets.PAYMENT_WEBHOOK_TOKEN }}
           PAYMENT_WEBHOOK_PORT:     8080
-
           # Observability
           SENTRY_DSN:               ${{ secrets.SENTRY_DSN }}
           DEBUG:                    ${{ secrets.DEBUG }}
@@ -149,7 +138,7 @@ jobs:
             sudo git reset --hard origin/main
             sudo git clean -fdx
 
-            # Роль → каталоги compose и пути env/линка
+            # Выбор ролей
             if [ "${{ matrix.role }}" = "queue" ]; then
               COMPOSE_DIR="infrastructure/queue"
               ENV_FILE="/etc/riverai/queue.env"
@@ -164,7 +153,7 @@ jobs:
               ENV_LINK="${APP_DIR}/.env"
             fi
 
-            # Всегда создаём свежий env
+            # Формируем полный env (всегда)
             sudo mkdir -p /etc/riverai
             TMP_ENV="$(mktemp)"
 
@@ -183,7 +172,6 @@ jobs:
               printf "%s=%s\n" "$K" "$V" >> "$TMP_ENV"
             }
 
-            # Полный список ключей (всегда пишем строку KEY=VALUE)
             for K in \
               BOT_TOKEN ADMIN_CHAT_ID \
               ENCRYPTION_KEY TELEGRAM_ID_SALT WORKER_ENCRYPTION_SECRET \
@@ -197,28 +185,24 @@ jobs:
               YOOKASSA_SHOP_ID YOOKASSA_SECRET_KEY \
               PAYMENT_RETURN_URL PAYMENT_SUCCESS_URL PAYMENT_FAIL_URL PAYMENT_WEBHOOK_TOKEN PAYMENT_WEBHOOK_PORT \
               SENTRY_DSN DEBUG \
-            ; do
-              put "$K"
-            done
+            ; do put "$K"; done
 
-            # Кладём env (владелец = текущий ssh-пользователь, чтобы docker compose прочитал)
+            # Положили env и создали симлинк, на который ссылается compose
             CUR="$(id -un)"
             sudo install -o "$CUR" -g "$CUR" -m 600 "$TMP_ENV" "$ENV_FILE"
             rm -f "$TMP_ENV"
-
-            # Симлинк туда, где его ждёт compose
             sudo ln -sfn "$ENV_FILE" "$ENV_LINK"
 
             # Логи
             sudo mkdir -p "${APP_DIR}/logs"
             sudo sh -c "echo \"$(date +'%F %T') — Деплой стартовал на ${{ matrix.name }}\" >> '${APP_DIR}/logs/deploy.log'"
 
-            # Запуск compose из нужного каталога
+            # Запуск compose c явным --env-file (убирает WARN о not set)
             cd "${APP_DIR}/${COMPOSE_DIR}"
             if command -v docker compose >/dev/null 2>&1; then
-              docker compose up -d --build --remove-orphans
+              docker compose --env-file "$ENV_FILE" up -d --build --remove-orphans
             else
-              docker-compose up -d --build --remove-orphans
+              docker-compose --env-file "$ENV_FILE" up -d --build --remove-orphans
             fi
 
             sudo sh -c "echo \"$(date +'%F %T') — Деплой завершён на ${{ matrix.name }}\" >> '${APP_DIR}/logs/deploy.log'"
