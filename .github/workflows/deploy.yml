@@ -90,7 +90,7 @@ jobs:
           # Yandex Disk
           YDKEY_V1:               ${{ secrets.YDKEY_V1 }}
           YDKEY_VERSION:          ${{ secrets.YDKEY_VERSION }}
-          # Payments (manual fallback по умолчанию)
+          # Payments
           PAYMENTS_PROVIDER:      ${{ vars.PAYMENTS_PROVIDER || 'manual' }}
           MANUAL_PAYMENT_CARD:    ${{ secrets.MANUAL_PAYMENT_CARD }}
           # YooKassa (необязательно для manual)
@@ -141,11 +141,11 @@ jobs:
             sudo git reset --hard origin/main
             sudo git clean -fdx
 
-            # Логи: готовим каталог и пишем через sudo tee (чтобы не ловить Permission denied)
+            # Логи
             sudo mkdir -p "${APP_DIR}/logs"
             echo "$(date +'%F %T') — Деплой стартовал на ${{ matrix.name }}" | sudo tee -a "${APP_DIR}/logs/deploy.log" >/dev/null
 
-            # Определяем директорию с docker-compose.yml по роли
+            # Выбираем каталог с compose по роли
             if [ "${{ matrix.role }}" = "queue" ]; then
               COMPOSE_DIR="infrastructure/queue"
               ENV_PATH="${COMPOSE_DIR}/.env"
@@ -162,10 +162,17 @@ jobs:
 
             sudo mkdir -p "$(dirname "${ENV_PATH}")"
 
-            tmp_env="$(mktemp)"
-            [ -f "${ENV_PATH}" ] && sudo cat "${ENV_PATH}" > "${tmp_env}" || true
+            # Временный .env создаём в каталоге проекта (не в /tmp) и отдаём права текущему пользователю
+            tmp_env="$(mktemp -p "${APP_DIR}" .env.tmp.XXXXXX)"
+            sudo chown "$USER":"$USER" "$tmp_env"
 
-            # Собираем .env из переданных переменных (не пустые — пишем/переписываем)
+            # Если есть старый .env — копируем содержимое без sudo-перенаправления
+            if [ -f "${ENV_PATH}" ]; then
+              sudo cp "${ENV_PATH}" "$tmp_env"
+              sudo chown "$USER":"$USER" "$tmp_env"
+            fi
+
+            # Собираем новое содержимое .env (записываем как обычный пользователь)
             declare -A secrets=(
               [BOT_TOKEN]="${BOT_TOKEN:-}"
               [ADMIN_CHAT_ID]="${ADMIN_CHAT_ID:-}"
@@ -216,16 +223,18 @@ jobs:
               val="${secrets[$key]}"
               if [ -n "$val" ]; then
                 if grep -qE "^${key}=" "$tmp_env" 2>/dev/null; then
-                  sudo sed -i "s|^${key}=.*|${key}=${val}|" "$tmp_env"
+                  sed -i "s|^${key}=.*|${key}=${val}|" "$tmp_env"
                 else
-                  echo "${key}=${val}" | sudo tee -a "$tmp_env" >/dev/null
+                  printf "%s=%s\n" "$key" "$val" >> "$tmp_env"
                 fi
               fi
             done
 
-            sudo mv "$tmp_env" "$ENV_PATH"
+            # Кладём итоговый .env с правильными правами
+            sudo install -m 600 "$tmp_env" "$ENV_PATH"
+            rm -f "$tmp_env"
 
-            # Запускаем из каталога с нужным compose-файлом
+            # Запускаем из каталога с compose
             cd "${APP_DIR}/${COMPOSE_DIR}"
 
             if command -v docker compose &> /dev/null; then
