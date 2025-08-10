@@ -61,22 +61,18 @@ jobs:
           # Telegram
           BOT_TOKEN:                ${{ secrets.BOT_TOKEN }}
           ADMIN_CHAT_ID:            ${{ secrets.ADMIN_CHAT_ID }}
-
           # Crypto/IDs
           ENCRYPTION_KEY:           ${{ secrets.ENCRYPTION_KEY }}
           TELEGRAM_ID_SALT:         ${{ secrets.TELEGRAM_ID_SALT }}
           WORKER_ENCRYPTION_SECRET: ${{ secrets.WORKER_ENCRYPTION_SECRET }}
-
           # Postgres (bot)
           POSTGRES_HOST:            ${{ secrets.POSTGRES_HOST }}
           POSTGRES_PORT:            ${{ secrets.POSTGRES_PORT }}
           POSTGRES_DB:              ${{ secrets.POSTGRES_DB }}
           POSTGRES_USER:            ${{ secrets.POSTGRES_USER }}
           POSTGRES_PASSWORD:        ${{ secrets.POSTGRES_PASSWORD }}
-
           # Postgres DSN (worker)
           WORKER_POSTGRES_DSN:      ${{ secrets.WORKER_POSTGRES_DSN }}
-
           # RabbitMQ
           RABBITMQ_HOST:            ${{ secrets.RABBITMQ_HOST }}
           RABBITMQ_PORT:            ${{ secrets.RABBITMQ_PORT }}
@@ -84,25 +80,20 @@ jobs:
           RABBITMQ_PASS:            ${{ secrets.RABBITMQ_PASS }}
           RABBITMQ_TASK_QUEUE:      ${{ secrets.RABBITMQ_TASK_QUEUE }}
           RABBITMQ_RESULT_QUEUE:    ${{ secrets.RABBITMQ_RESULT_QUEUE }}
-
           # Redis
           REDIS_HOST:               ${{ secrets.REDIS_HOST }}
           REDIS_PORT:               ${{ secrets.REDIS_PORT }}
           REDIS_DB_FSM:             ${{ secrets.REDIS_DB_FSM }}
           REDIS_DB_CACHE:           ${{ secrets.REDIS_DB_CACHE }}
-
           # OpenAI
           OPENAI_API_KEY:           ${{ secrets.OPENAI_API_KEY }}
           OPENAI_API_KEYS:          ${{ secrets.OPENAI_API_KEYS }}
-
           # Yandex Disk
           YDKEY_V1:                 ${{ secrets.YDKEY_V1 }}
           YDKEY_VERSION:            ${{ secrets.YDKEY_VERSION }}
-
-          # Payments (manual by default)
+          # Payments
           PAYMENTS_PROVIDER:        ${{ secrets.PAYMENTS_PROVIDER }}
           MANUAL_PAYMENT_CARD:      ${{ secrets.MANUAL_PAYMENT_CARD }}
-
           # YooKassa (optional)
           YOOKASSA_SHOP_ID:         ${{ secrets.YOOKASSA_SHOP_ID }}
           YOOKASSA_SECRET_KEY:      ${{ secrets.YOOKASSA_SECRET_KEY }}
@@ -111,11 +102,9 @@ jobs:
           PAYMENT_FAIL_URL:         ${{ secrets.PAYMENT_FAIL_URL }}
           PAYMENT_WEBHOOK_TOKEN:    ${{ secrets.PAYMENT_WEBHOOK_TOKEN }}
           PAYMENT_WEBHOOK_PORT:     8080
-
           # Observability
           SENTRY_DSN:               ${{ secrets.SENTRY_DSN }}
           DEBUG:                    ${{ secrets.DEBUG }}
-
         with:
           host: ${{ matrix.host }}
           username: ${{ matrix.username }}
@@ -135,15 +124,15 @@ jobs:
             PAYMENT_RETURN_URL, PAYMENT_SUCCESS_URL, PAYMENT_FAIL_URL, PAYMENT_WEBHOOK_TOKEN, PAYMENT_WEBHOOK_PORT, \
             SENTRY_DSN, DEBUG
           script: |
-            set -euo pipefail
-            if [ -z "${USER:-}" ]; then USER="$(id -un)"; fi
+            #!/bin/sh
+            set -e
 
             REPO_SSH="git@github.com:${GITHUB_REPOSITORY}.git"
             APP_DIR="/opt/RiverAI"
 
             echo "==> Target: ${{ matrix.name }} (${GITHUB_REPOSITORY})"
-            sudo mkdir -p /opt || true
 
+            sudo mkdir -p /opt || true
             if [ ! -d "${APP_DIR}/.git" ]; then
               sudo git clone "${REPO_SSH}" "${APP_DIR}"
             fi
@@ -152,9 +141,8 @@ jobs:
             sudo git fetch origin main
             sudo git reset --hard origin/main
             sudo git clean -fdx
-            sudo chown -R "$USER":"$USER" "${APP_DIR}"
 
-            # Роль → каталоги и имена env
+            # Роль → пути compose и env
             if [ "${{ matrix.role }}" = "queue" ]; then
               COMPOSE_DIR="infrastructure/queue"
               ENV_FILE="/etc/riverai/queue.env"
@@ -163,68 +151,64 @@ jobs:
               COMPOSE_DIR="infrastructure/bot"
               ENV_FILE="/etc/riverai/bot.env"
               ENV_LINK="${APP_DIR}/.env"
-            elif [ "${{ matrix.role }}" = "worker" ]; then
+            else
               COMPOSE_DIR="infrastructure/worker"
               ENV_FILE="/etc/riverai/worker.env"
               ENV_LINK="${APP_DIR}/.env"
-            else
-              echo "Unknown role: ${{ matrix.role }}"; exit 2
             fi
 
-            # Готовим внепроектный env
+            # Собираем новый env (всегда с нуля)
             sudo mkdir -p /etc/riverai
             tmp_env="$(mktemp)"
+            write_kv() { printf "%s=%s\n" "$1" "$2" >> "$tmp_env"; }
 
-            # функция с дефолтами для не-секретных ключей
-            put() {
-              k="$1"
-              v="${!k:-}"
-              if [ -z "$v" ]; then
-                case "$k" in
-                  RABBITMQ_TASK_QUEUE) v="task_queue" ;;
-                  RABBITMQ_RESULT_QUEUE) v="result_queue" ;;
-                  REDIS_DB_FSM) v="0" ;;
-                  REDIS_DB_CACHE) v="1" ;;
-                  PAYMENT_WEBHOOK_PORT) v="8080" ;;
-                  PAYMENTS_PROVIDER) v="manual" ;;
-                  DEBUG) v="0" ;;
-                esac
-              fi
-              [ -n "$v" ] && printf "%s=%s\n" "$k" "$v" >> "$tmp_env"
-            }
+            # Список ключей (все пишем; если секрет пуст — будет KEY=)
+            KEYS="\
+BOT_TOKEN ADMIN_CHAT_ID \
+ENCRYPTION_KEY TELEGRAM_ID_SALT WORKER_ENCRYPTION_SECRET \
+POSTGRES_HOST POSTGRES_PORT POSTGRES_DB POSTGRES_USER POSTGRES_PASSWORD \
+WORKER_POSTGRES_DSN \
+RABBITMQ_HOST RABBITMQ_PORT RABBITMQ_USER RABBITMQ_PASS RABBITMQ_TASK_QUEUE RABBITMQ_RESULT_QUEUE \
+REDIS_HOST REDIS_PORT REDIS_DB_FSM REDIS_DB_CACHE \
+OPENAI_API_KEY OPENAI_API_KEYS \
+YDKEY_V1 YDKEY_VERSION \
+PAYMENTS_PROVIDER MANUAL_PAYMENT_CARD \
+YOOKASSA_SHOP_ID YOOKASSA_SECRET_KEY \
+PAYMENT_RETURN_URL PAYMENT_SUCCESS_URL PAYMENT_FAIL_URL PAYMENT_WEBHOOK_TOKEN PAYMENT_WEBHOOK_PORT \
+SENTRY_DSN DEBUG"
 
-            # Полный перечень ключей
-            for k in \
-              BOT_TOKEN ADMIN_CHAT_ID \
-              ENCRYPTION_KEY TELEGRAM_ID_SALT WORKER_ENCRYPTION_SECRET \
-              POSTGRES_HOST POSTGRES_PORT POSTGRES_DB POSTGRES_USER POSTGRES_PASSWORD \
-              WORKER_POSTGRES_DSN \
-              RABBITMQ_HOST RABBITMQ_PORT RABBITMQ_USER RABBITMQ_PASS RABBITMQ_TASK_QUEUE RABBITMQ_RESULT_QUEUE \
-              REDIS_HOST REDIS_PORT REDIS_DB_FSM REDIS_DB_CACHE \
-              OPENAI_API_KEY OPENAI_API_KEYS \
-              YDKEY_V1 YDKEY_VERSION \
-              PAYMENTS_PROVIDER MANUAL_PAYMENT_CARD \
-              YOOKASSA_SHOP_ID YOOKASSA_SECRET_KEY \
-              PAYMENT_RETURN_URL PAYMENT_SUCCESS_URL PAYMENT_FAIL_URL PAYMENT_WEBHOOK_TOKEN PAYMENT_WEBHOOK_PORT \
-              SENTRY_DSN DEBUG \
-            ; do put "$k"; done
+            for K in $KEYS; do
+              # значения из окружения, если пусто — добавим дефолты для служебных
+              eval V=\${$K-}
+              case "$K" in
+                RABBITMQ_TASK_QUEUE)  [ -z "$V" ] && V="task_queue" ;;
+                RABBITMQ_RESULT_QUEUE)[ -z "$V" ] && V="result_queue" ;;
+                REDIS_DB_FSM)         [ -z "$V" ] && V="0" ;;
+                REDIS_DB_CACHE)       [ -z "$V" ] && V="1" ;;
+                PAYMENT_WEBHOOK_PORT) [ -z "$V" ] && V="8080" ;;
+                PAYMENTS_PROVIDER)    [ -z "$V" ] && V="manual" ;;
+                DEBUG)                [ -z "$V" ] && V="0" ;;
+              esac
+              write_kv "$K" "$V"
+            done
 
-            sudo install -o "$USER" -g "$USER" -m 600 "$tmp_env" "$ENV_FILE"
+            # Кладём и даём права: читаемость только для владельца
+            sudo install -m 600 "$tmp_env" "$ENV_FILE"
             rm -f "$tmp_env"
 
-            # Симлинк на место, где его ждёт compose
-            ln -sfn "$ENV_FILE" "$ENV_LINK"
+            # Симлинк в репо туда, где env_file указан в compose
+            sudo ln -sfn "$ENV_FILE" "$ENV_LINK"
 
             # Логи
-            mkdir -p "${APP_DIR}/logs"
-            echo "$(date +'%F %T') — Деплой стартовал на ${{ matrix.name }}" >> "${APP_DIR}/logs/deploy.log"
+            sudo mkdir -p "${APP_DIR}/logs"
+            sudo sh -c "echo \"$(date +'%F %T') — Деплой стартовал на ${{ matrix.name }}\" >> '${APP_DIR}/logs/deploy.log'"
 
-            # Запуск compose ИЗ каталога с файлом
+            # Стартуем compose из нужного каталога
             cd "${APP_DIR}/${COMPOSE_DIR}"
-            if command -v docker compose &> /dev/null; then
+            if command -v docker compose >/dev/null 2>&1; then
               docker compose up -d --build --remove-orphans
             else
               docker-compose up -d --build --remove-orphans
             fi
 
-            echo "$(date +'%F %T') — Деплой завершён на ${{ matrix.name }}" >> "${APP_DIR}/logs/deploy.log"
+            sudo sh -c "echo \"$(date +'%F %T') — Деплой завершён на ${{ matrix.name }}\" >> '${APP_DIR}/logs/deploy.log'"
