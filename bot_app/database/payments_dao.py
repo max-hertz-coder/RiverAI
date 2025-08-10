@@ -2,21 +2,31 @@
 from __future__ import annotations
 from typing import Any, Dict, List, Optional
 from datetime import datetime
+import uuid
 
-from bot_app.database.db import _get_pool  # используем общий пул
+from bot_app.database.db import _get_pool
 from bot_app.utils.identity import hash_telegram_id
 
+def _gen_manual_invoice_id() -> str:
+    return f"manual:{uuid.uuid4()}"
 
 async def create_payment(
     user_id: int,
     provider: str,
-    invoice_id: str,
+    invoice_id: str | None,
     amount_rub: int,
     label: str = "",
     currency: str = "RUB",
     status: str = "pending",
     meta: Optional[Dict[str, Any]] = None,
-) -> None:
+) -> str:
+    """
+    Возвращает invoice_id (сгенерирует, если None и provider='manual').
+    """
+    inv = invoice_id or (_gen_manual_invoice_id() if provider == "manual" else None)
+    if not inv:
+        raise ValueError("invoice_id is required for non-manual provider")
+
     pool = _get_pool()
     user_hash = hash_telegram_id(user_id)
     async with pool.acquire() as conn:
@@ -26,16 +36,15 @@ async def create_payment(
             VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
             ON CONFLICT (invoice_id) DO NOTHING
             """,
-            user_hash, provider, invoice_id, label, int(amount_rub), currency, status, meta or {},
+            user_hash, provider, inv, label, int(amount_rub), currency, status, meta or {},
         )
-
+    return inv
 
 async def get_payment(invoice_id: str) -> Optional[Dict[str, Any]]:
     pool = _get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow("SELECT * FROM payments WHERE invoice_id=$1", invoice_id)
     return dict(row) if row else None
-
 
 async def update_status(invoice_id: str, status: str, paid_at: datetime | None = None) -> None:
     pool = _get_pool()
@@ -45,10 +54,13 @@ async def update_status(invoice_id: str, status: str, paid_at: datetime | None =
             status, paid_at, invoice_id
         )
 
-
 async def mark_paid(invoice_id: str) -> None:
-    await update_status(invoice_id, "succeeded", datetime.utcnow())
-
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE payments SET status='succeeded', paid_at=$1 WHERE invoice_id=$2",
+            datetime.utcnow(), invoice_id
+        )
 
 async def get_user_payments(user_id: int, limit: int = 20) -> List[Dict[str, Any]]:
     pool = _get_pool()

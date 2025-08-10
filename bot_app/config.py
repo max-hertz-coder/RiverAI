@@ -33,19 +33,15 @@ def _read_openai_keys() -> List[str]:
             keys.append(k)
     return keys
 
-# ——————————————
-# Telegram Bot
-# ——————————————
+# — Telegram Bot —
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN is not set")
 
-ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID", "922135759"))  # куда слать ошибки
+ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID", "0") or "0")
 DEBUG = _getenv_bool("DEBUG", False)
 
-# ——————————————
-# PostgreSQL
-# ——————————————
+# — PostgreSQL —
 POSTGRES_HOST = os.getenv("POSTGRES_HOST", "db")
 POSTGRES_PORT = int(os.getenv("POSTGRES_PORT", "5432"))
 POSTGRES_DB = os.getenv("POSTGRES_DB", "riverai_db")
@@ -57,9 +53,7 @@ if not POSTGRES_PASSWORD:
 def POSTGRES_DSN() -> str:
     return f"postgresql://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
 
-# ——————————————
-# RabbitMQ
-# ——————————————
+# — RabbitMQ —
 RABBITMQ_HOST = os.getenv("RABBITMQ_HOST", "rabbitmq")
 RABBITMQ_PORT = int(os.getenv("RABBITMQ_PORT", "5672"))
 RABBITMQ_USER = os.getenv("RABBITMQ_USER", "guest")
@@ -70,41 +64,34 @@ RESULT_QUEUE = os.getenv("RABBITMQ_RESULT_QUEUE", "result_queue")
 def RABBITMQ_AMQP_URL() -> str:
     return f"amqp://{RABBITMQ_USER}:{RABBITMQ_PASS}@{RABBITMQ_HOST}:{RABBITMQ_PORT}/"
 
-# ——————————————
-# Redis
-# ——————————————
+# — Redis —
 REDIS_HOST = os.getenv("REDIS_HOST", "redis")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
 REDIS_DB_FSM = int(os.getenv("REDIS_DB_FSM", "0"))
 REDIS_DB_CACHE = int(os.getenv("REDIS_DB_CACHE", "1"))
 
-# ——————————————
-# Security / Crypto
-# ——————————————
-ENCRYPTION_KEY = _parse_encryption_key(os.getenv("ENCRYPTION_KEY", ""))  # AES key
+# — Security / Crypto —
+ENCRYPTION_KEY = _parse_encryption_key(os.getenv("ENCRYPTION_KEY", ""))
 TELEGRAM_ID_SALT = os.getenv("TELEGRAM_ID_SALT", "change_me")
 
-# ——————————————
-# OpenAI
-# ——————————————
+# — OpenAI —
 OPENAI_API_KEYS = _read_openai_keys()
 
-
-# — Payments (YooKassa) —
-PAYMENTS_PROVIDER = os.getenv("PAYMENTS_PROVIDER", "yookassa")
+# — Payments (YooKassa + manual fallback) —
+PAYMENTS_PROVIDER = os.getenv("PAYMENTS_PROVIDER", "manual").strip().lower()
 YOOKASSA_SHOP_ID = os.getenv("YOOKASSA_SHOP_ID", "")
 YOOKASSA_SECRET_KEY = os.getenv("YOOKASSA_SECRET_KEY", "")
 PAYMENT_RETURN_URL = os.getenv("PAYMENT_RETURN_URL", "https://example.com/payment/return")
 PAYMENT_SUCCESS_URL = os.getenv("PAYMENT_SUCCESS_URL", "https://example.com/payment/success")
 PAYMENT_FAIL_URL = os.getenv("PAYMENT_FAIL_URL", "https://example.com/payment/fail")
-PAYMENT_WEBHOOK_TOKEN = os.getenv("PAYMENT_WEBHOOK_TOKEN", "")  # секрет для верификации вебхука
+PAYMENT_WEBHOOK_TOKEN = os.getenv("PAYMENT_WEBHOOK_TOKEN", "")
+MANUAL_PAYMENT_CARD = os.getenv("MANUAL_PAYMENT_CARD", "")  # ← новый секрет
 
+IS_YOOKASSA_CONFIGURED = bool(YOOKASSA_SHOP_ID and YOOKASSA_SECRET_KEY)
+PAYMENT_MODE = "yookassa" if (PAYMENTS_PROVIDER == "yookassa" and IS_YOOKASSA_CONFIGURED) else "manual"
 
-# ——————————————
-# Observability
-# ——————————————
+# — Observability —
 SENTRY_DSN = os.getenv("SENTRY_DSN", "")
-
 
 def log_config_safely() -> None:
     logger.info("🔧 Bot App config loaded:")
@@ -115,8 +102,7 @@ def log_config_safely() -> None:
     logger.info(f"  TASK_QUEUE: {TASK_QUEUE}")
     logger.info(f"  RESULT_QUEUE: {RESULT_QUEUE}")
     logger.info(f"  OPENAI_KEYS_COUNT: {len(OPENAI_API_KEYS)}")
-    logger.info(f"  PAYMENTS_PROVIDER: {PAYMENTS_PROVIDER}")
-    logger.info(f"  YOOKASSA_SHOP_ID_SET: {bool(YOOKASSA_SHOP_ID)}")
+    logger.info(f"  PAYMENTS_PROVIDER: {PAYMENTS_PROVIDER} (mode={PAYMENT_MODE}, yk={IS_YOOKASSA_CONFIGURED})")
     logger.info(f"  DEBUG: {DEBUG}")
     logger.info(f"  SENTRY_DSN_SET: {bool(SENTRY_DSN)}")
 

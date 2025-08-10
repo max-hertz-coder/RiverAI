@@ -55,7 +55,6 @@ jobs:
           ssh-keyscan -H github.com >> ~/.ssh/known_hosts
           ssh-keyscan -H ${{ matrix.host }} >> ~/.ssh/known_hosts
 
-      # <<< ВАЖНО: пробрасываем Secrets/Variables в окружение раннера
       - name: Set env from GitHub Secrets/Variables
         shell: bash
         run: echo "envs prepared"
@@ -78,7 +77,7 @@ jobs:
           # Postgres DSN (воркер)
           WORKER_POSTGRES_DSN:    ${{ secrets.WORKER_POSTGRES_DSN }}
 
-          # RabbitMQ (внешний хост — сервер очереди)
+          # RabbitMQ
           RABBITMQ_HOST:          ${{ secrets.RABBITMQ_HOST }}
           RABBITMQ_PORT:          ${{ secrets.RABBITMQ_PORT }}
           RABBITMQ_USER:          ${{ secrets.RABBITMQ_USER }}
@@ -86,7 +85,7 @@ jobs:
           RABBITMQ_TASK_QUEUE:    ${{ vars.RABBITMQ_TASK_QUEUE || 'task_queue' }}
           RABBITMQ_RESULT_QUEUE:  ${{ vars.RABBITMQ_RESULT_QUEUE || 'result_queue' }}
 
-          # Redis (расположен на сервере очереди)
+          # Redis
           REDIS_HOST:             ${{ secrets.REDIS_HOST }}
           REDIS_PORT:             ${{ secrets.REDIS_PORT }}
           REDIS_DB_FSM:           ${{ vars.REDIS_DB_FSM || '0' }}
@@ -100,7 +99,11 @@ jobs:
           YDKEY_V1:               ${{ secrets.YDKEY_V1 }}
           YDKEY_VERSION:          ${{ secrets.YDKEY_VERSION }}
 
-          # Payments (YooKassa)
+          # Payments
+          PAYMENTS_PROVIDER:      ${{ vars.PAYMENTS_PROVIDER || 'manual' }}
+          MANUAL_PAYMENT_CARD:    ${{ secrets.MANUAL_PAYMENT_CARD }}
+
+          # YooKassa (можно не задавать для manual)
           YOOKASSA_SHOP_ID:       ${{ secrets.YOOKASSA_SHOP_ID }}
           YOOKASSA_SECRET_KEY:    ${{ secrets.YOOKASSA_SECRET_KEY }}
           PAYMENT_RETURN_URL:     ${{ secrets.PAYMENT_RETURN_URL }}
@@ -120,7 +123,6 @@ jobs:
           username: ${{ matrix.username }}
           key: ${{ secrets[matrix.key_secret] }}
           script_stop: true
-          # этот список говорит ssh-action, какие переменные окружения пробрасывать на удалённый сервер
           envs: |
             GITHUB_REPOSITORY, \
             BOT_TOKEN, ADMIN_CHAT_ID, \
@@ -131,6 +133,7 @@ jobs:
             REDIS_HOST, REDIS_PORT, REDIS_DB_FSM, REDIS_DB_CACHE, \
             OPENAI_API_KEYS, OPENAI_API_KEY, \
             YDKEY_V1, YDKEY_VERSION, \
+            PAYMENTS_PROVIDER, MANUAL_PAYMENT_CARD, \
             YOOKASSA_SHOP_ID, YOOKASSA_SECRET_KEY, \
             PAYMENT_RETURN_URL, PAYMENT_SUCCESS_URL, PAYMENT_FAIL_URL, PAYMENT_WEBHOOK_TOKEN, PAYMENT_WEBHOOK_PORT, \
             SENTRY_DSN, DEBUG
@@ -196,6 +199,9 @@ jobs:
 
               [YDKEY_V1]="${YDKEY_V1:-}"
               [YDKEY_VERSION]="${YDKEY_VERSION:-}"
+
+              [PAYMENTS_PROVIDER]="${PAYMENTS_PROVIDER:-}"
+              [MANUAL_PAYMENT_CARD]="${MANUAL_PAYMENT_CARD:-}"
 
               [YOOKASSA_SHOP_ID]="${YOOKASSA_SHOP_ID:-}"
               [YOOKASSA_SECRET_KEY]="${YOOKASSA_SECRET_KEY:-}"

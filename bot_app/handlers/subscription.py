@@ -11,11 +11,9 @@ from bot_app.database import payments_dao
 
 router = Router()
 
-
 class PaymentFSM(StatesGroup):
     waiting_students = State()
     waiting_model = State()
-
 
 def model_choice_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -28,8 +26,6 @@ def model_choice_kb():
 @router.message(F.text == "💳 Подписка")
 async def msg_subscription(message: Message, state: FSMContext):
     await cb_subscription(message, state)
-
-
 
 @router.callback_query(F.data == "subscription")
 async def cb_subscription(callback: CallbackQuery | Message, state: FSMContext):
@@ -64,8 +60,6 @@ async def cb_subscription(callback: CallbackQuery | Message, state: FSMContext):
         await callback.message.edit_text(sub_text, reply_markup=kb.as_markup())
         await callback.answer()
 
-
-
 @router.callback_query(F.data == "change_plan")
 @router.callback_query(F.data == "change_students")
 async def cb_change_plan(callback: CallbackQuery, state: FSMContext):
@@ -73,7 +67,6 @@ async def cb_change_plan(callback: CallbackQuery, state: FSMContext):
     await state.set_state(PaymentFSM.waiting_students)
     await callback.message.edit_text("Сколько учеников вы планируете вести?")
     await callback.answer()
-
 
 @router.message(PaymentFSM.waiting_students)
 async def process_students(message: Message, state: FSMContext):
@@ -87,8 +80,6 @@ async def process_students(message: Message, state: FSMContext):
     await state.set_state(PaymentFSM.waiting_model)
     await message.answer("Выберите модель:", reply_markup=model_choice_kb())
 
-
-
 @router.callback_query(F.data.startswith("model:"))
 async def process_model_choice(callback: CallbackQuery, state: FSMContext):
     model = callback.data.split(":", 1)[1]
@@ -96,22 +87,22 @@ async def process_model_choice(callback: CallbackQuery, state: FSMContext):
     students = int(data["students"])
     await state.clear()
 
-    # Прикидка потребления → цена в RUB (округление до сотен)
+    # Прикидка цены
     total_generations = students * 8 * 4
     total_tokens = total_generations * 10_000
-    cost_per_million = 2.0  # input+output суммарно
+    cost_per_million = 2.0
     multiplier = 1.0 if model == "standard" else 1.5
     price_rub = int(round((total_tokens / 1_000_000) * cost_per_million * 100 * multiplier))
     price_rub = ((price_rub + 50) // 100) * 100
 
-    # Кнопка оплаты и проверки статуса (обработчик в handlers/payment.py)
     pay_cb = f"pay:{model}:{students}:{price_rub}"
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=f"Оплатить {price_rub}₽", callback_data=pay_cb)],
         [InlineKeyboardButton(text="← Назад", callback_data="back:main")],
     ])
+    # текст без упоминания конкретного провайдера
     await callback.message.answer(
-        f"💵 Тариф '{model}' для {students} учеников.\n💰 Цена: {price_rub}₽\n\nНажмите «Оплатить», чтобы получить ссылку на YooKassa.",
+        f"💵 Тариф '{model}' для {students} учеников.\n💰 Цена: {price_rub}₽\n\nНажмите «Оплатить», чтобы продолжить.",
         reply_markup=kb
     )
     await callback.answer()
