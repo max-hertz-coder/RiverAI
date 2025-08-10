@@ -1,0 +1,15 @@
+.git
+.gitignore
+**/__pycache__/
+**/*.pyc
+logs/
+*.log
+.env
+.env.*
+infrastructure/**/.env
+infrastructure/**/data
+**/.DS_Store
+**/.pytest_cache/
+**/node_modules/
+venv/
+.venv/

@@ -138,7 +138,7 @@ jobs:
             sudo git reset --hard origin/main
             sudo git clean -fdx
 
-            # Выбор ролей
+            # Роли → каталоги compose и пути env/линка
             if [ "${{ matrix.role }}" = "queue" ]; then
               COMPOSE_DIR="infrastructure/queue"
               ENV_FILE="/etc/riverai/queue.env"
@@ -153,7 +153,7 @@ jobs:
               ENV_LINK="${APP_DIR}/.env"
             fi
 
-            # Формируем полный env (всегда)
+            # Полный env (всегда пересоздаём)
             sudo mkdir -p /etc/riverai
             TMP_ENV="$(mktemp)"
 
@@ -187,7 +187,7 @@ jobs:
               SENTRY_DSN DEBUG \
             ; do put "$K"; done
 
-            # Положили env и создали симлинк, на который ссылается compose
+            # Права и симлинк
             CUR="$(id -un)"
             sudo install -o "$CUR" -g "$CUR" -m 600 "$TMP_ENV" "$ENV_FILE"
             rm -f "$TMP_ENV"
@@ -197,7 +197,21 @@ jobs:
             sudo mkdir -p "${APP_DIR}/logs"
             sudo sh -c "echo \"$(date +'%F %T') — Деплой стартовал на ${{ matrix.name }}\" >> '${APP_DIR}/logs/deploy.log'"
 
-            # Запуск compose c явным --env-file (убирает WARN о not set)
+            # Подготовка TMPDIR для сборки (фикс 'no space left on device')
+            sudo mkdir -p /opt/tmp
+            sudo chmod 1777 /opt/tmp
+            export TMPDIR="/opt/tmp"
+            export DOCKER_BUILDKIT=1
+            export COMPOSE_DOCKER_CLI_BUILD=1
+
+            # Если / заполнен >85% — подчистим кэш Docker
+            USAGE="$(df --output=pcent / | tail -1 | tr -dc '0-9' || echo 0)"
+            if [ "$USAGE" -ge 85 ]; then
+              docker system prune -af --volumes || true
+              docker builder prune -af || true
+            fi
+
+            # Запуск compose с явным --env-file (чтобы не было WARN о "not set")
             cd "${APP_DIR}/${COMPOSE_DIR}"
             if command -v docker compose >/dev/null 2>&1; then
               docker compose --env-file "$ENV_FILE" up -d --build --remove-orphans
