@@ -59,52 +59,51 @@ jobs:
         uses: appleboy/ssh-action@v1.2.2
         env:
           # Telegram
-          BOT_TOKEN:              ${{ secrets.BOT_TOKEN }}
-          ADMIN_CHAT_ID:          ${{ secrets.ADMIN_CHAT_ID }}
+          BOT_TOKEN:                ${{ secrets.BOT_TOKEN }}
+          ADMIN_CHAT_ID:            ${{ secrets.ADMIN_CHAT_ID }}
           # Crypto/IDs
-          ENCRYPTION_KEY:         ${{ secrets.ENCRYPTION_KEY }}
-          TELEGRAM_ID_SALT:       ${{ secrets.TELEGRAM_ID_SALT }}
+          ENCRYPTION_KEY:           ${{ secrets.ENCRYPTION_KEY }}
+          TELEGRAM_ID_SALT:         ${{ secrets.TELEGRAM_ID_SALT }}
           WORKER_ENCRYPTION_SECRET: ${{ secrets.WORKER_ENCRYPTION_SECRET }}
           # Postgres (bot)
-          POSTGRES_HOST:          ${{ secrets.POSTGRES_HOST }}
-          POSTGRES_PORT:          ${{ secrets.POSTGRES_PORT }}
-          POSTGRES_DB:            ${{ secrets.POSTGRES_DB }}
-          POSTGRES_USER:          ${{ secrets.POSTGRES_USER }}
-          POSTGRES_PASSWORD:      ${{ secrets.POSTGRES_PASSWORD }}
+          POSTGRES_HOST:            ${{ secrets.POSTGRES_HOST }}
+          POSTGRES_PORT:            ${{ secrets.POSTGRES_PORT }}
+          POSTGRES_DB:              ${{ secrets.POSTGRES_DB }}
+          POSTGRES_USER:            ${{ secrets.POSTGRES_USER }}
+          POSTGRES_PASSWORD:        ${{ secrets.POSTGRES_PASSWORD }}
           # Postgres DSN (worker)
-          WORKER_POSTGRES_DSN:    ${{ secrets.WORKER_POSTGRES_DSN }}
+          WORKER_POSTGRES_DSN:      ${{ secrets.WORKER_POSTGRES_DSN }}
           # RabbitMQ
-          RABBITMQ_HOST:          ${{ secrets.RABBITMQ_HOST }}
-          RABBITMQ_PORT:          ${{ secrets.RABBITMQ_PORT }}
-          RABBITMQ_USER:          ${{ secrets.RABBITMQ_USER }}
-          RABBITMQ_PASS:          ${{ secrets.RABBITMQ_PASS }}
-          RABBITMQ_TASK_QUEUE:    ${{ vars.RABBITMQ_TASK_QUEUE || 'task_queue' }}
-          RABBITMQ_RESULT_QUEUE:  ${{ vars.RABBITMQ_RESULT_QUEUE || 'result_queue' }}
+          RABBITMQ_HOST:            ${{ secrets.RABBITMQ_HOST }}
+          RABBITMQ_PORT:            ${{ secrets.RABBITMQ_PORT }}
+          RABBITMQ_USER:            ${{ secrets.RABBITMQ_USER }}
+          RABBITMQ_PASS:            ${{ secrets.RABBITMQ_PASS }}
+          RABBITMQ_TASK_QUEUE:      ${{ secrets.RABBITMQ_TASK_QUEUE }}
+          RABBITMQ_RESULT_QUEUE:    ${{ secrets.RABBITMQ_RESULT_QUEUE }}
           # Redis
-          REDIS_HOST:             ${{ secrets.REDIS_HOST }}
-          REDIS_PORT:             ${{ secrets.REDIS_PORT }}
-          REDIS_DB_FSM:           ${{ vars.REDIS_DB_FSM || '0' }}
-          REDIS_DB_CACHE:         ${{ vars.REDIS_DB_CACHE || '1' }}
+          REDIS_HOST:               ${{ secrets.REDIS_HOST }}
+          REDIS_PORT:               ${{ secrets.REDIS_PORT }}
+          REDIS_DB_FSM:             ${{ secrets.REDIS_DB_FSM }}
+          REDIS_DB_CACHE:           ${{ secrets.REDIS_DB_CACHE }}
           # OpenAI
-          OPENAI_API_KEY:         ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_API_KEYS:        ${{ secrets.OPENAI_API_KEYS }}
+          OPENAI_API_KEY:           ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_API_KEYS:          ${{ secrets.OPENAI_API_KEYS }}
           # Yandex Disk
-          YDKEY_V1:               ${{ secrets.YDKEY_V1 }}
-          YDKEY_VERSION:          ${{ secrets.YDKEY_VERSION }}
+          YDKEY_V1:                 ${{ secrets.YDKEY_V1 }}
+          YDKEY_VERSION:            ${{ secrets.YDKEY_VERSION }}
           # Payments
-          PAYMENTS_PROVIDER:      ${{ vars.PAYMENTS_PROVIDER || 'manual' }}
-          MANUAL_PAYMENT_CARD:    ${{ secrets.MANUAL_PAYMENT_CARD }}
-          # YooKassa (необязательно для manual)
-          YOOKASSA_SHOP_ID:       ${{ secrets.YOOKASSA_SHOP_ID }}
-          YOOKASSA_SECRET_KEY:    ${{ secrets.YOOKASSA_SECRET_KEY }}
-          PAYMENT_RETURN_URL:     ${{ secrets.PAYMENT_RETURN_URL }}
-          PAYMENT_SUCCESS_URL:    ${{ secrets.PAYMENT_SUCCESS_URL }}
-          PAYMENT_FAIL_URL:       ${{ secrets.PAYMENT_FAIL_URL }}
-          PAYMENT_WEBHOOK_TOKEN:  ${{ secrets.PAYMENT_WEBHOOK_TOKEN }}
-          PAYMENT_WEBHOOK_PORT:   ${{ vars.PAYMENT_WEBHOOK_PORT || '8080' }}
+          PAYMENTS_PROVIDER:        ${{ secrets.PAYMENTS_PROVIDER }}
+          MANUAL_PAYMENT_CARD:      ${{ secrets.MANUAL_PAYMENT_CARD }}
+          YOOKASSA_SHOP_ID:         ${{ secrets.YOOKASSA_SHOP_ID }}
+          YOOKASSA_SECRET_KEY:      ${{ secrets.YOOKASSA_SECRET_KEY }}
+          PAYMENT_RETURN_URL:       ${{ secrets.PAYMENT_RETURN_URL }}
+          PAYMENT_SUCCESS_URL:      ${{ secrets.PAYMENT_SUCCESS_URL }}
+          PAYMENT_FAIL_URL:         ${{ secrets.PAYMENT_FAIL_URL }}
+          PAYMENT_WEBHOOK_TOKEN:    ${{ secrets.PAYMENT_WEBHOOK_TOKEN }}
+          PAYMENT_WEBHOOK_PORT:     8080
           # Observability
-          SENTRY_DSN:             ${{ secrets.SENTRY_DSN }}
-          DEBUG:                  ${{ vars.DEBUG || '0' }}
+          SENTRY_DSN:               ${{ secrets.SENTRY_DSN }}
+          DEBUG:                    ${{ secrets.DEBUG }}
         with:
           host: ${{ matrix.host }}
           username: ${{ matrix.username }}
@@ -141,108 +140,60 @@ jobs:
             sudo git fetch origin main
             sudo git reset --hard origin/main
             sudo git clean -fdx
-            # гарантируем, что каталог принадлежит текущему пользователю
             sudo chown -R "$USER":"$USER" "${APP_DIR}"
 
-            # Логи
-            mkdir -p "${APP_DIR}/logs"
-            echo "$(date +'%F %T') — Деплой стартовал на ${{ matrix.name }}" | tee -a "${APP_DIR}/logs/deploy.log" >/dev/null
-
-            # Выбираем каталог с compose по роли
+            # Выбор роли и путей
             if [ "${{ matrix.role }}" = "queue" ]; then
               COMPOSE_DIR="infrastructure/queue"
-              ENV_PATH="${COMPOSE_DIR}/.env"
+              ENV_FILE="/etc/riverai/queue.env"
             elif [ "${{ matrix.role }}" = "bot" ]; then
               COMPOSE_DIR="infrastructure/bot"
-              ENV_PATH=".env"
+              ENV_FILE="/etc/riverai/bot.env"
             elif [ "${{ matrix.role }}" = "worker" ]; then
               COMPOSE_DIR="infrastructure/worker"
-              ENV_PATH=".env"
+              ENV_FILE="/etc/riverai/worker.env"
             else
-              echo "Unknown role: ${{ matrix.role }}" | tee -a "${APP_DIR}/logs/deploy.log" >/dev/null
+              echo "Unknown role: ${{ matrix.role }}"
               exit 2
             fi
 
-            mkdir -p "$(dirname "${ENV_PATH}")"
-
-            # Временный .env в каталоге проекта
-            tmp_env="$(mktemp -p "${APP_DIR}" .env.tmp.XXXXXX)"
-
-            # Если есть старый .env — копируем содержимое
-            if [ -f "${ENV_PATH}" ]; then
-              cp "${ENV_PATH}" "$tmp_env"
-            fi
-
-            # Собираем новое содержимое .env
-            declare -A secrets=(
-              [BOT_TOKEN]="${BOT_TOKEN:-}"
-              [ADMIN_CHAT_ID]="${ADMIN_CHAT_ID:-}"
-              [ENCRYPTION_KEY]="${ENCRYPTION_KEY:-}"
-              [TELEGRAM_ID_SALT]="${TELEGRAM_ID_SALT:-}"
-              [WORKER_ENCRYPTION_SECRET]="${WORKER_ENCRYPTION_SECRET:-}"
-
-              [POSTGRES_HOST]="${POSTGRES_HOST:-}"
-              [POSTGRES_PORT]="${POSTGRES_PORT:-}"
-              [POSTGRES_DB]="${POSTGRES_DB:-}"
-              [POSTGRES_USER]="${POSTGRES_USER:-}"
-              [POSTGRES_PASSWORD]="${POSTGRES_PASSWORD:-}"
-              [WORKER_POSTGRES_DSN]="${WORKER_POSTGRES_DSN:-}"
-
-              [RABBITMQ_HOST]="${RABBITMQ_HOST:-}"
-              [RABBITMQ_PORT]="${RABBITMQ_PORT:-}"
-              [RABBITMQ_USER]="${RABBITMQ_USER:-}"
-              [RABBITMQ_PASS]="${RABBITMQ_PASS:-}"
-              [RABBITMQ_TASK_QUEUE]="${RABBITMQ_TASK_QUEUE:-}"
-              [RABBITMQ_RESULT_QUEUE]="${RABBITMQ_RESULT_QUEUE:-}"
-
-              [REDIS_HOST]="${REDIS_HOST:-}"
-              [REDIS_PORT]="${REDIS_PORT:-}"
-              [REDIS_DB_FSM]="${REDIS_DB_FSM:-}"
-              [REDIS_DB_CACHE]="${REDIS_DB_CACHE:-}"
-
-              [OPENAI_API_KEYS]="${OPENAI_API_KEYS:-}"
-              [OPENAI_API_KEY]="${OPENAI_API_KEY:-}"
-
-              [YDKEY_V1]="${YDKEY_V1:-}"
-              [YDKEY_VERSION]="${YDKEY_VERSION:-}"
-
-              [PAYMENTS_PROVIDER]="${PAYMENTS_PROVIDER:-}"
-              [MANUAL_PAYMENT_CARD]="${MANUAL_PAYMENT_CARD:-}"
-
-              [YOOKASSA_SHOP_ID]="${YOOKASSA_SHOP_ID:-}"
-              [YOOKASSA_SECRET_KEY]="${YOOKASSA_SECRET_KEY:-}"
-              [PAYMENT_RETURN_URL]="${PAYMENT_RETURN_URL:-}"
-              [PAYMENT_SUCCESS_URL]="${PAYMENT_SUCCESS_URL:-}"
-              [PAYMENT_FAIL_URL]="${PAYMENT_FAIL_URL:-}"
-              [PAYMENT_WEBHOOK_TOKEN]="${PAYMENT_WEBHOOK_TOKEN:-}"
-              [PAYMENT_WEBHOOK_PORT]="${PAYMENT_WEBHOOK_PORT:-}"
-
-              [SENTRY_DSN]="${SENTRY_DSN:-}"
-              [DEBUG]="${DEBUG:-}"
+            sudo mkdir -p /etc/riverai
+            # Формируем env-файл С НУЛЯ (не мержим старый)
+            tmp_env="$(mktemp)"
+            # Полный список ключей — чтобы ничего не потерялось
+            keys=(
+              BOT_TOKEN ADMIN_CHAT_ID
+              ENCRYPTION_KEY TELEGRAM_ID_SALT WORKER_ENCRYPTION_SECRET
+              POSTGRES_HOST POSTGRES_PORT POSTGRES_DB POSTGRES_USER POSTGRES_PASSWORD
+              WORKER_POSTGRES_DSN
+              RABBITMQ_HOST RABBITMQ_PORT RABBITMQ_USER RABBITMQ_PASS RABBITMQ_TASK_QUEUE RABBITMQ_RESULT_QUEUE
+              REDIS_HOST REDIS_PORT REDIS_DB_FSM REDIS_DB_CACHE
+              OPENAI_API_KEY OPENAI_API_KEYS
+              YDKEY_V1 YDKEY_VERSION
+              PAYMENTS_PROVIDER MANUAL_PAYMENT_CARD
+              YOOKASSA_SHOP_ID YOOKASSA_SECRET_KEY
+              PAYMENT_RETURN_URL PAYMENT_SUCCESS_URL PAYMENT_FAIL_URL PAYMENT_WEBHOOK_TOKEN PAYMENT_WEBHOOK_PORT
+              SENTRY_DSN DEBUG
             )
-
-            for key in "${!secrets[@]}"; do
-              val="${secrets[$key]}"
-              if [ -n "$val" ]; then
-                if grep -qE "^${key}=" "$tmp_env" 2>/dev/null; then
-                  sed -i "s|^${key}=.*|${key}=${val}|" "$tmp_env"
-                else
-                  printf "%s=%s\n" "$key" "$val" >> "$tmp_env"
-                fi
-              fi
+            for k in "${keys[@]}"; do
+              v="${!k:-}"
+              [ -n "$v" ] && printf "%s=%s\n" "$k" "$v" >> "$tmp_env"
             done
 
-            # Кладём итоговый .env с владельцем текущего пользователя
-            sudo install -o "$USER" -g "$USER" -m 600 "$tmp_env" "$ENV_PATH"
+            # Кладём env вне репозитория (читает текущий пользователь)
+            sudo install -o "$USER" -g "$USER" -m 600 "$tmp_env" "$ENV_FILE"
             rm -f "$tmp_env"
 
-            # Запускаем из каталога с compose
-            cd "${APP_DIR}/${COMPOSE_DIR}"
+            # Логи
+            mkdir -p "${APP_DIR}/logs"
+            echo "$(date +'%F %T') — Деплой стартовал на ${{ matrix.name }}" >> "${APP_DIR}/logs/deploy.log"
 
+            # Запуск из каталога с compose + передаём --env-file
+            cd "${APP_DIR}/${COMPOSE_DIR}"
             if command -v docker compose &> /dev/null; then
-              docker compose up -d --build --remove-orphans
+              docker compose --env-file "$ENV_FILE" up -d --build --remove-orphans
             else
-              docker-compose up -d --build --remove-orphans
+              docker-compose --env-file "$ENV_FILE" up -d --build --remove-orphans
             fi
 
-            echo "$(date +'%F %T') — Деплой завершён на ${{ matrix.name }}" | tee -a "${APP_DIR}/logs/deploy.log" >/dev/null
+            echo "$(date +'%F %T') — Деплой завершён на ${{ matrix.name }}" >> "${APP_DIR}/logs/deploy.log"
