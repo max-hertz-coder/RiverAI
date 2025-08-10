@@ -14,16 +14,12 @@ services:
       YDKEY_VERSION: ${YDKEY_VERSION}
       WORKER_POSTGRES_DSN: ${WORKER_POSTGRES_DSN}
       PAYMENTS_PROVIDER: ${PAYMENTS_PROVIDER:-yookassa}
-      # токен (секрет) для вебхука — тот самый, что будем передавать в ?token=
       PAYMENT_WEBHOOK_TOKEN: ${PAYMENT_WEBHOOK_TOKEN}
-    # Порт 8080 теперь у payments-web, поэтому маппинг из bot убираем
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "5"
     networks:
       - riverai-network
+    logging:
+      driver: "json-file"
+      options: { max-size: "10m", max-file: "5" }
 
   payments-web:
     build:
@@ -35,19 +31,21 @@ services:
       - ../../.env
     environment:
       WORKER_POSTGRES_DSN: ${WORKER_POSTGRES_DSN}
-      PAYMENT_WEBHOOK_PORT: ${PAYMENT_WEBHOOK_PORT:-8080}
       PAYMENT_WEBHOOK_TOKEN: ${PAYMENT_WEBHOOK_TOKEN}
+      PAYMENT_WEBHOOK_PORT: ${PAYMENT_WEBHOOK_PORT:-8080}
       BOT_TOKEN: ${BOT_TOKEN}
+      # чек ЮKassa:
+      YOOKASSA_SEND_RECEIPT: ${YOOKASSA_SEND_RECEIPT:-1}
+      YOOKASSA_VAT_CODE: ${YOOKASSA_VAT_CODE:-4}
+      # YOOKASSA_TAX_SYSTEM_CODE: ${YOOKASSA_TAX_SYSTEM_CODE} # если нужно
     command: python -m bot_app.run_payment_web
     ports:
-      - "${PAYMENT_WEBHOOK_PORT:-8080}:8080"   # наружу:внутри
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "5"
+      - "${PAYMENT_WEBHOOK_PORT:-8080}:8080"   # наружу:внутри (HTTP)
     networks:
       - riverai-network
+    logging:
+      driver: "json-file"
+      options: { max-size: "10m", max-file: "5" }
 
 networks:
   riverai-network:
