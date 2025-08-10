@@ -91,9 +91,10 @@ jobs:
           # Yandex Disk
           YDKEY_V1:                 ${{ secrets.YDKEY_V1 }}
           YDKEY_VERSION:            ${{ secrets.YDKEY_VERSION }}
-          # Payments
+          # Payments (manual by default)
           PAYMENTS_PROVIDER:        ${{ secrets.PAYMENTS_PROVIDER }}
           MANUAL_PAYMENT_CARD:      ${{ secrets.MANUAL_PAYMENT_CARD }}
+          # YooKassa (optional)
           YOOKASSA_SHOP_ID:         ${{ secrets.YOOKASSA_SHOP_ID }}
           YOOKASSA_SECRET_KEY:      ${{ secrets.YOOKASSA_SECRET_KEY }}
           PAYMENT_RETURN_URL:       ${{ secrets.PAYMENT_RETURN_URL }}
@@ -142,25 +143,26 @@ jobs:
             sudo git clean -fdx
             sudo chown -R "$USER":"$USER" "${APP_DIR}"
 
-            # Выбор роли и путей
+            # Роль → каталоги и имена env
             if [ "${{ matrix.role }}" = "queue" ]; then
               COMPOSE_DIR="infrastructure/queue"
               ENV_FILE="/etc/riverai/queue.env"
+              ENV_LINK="${APP_DIR}/infrastructure/queue/.env"
             elif [ "${{ matrix.role }}" = "bot" ]; then
               COMPOSE_DIR="infrastructure/bot"
               ENV_FILE="/etc/riverai/bot.env"
+              ENV_LINK="${APP_DIR}/.env"
             elif [ "${{ matrix.role }}" = "worker" ]; then
               COMPOSE_DIR="infrastructure/worker"
               ENV_FILE="/etc/riverai/worker.env"
+              ENV_LINK="${APP_DIR}/.env"
             else
-              echo "Unknown role: ${{ matrix.role }}"
-              exit 2
+              echo "Unknown role: ${{ matrix.role }}"; exit 2
             fi
 
+            # Готовим внепроектный env
             sudo mkdir -p /etc/riverai
-            # Формируем env-файл С НУЛЯ (не мержим старый)
             tmp_env="$(mktemp)"
-            # Полный список ключей — чтобы ничего не потерялось
             keys=(
               BOT_TOKEN ADMIN_CHAT_ID
               ENCRYPTION_KEY TELEGRAM_ID_SALT WORKER_ENCRYPTION_SECRET
@@ -179,21 +181,22 @@ jobs:
               v="${!k:-}"
               [ -n "$v" ] && printf "%s=%s\n" "$k" "$v" >> "$tmp_env"
             done
-
-            # Кладём env вне репозитория (читает текущий пользователь)
             sudo install -o "$USER" -g "$USER" -m 600 "$tmp_env" "$ENV_FILE"
             rm -f "$tmp_env"
+
+            # Ссылку туда, где compose её ждёт (env_file в docker-compose.yml)
+            ln -sfn "$ENV_FILE" "$ENV_LINK"
 
             # Логи
             mkdir -p "${APP_DIR}/logs"
             echo "$(date +'%F %T') — Деплой стартовал на ${{ matrix.name }}" >> "${APP_DIR}/logs/deploy.log"
 
-            # Запуск из каталога с compose + передаём --env-file
+            # Запуск compose ИЗ каталога с файлом
             cd "${APP_DIR}/${COMPOSE_DIR}"
             if command -v docker compose &> /dev/null; then
-              docker compose --env-file "$ENV_FILE" up -d --build --remove-orphans
+              docker compose up -d --build --remove-orphans
             else
-              docker-compose --env-file "$ENV_FILE" up -d --build --remove-orphans
+              docker-compose up -d --build --remove-orphans
             fi
 
             echo "$(date +'%F %T') — Деплой завершён на ${{ matrix.name }}" >> "${APP_DIR}/logs/deploy.log"
