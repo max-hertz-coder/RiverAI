@@ -64,6 +64,10 @@ RESULT_QUEUE = os.getenv("RABBITMQ_RESULT_QUEUE", "result_queue")
 def RABBITMQ_AMQP_URL() -> str:
     return f"amqp://{RABBITMQ_USER}:{RABBITMQ_PASS}@{RABBITMQ_HOST}:{RABBITMQ_PORT}/"
 
+# Порт HTTP-сервера для вебхуков/страниц оплаты
+PAYMENT_WEBHOOK_PORT = int(os.getenv("PAYMENT_WEBHOOK_PORT", "8080"))
+
+
 # — Redis —
 REDIS_HOST = os.getenv("REDIS_HOST", "redis")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))

@@ -1,4 +1,3 @@
-# bot_app/payments/yookassa_client.py
 from __future__ import annotations
 
 import uuid

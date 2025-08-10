@@ -13,11 +13,34 @@ services:
       YDKEY_V1: ${YDKEY_V1}
       YDKEY_VERSION: ${YDKEY_VERSION}
       WORKER_POSTGRES_DSN: ${WORKER_POSTGRES_DSN}
-      # вебхук оплаты (aiohttp в main.py)
+      PAYMENTS_PROVIDER: ${PAYMENTS_PROVIDER:-yookassa}
+      # токен (секрет) для вебхука — тот самый, что будем передавать в ?token=
+      PAYMENT_WEBHOOK_TOKEN: ${PAYMENT_WEBHOOK_TOKEN}
+    # Порт 8080 теперь у payments-web, поэтому маппинг из bot убираем
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+    networks:
+      - riverai-network
+
+  payments-web:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.bot
+    container_name: riverai-payhook
+    restart: unless-stopped
+    env_file:
+      - ../../.env
+    environment:
+      WORKER_POSTGRES_DSN: ${WORKER_POSTGRES_DSN}
       PAYMENT_WEBHOOK_PORT: ${PAYMENT_WEBHOOK_PORT:-8080}
+      PAYMENT_WEBHOOK_TOKEN: ${PAYMENT_WEBHOOK_TOKEN}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+    command: python -m bot_app.run_payment_web
     ports:
-      # наружу:внутри-контейнера
-      - "${PAYMENT_WEBHOOK_PORT:-8080}:8080"
+      - "${PAYMENT_WEBHOOK_PORT:-8080}:8080"   # наружу:внутри
     logging:
       driver: "json-file"
       options:
