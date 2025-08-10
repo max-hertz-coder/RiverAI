@@ -24,7 +24,7 @@ def _parse_encryption_key(raw: str) -> bytes:
     """
     Допускаем:
       - 64-символьную hex-строку (32 байта)
-      - произвольную строку длиной 16/24/32 байта (AES)
+      - строку длиной 16/24/32 байта (AES)
     """
     raw = (raw or "").strip()
     if not raw:
@@ -74,7 +74,9 @@ def RABBITMQ_AMQP_URL() -> str:
 # ---------------------------
 REDIS_HOST = _req("REDIS_HOST")
 REDIS_PORT = int(_opt("REDIS_PORT", "6379"))
+# Основной alias — чтобы старый код, который берёт REDIS_DB, не падал
 REDIS_DB_CACHE = int(_opt("REDIS_DB_CACHE", "1"))
+REDIS_DB = int(_opt("REDIS_DB", str(REDIS_DB_CACHE)))  # ← алиас для совместимости
 
 # ---------------------------
 # PostgreSQL (совм. режим)
@@ -88,7 +90,6 @@ if not DB_DSN:
     POSTGRES_PASSWORD = _req("POSTGRES_PASSWORD")
     DB_DSN = f"postgresql://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
 
-# Старые поля (для кода, который ожидает DB_HOST/DB_PORT/…)
 _parsed = urlparse(DB_DSN)
 DB_HOST = _parsed.hostname or _opt("POSTGRES_HOST")
 DB_PORT = _parsed.port or int(_opt("POSTGRES_PORT", "5432"))
@@ -114,7 +115,7 @@ def log_config_safely() -> None:
         logger.info("🔧 Worker config loaded:")
         logger.info("  DB_DSN: postgresql://***:***@%s:%s/%s", DB_HOST, DB_PORT, DB_NAME)
         logger.info("  RABBITMQ: %s:%s task=%s result=%s", RABBITMQ_HOST, RABBITMQ_PORT, RABBITMQ_TASK_QUEUE, RABBITMQ_RESULT_QUEUE)
-        logger.info("  REDIS: %s:%s/%s", REDIS_HOST, REDIS_PORT, REDIS_DB_CACHE)
+        logger.info("  REDIS: %s:%s/%s", REDIS_HOST, REDIS_PORT, REDIS_DB)
         logger.info("  OPENAI_KEYS: %d", len(OPENAI_API_KEYS))
         logger.info("  SENTRY: %s", "on" if SENTRY_DSN else "off")
         logger.info("  DEBUG: %s", DEBUG)

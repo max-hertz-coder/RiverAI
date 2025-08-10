@@ -1,10 +1,12 @@
-# bot_app/rabbit.py — ИТОГОВЫЙ
+# bot_app/rabbit.py — ИТОГОВЫЙ (исправление TTL и падений при declare)
 
+import os
 import base64
 import json
 import logging
 from typing import Any, Dict, Optional
 
+import aiormq
 import aio_pika
 from aio_pika import DeliveryMode, Message
 from aiogram import Bot
@@ -21,9 +23,6 @@ from common.redis_utils import (
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------
-# Общий канал (кэшируем)
-# ---------------------------
 _channel: Optional[aio_pika.Channel] = None
 
 async def _get_channel() -> aio_pika.Channel:
@@ -36,9 +35,6 @@ async def _get_channel() -> aio_pika.Channel:
     logger.info("✅ RabbitMQ channel ready (bot)")
     return _channel
 
-# ---------------------------
-# Публикация задач/результатов
-# ---------------------------
 async def publish_task(payload: Dict[str, Any], routing_key: Optional[str] = None) -> None:
     ch = await _get_channel()
     rk = routing_key or config.TASK_QUEUE
@@ -60,17 +56,10 @@ async def publish_result(payload: Dict[str, Any], routing_key: Optional[str] = N
     logger.info("➡️  Result published to %s", rk)
 
 async def pending_tasks() -> int:
-    """
-    Обратная совместимость: возвращает количество сообщений в очереди задач.
-    Используется в handlers/main_menu.py.
-    """
     ch = await _get_channel()
     q = await ch.declare_queue(config.TASK_QUEUE, durable=True, passive=True)
     return q.declaration_result.message_count or 0
 
-# ---------------------------
-# Обработка результатов от воркера
-# ---------------------------
 async def handle_result_payload(bot: Bot, data: Dict[str, Any]) -> None:
     task_id = data.get("task_id")
     if not task_id:
@@ -91,17 +80,14 @@ async def handle_result_payload(bot: Bot, data: Dict[str, Any]) -> None:
         return
 
     try:
-        # Chat
         if result_type in {"chat", "chat_gpt"}:
             text = data.get("answer") or data.get("gpt_response") or "(нет ответа)"
             await bot.send_message(user_id, text, reply_markup=back_button("← Назад", "back:main"))
 
-        # Study plan
         elif result_type == "plan":
             plan_text = data.get("plan_text", "(пусто)")
             await bot.send_message(user_id, f"📄 План:\n{plan_text}", reply_markup=result_plan_kb(student_id))
 
-        # Generated tasks (PDF приходят уже готовыми от воркера)
         elif result_type == "tasks":
             prompt = (data.get("prompt") or "").strip()
             raw = (data.get("tasks_text") or "").strip()
@@ -126,7 +112,6 @@ async def handle_result_payload(bot: Bot, data: Dict[str, Any]) -> None:
             if t_b64:
                 t_bytes = base64.b64decode(t_b64)
                 await bot.send_document(user_id, BufferedInputFile(t_bytes, "Tasks.pdf"), caption="📎 PDF: Задания")
-
             if s_b64:
                 s_bytes = base64.b64decode(s_b64)
                 await bot.send_document(user_id, BufferedInputFile(s_bytes, "Solutions.pdf"), caption="📎 PDF: Решения")
@@ -135,17 +120,14 @@ async def handle_result_payload(bot: Bot, data: Dict[str, Any]) -> None:
                 except Exception:
                     logger.exception("Не удалось сохранить Solutions.pdf в Redis")
 
-        # Homework check (старый формат)
         elif result_type == "check":
             report = data.get("report_text", "(нет отчёта)")
             await bot.send_message(user_id, f"✔️ Результаты проверки:\n{report}", reply_markup=result_check_kb(student_id))
-
             file_b64 = data.get("file")
             if file_b64:
                 pdf_bytes = base64.b64decode(file_b64)
                 await bot.send_document(user_id, BufferedInputFile(pdf_bytes, "Homework_Report.pdf"), caption="📎 Отчёт в PDF")
 
-        # Homework check (новый формат)
         elif result_type == "homework_check":
             report_text = data.get("check_result", "(нет отчёта)")
             file_b64 = data.get("file")
@@ -158,11 +140,9 @@ async def handle_result_payload(bot: Bot, data: Dict[str, Any]) -> None:
                 await bot.send_message(user_id, f"📋 Результат проверки ДЗ:\n\n{report_text}",
                                        reply_markup=result_check_kb(student_id))
 
-        # OCR-only → повторно запускаем generate_tasks
         elif result_type == "ocr":
             user_prompt = (data.get("prompt") or "").strip()
             ocr_text = (data.get("text") or "").strip()
-
             if not ocr_text:
                 await bot.send_message(user_id, "❌ Не удалось распознать текст на изображении.")
             else:
@@ -178,7 +158,6 @@ async def handle_result_payload(bot: Bot, data: Dict[str, Any]) -> None:
                     logger.exception("Не удалось отправить повторную задачу generate_tasks")
                     await bot.send_message(user_id, "⚠️ Не удалось запустить генерацию. Попробуйте ещё раз.")
 
-        # Error
         elif result_type == "error":
             error_msg = data.get("message", "Неизвестная ошибка")
             await bot.send_message(user_id, f"⚠️ Ошибка: {error_msg}")
@@ -190,7 +169,7 @@ async def handle_result_payload(bot: Bot, data: Dict[str, Any]) -> None:
         else:
             logger.warning("❓ Unknown result type: %s", result_type)
 
-        # Учёт использования/токенов
+        # учёт токенов
         prompt_tokens = int(data.get("prompt_tokens") or data.get("input_tokens") or 0)
         gen_tokens = int(data.get("completion_tokens") or data.get("output_tokens") or 0)
         try:
@@ -207,16 +186,29 @@ async def handle_result_payload(bot: Bot, data: Dict[str, Any]) -> None:
         except Exception:
             logger.exception("Ошибка очистки контекста task_id=%s", task_id)
 
-# ---------------------------
-# Консюмер результатов
-# ---------------------------
+# ============ FIX: TTL mismatch ============
 async def start_result_consumer(bot: Bot) -> None:
+    """
+    Сначала пассивно открываем очередь (не меняя её аргументы).
+    Если её нет — создаём с TTL=900000 мс (или из ENV).
+    Так избегаем PRECONDITION_FAILED при несовпадении x-message-ttl.
+    """
     connection = await aio_pika.connect_robust(config.RABBITMQ_AMQP_URL())
     channel = await connection.channel()
     await channel.set_qos(prefetch_count=8)
 
-    queue = await channel.declare_queue(config.RESULT_QUEUE, durable=True)
-    logger.info("📥 Result consumer started (queue=%s)", config.RESULT_QUEUE)
+    ttl_ms = int(os.getenv("RABBITMQ_RESULT_TTL_MS", getattr(config, "RESULT_TTL_MS", 900000)))
+
+    try:
+        # 1) пробуем не изменять существующую очередь
+        queue = await channel.declare_queue(config.RESULT_QUEUE, durable=True, passive=True)
+        logger.info("📥 Result consumer attached to existing queue '%s'", config.RESULT_QUEUE)
+    except Exception as e:
+        logger.warning("Result queue passive declare failed (%s). Creating with TTL=%s ms…", type(e).__name__, ttl_ms)
+        # 2) создаём с тем же TTL, что уже настроен на брокере (дефолт 900000)
+        args = {"x-message-ttl": ttl_ms}
+        queue = await channel.declare_queue(config.RESULT_QUEUE, durable=True, arguments=args)
+        logger.info("📥 Result consumer created queue '%s' with args=%s", config.RESULT_QUEUE, args)
 
     async with queue.iterator() as q:
         async for message in q:
