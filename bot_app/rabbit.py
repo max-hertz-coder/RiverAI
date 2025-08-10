@@ -1,10 +1,12 @@
-# bot_app/rabbit.py
+# bot_app/rabbit.py — ИТОГОВЫЙ
+
 import base64
 import json
 import logging
 from typing import Any, Dict, Optional
 
 import aio_pika
+from aio_pika import DeliveryMode, Message
 from aiogram import Bot
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile
 
@@ -19,9 +21,57 @@ from common.redis_utils import (
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------
+# Общий канал (кэшируем)
+# ---------------------------
+_channel: Optional[aio_pika.Channel] = None
 
+async def _get_channel() -> aio_pika.Channel:
+    global _channel
+    if _channel and not _channel.is_closed:
+        return _channel
+    conn = await aio_pika.connect_robust(config.RABBITMQ_AMQP_URL())
+    _channel = await conn.channel()
+    await _channel.set_qos(prefetch_count=16)
+    logger.info("✅ RabbitMQ channel ready (bot)")
+    return _channel
+
+# ---------------------------
+# Публикация задач/результатов
+# ---------------------------
+async def publish_task(payload: Dict[str, Any], routing_key: Optional[str] = None) -> None:
+    ch = await _get_channel()
+    rk = routing_key or config.TASK_QUEUE
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    await ch.default_exchange.publish(
+        Message(body=body, content_type="application/json", delivery_mode=DeliveryMode.PERSISTENT),
+        routing_key=rk,
+    )
+    logger.info("➡️  Task published to %s", rk)
+
+async def publish_result(payload: Dict[str, Any], routing_key: Optional[str] = None) -> None:
+    ch = await _get_channel()
+    rk = routing_key or config.RESULT_QUEUE
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    await ch.default_exchange.publish(
+        Message(body=body, content_type="application/json", delivery_mode=DeliveryMode.PERSISTENT),
+        routing_key=rk,
+    )
+    logger.info("➡️  Result published to %s", rk)
+
+async def pending_tasks() -> int:
+    """
+    Обратная совместимость: возвращает количество сообщений в очереди задач.
+    Используется в handlers/main_menu.py.
+    """
+    ch = await _get_channel()
+    q = await ch.declare_queue(config.TASK_QUEUE, durable=True, passive=True)
+    return q.declaration_result.message_count or 0
+
+# ---------------------------
+# Обработка результатов от воркера
+# ---------------------------
 async def handle_result_payload(bot: Bot, data: Dict[str, Any]) -> None:
-    """Единая логика обработки результата от воркера (AMQP/Redis)."""
     task_id = data.get("task_id")
     if not task_id:
         logger.warning("⚠️ В результате нет task_id")
@@ -51,7 +101,7 @@ async def handle_result_payload(bot: Bot, data: Dict[str, Any]) -> None:
             plan_text = data.get("plan_text", "(пусто)")
             await bot.send_message(user_id, f"📄 План:\n{plan_text}", reply_markup=result_plan_kb(student_id))
 
-        # Generated tasks (PDF уже собраны воркером)
+        # Generated tasks (PDF приходят уже готовыми от воркера)
         elif result_type == "tasks":
             prompt = (data.get("prompt") or "").strip()
             raw = (data.get("tasks_text") or "").strip()
@@ -81,7 +131,7 @@ async def handle_result_payload(bot: Bot, data: Dict[str, Any]) -> None:
                 s_bytes = base64.b64decode(s_b64)
                 await bot.send_document(user_id, BufferedInputFile(s_bytes, "Solutions.pdf"), caption="📎 PDF: Решения")
                 try:
-                    await save_last_solutions_file(user_id, s_b64)  # сохраним исходный base64
+                    await save_last_solutions_file(user_id, s_b64)
                 except Exception:
                     logger.exception("Не удалось сохранить Solutions.pdf в Redis")
 
@@ -95,7 +145,7 @@ async def handle_result_payload(bot: Bot, data: Dict[str, Any]) -> None:
                 pdf_bytes = base64.b64decode(file_b64)
                 await bot.send_document(user_id, BufferedInputFile(pdf_bytes, "Homework_Report.pdf"), caption="📎 Отчёт в PDF")
 
-        # Homework check (новый формат: бот только отправляет готовый PDF)
+        # Homework check (новый формат)
         elif result_type == "homework_check":
             report_text = data.get("check_result", "(нет отчёта)")
             file_b64 = data.get("file")
@@ -108,7 +158,7 @@ async def handle_result_payload(bot: Bot, data: Dict[str, Any]) -> None:
                 await bot.send_message(user_id, f"📋 Результат проверки ДЗ:\n\n{report_text}",
                                        reply_markup=result_check_kb(student_id))
 
-        # OCR-only: перекидываем в generate_tasks
+        # OCR-only → повторно запускаем generate_tasks
         elif result_type == "ocr":
             user_prompt = (data.get("prompt") or "").strip()
             ocr_text = (data.get("text") or "").strip()
@@ -118,19 +168,11 @@ async def handle_result_payload(bot: Bot, data: Dict[str, Any]) -> None:
             else:
                 final_prompt = f"{user_prompt}\n\n{ocr_text}" if user_prompt else ocr_text
                 await bot.send_message(user_id, f"🔄 Финальный запрос для генерации:\n{final_prompt}")
-
                 try:
-                    # ВАЖНО: путь импорта соответствует вашему проекту (файл bot_app/task_utils.py)
                     from bot_app.task_utils import create_task_with_context
                     task = {"type": "generate_tasks", "user_id": user_id, "student_id": student_id, "prompt": final_prompt}
                     task_with_ctx = await create_task_with_context(task)
-                    conn = await aio_pika.connect_robust(config.RABBITMQ_AMQP_URL())
-                    ch = await conn.channel()
-                    await ch.default_exchange.publish(
-                        aio_pika.Message(body=json.dumps(task_with_ctx).encode()),
-                        routing_key=config.TASK_QUEUE,
-                    )
-                    await conn.close()
+                    await publish_task(task_with_ctx)
                     await bot.send_message(user_id, "🕔 Генерируются задания, ожидайте…")
                 except Exception:
                     logger.exception("Не удалось отправить повторную задачу generate_tasks")
@@ -165,9 +207,10 @@ async def handle_result_payload(bot: Bot, data: Dict[str, Any]) -> None:
         except Exception:
             logger.exception("Ошибка очистки контекста task_id=%s", task_id)
 
-
+# ---------------------------
+# Консюмер результатов
+# ---------------------------
 async def start_result_consumer(bot: Bot) -> None:
-    """Подключается к RESULT_QUEUE и обрабатывает входящие сообщения."""
     connection = await aio_pika.connect_robust(config.RABBITMQ_AMQP_URL())
     channel = await connection.channel()
     await channel.set_qos(prefetch_count=8)
