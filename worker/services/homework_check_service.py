@@ -17,7 +17,9 @@ from worker.services.pdf_utils import (
 
 logger = logging.getLogger(__name__)
 
-# Шаблон отчёта под XeLaTeX (unicode-safe)
+# XeLaTeX-дружественный шаблон.
+# КЛЮЧЕВОЕ: внутри блока с текстом меняем категории символов,
+# чтобы '^' и '_' считались обычными знаками, а не триггерили матрежим.
 HOMEWORK_CHECK_TEMPLATE = r"""
 \documentclass[12pt]{article}
 \usepackage[margin=1in]{geometry}
@@ -28,24 +30,30 @@ HOMEWORK_CHECK_TEMPLATE = r"""
 \usepackage{amsmath,amssymb}
 \usepackage{enumitem}
 \setlist{noitemsep, topsep=2pt}
+
 \begin{document}
 \begin{center}
 \textbf{Результат проверки домашнего задания}
 \end{center}
 \vspace{0.5cm}
+
+% На этот участок действуют безопасные catcode:
+{\catcode`\^=12\relax \catcode`\_=12\relax
 {{ body | safe }}
+}
+
 \end{document}
 """
 template_homework_check = Template(HOMEWORK_CHECK_TEMPLATE)
 
 
 def clean_latex_for_check(text: str) -> str:
-    # лёгкая подчистка «косых» кавычек/тильд и т.п. (если нужно — можно расширить)
+    # Лёгкая подчистка (при желании можно расширить)
     return (text or "").replace("`", "")
 
 
 async def check_homework(homework_text: str) -> Dict[str, Any]:
-    # ВАЖНО: system_prompt не меняю.
+    # ВАЖНО: system_prompt не менять.
     system_prompt = """Вы — опытный преподаватель математики. Проверьте домашнюю работу ниже, найдите ошибки и дайте комментарии.
 
         Оформите ответ в ПРОСТОМ LaTeX формате, используя ТОЛЬКО следующие команды:
@@ -93,6 +101,9 @@ async def check_homework(homework_text: str) -> Dict[str, Any]:
 
 
 async def handle_homework_check(task: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Главный обработчик: готовит PDF (base64) с отчётом проверки.
+    """
     task_id = task.get("task_id")
     homework_text = (task.get("text") or "").strip()
 
@@ -106,14 +117,12 @@ async def handle_homework_check(task: Dict[str, Any]) -> Dict[str, Any]:
         check_raw = (resp.get("text") or resp.get("content") or "").strip()
         logger.info("🔧 check_homework: длина ответа = %d", len(check_raw))
 
-        # 1) нормализуем «тело» LaTeX (убираем лишнюю преамбулу, приводим кавычки/тире и т.д.)
+        # Нормализуем LaTeX-тело (без преамбулы), лёгкая подчистка
         body = normalize_gpt_latex(check_raw)
         body = clean_latex_for_check(body)
 
-        # 2) собираем полноценный документ (XeLaTeX-дружелюбный)
+        # Собираем документ и компилим XeLaTeX'ом
         latex_full = template_homework_check.render(body=body)
-
-        # 3) компилим XeLaTeX'ом
         file_b64, log = compile_latex_to_b64(latex_full, engine="xelatex")
         if not file_b64:
             logger.error("Homework PDF compile error: %s", (log or "compile failed"))
@@ -161,6 +170,7 @@ async def build_pdf_report(payload: Dict[str, Any]) -> Dict[str, Any]:
     tex = build_document("Результат проверки ДЗ", body)
 
     pdf_bytes = compile_latex(tex, engine="xelatex")
+
     short_text_parts: List[str] = []
     if overview:
         short_text_parts.append(f"Общая оценка:\n{overview}")
