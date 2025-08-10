@@ -125,28 +125,35 @@ jobs:
             sudo git reset --hard origin/main
             sudo git clean -fdx
 
-            # Роли → каталоги compose и пути env/линка
+            # Роль → каталоги compose и пути env/линка (ЛИНК ВНУТРЬ КАТАЛОГА COMPOSE!)
             if [ "${{ matrix.role }}" = "queue" ]; then
               COMPOSE_DIR="infrastructure/queue"
               ENV_FILE="/etc/riverai/queue.env"
-              ENV_LINK="${APP_DIR}/infrastructure/queue/.env"
+              ENV_LINK="${APP_DIR}/${COMPOSE_DIR}/.env"
             elif [ "${{ matrix.role }}" = "bot" ]; then
               COMPOSE_DIR="infrastructure/bot"
               ENV_FILE="/etc/riverai/bot.env"
-              ENV_LINK="${APP_DIR}/.env"
+              ENV_LINK="${APP_DIR}/${COMPOSE_DIR}/.env"
             else
               COMPOSE_DIR="infrastructure/worker"
               ENV_FILE="/etc/riverai/worker.env"
-              ENV_LINK="${APP_DIR}/.env"
+              ENV_LINK="${APP_DIR}/${COMPOSE_DIR}/.env"
             fi
 
             # Полный env (всегда пересоздаём)
             sudo mkdir -p /etc/riverai
             TMP_ENV="$(mktemp)"
 
+            # helper: печать строки KEY=VALUE с дефолтами
             put() {
               K="$1"; V="$(eval echo \"\${$1-}\")"
-              # дефолты для служебных, если пусто
+
+              # Особые случаи и дефолты:
+              # 1) если нет OPENAI_API_KEY — берём первый ключ из OPENAI_API_KEYS
+              if [ "$K" = "OPENAI_API_KEY" ] && [ -z "${V:-}" ] && [ -n "${OPENAI_API_KEYS:-}" ]; then
+                V="$(printf "%s" "$OPENAI_API_KEYS" | cut -d',' -f1)"
+              fi
+
               case "$K" in
                 RABBITMQ_TASK_QUEUE)  [ -z "$V" ] && V="task_queue" ;;
                 RABBITMQ_RESULT_QUEUE)[ -z "$V" ] && V="result_queue" ;;
@@ -156,6 +163,7 @@ jobs:
                 PAYMENTS_PROVIDER)    [ -z "$V" ] && V="manual" ;;
                 DEBUG)                [ -z "$V" ] && V="0" ;;
               esac
+
               printf "%s=%s\n" "$K" "$V" >> "$TMP_ENV"
             }
 
@@ -174,7 +182,7 @@ jobs:
               SENTRY_DSN DEBUG \
             ; do put "$K"; done
 
-            # Права и симлинк
+            # Права и симлинк рядом с docker-compose.yml
             CUR="$(id -un)"
             sudo install -o "$CUR" -g "$CUR" -m 600 "$TMP_ENV" "$ENV_FILE"
             rm -f "$TMP_ENV"
@@ -198,7 +206,7 @@ jobs:
               docker builder prune -af || true
             fi
 
-            # Стартуем compose с явным --env-file (подстановки ${VAR} гарантированы)
+            # Запуск compose с явным --env-file (и .env лежит рядом с compose)
             cd "${APP_DIR}/${COMPOSE_DIR}"
             if command -v docker compose >/dev/null 2>&1; then
               docker compose --env-file "$ENV_FILE" up -d --build --remove-orphans
