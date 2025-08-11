@@ -26,7 +26,7 @@ _SYSTEM_PROMPT = (
 def _sync_correct(instruction: str, raw: str) -> str:
     full = (instruction or "").strip() + "\n\n" + (raw or "").strip()
     resp = client.chat.completions.create(
-        model="gpt-4.1-mini",
+        model="gpt-5-mini",
         messages=[
             {"role": "system", "content": _SYSTEM_PROMPT},
             {"role": "user", "content": full},

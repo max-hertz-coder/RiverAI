@@ -55,7 +55,7 @@ def sync_ocr(path_or_url: str) -> str:
         image_data = {"url": _to_data_uri(path_or_url), "detail": "high"}
 
     resp = client.chat.completions.create(
-        model="gpt-4o",
+        model="gpt-5",
         messages=[{
             "role": "user",
             "content": [
