@@ -32,7 +32,7 @@ async def _async_call(prompt: str, role: str) -> dict:
         {"role": "system", "content": _system_prompts[role]},
         {"role": "user", "content": prompt},
     ]
-    resp = await chat_with_gpt(messages, temperature=0.0, max_tokens=6000)
+    resp = await chat_with_gpt(messages, temperature=0.0, max_tokens=1500)
     text = resp.get("text", "")
     if text.startswith("```") and text.endswith("```"):
         text = text.strip("`\n")
