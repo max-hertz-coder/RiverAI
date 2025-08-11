@@ -71,7 +71,6 @@ async def get_user_by_tg_id(telegram_id: int) -> Optional[Dict[str, Any]]:
         data = _rec_to_dict(row)
         if not data:
             return None
-        # добавим удобное поле с расшифрованным именем
         data["name"] = _decrypt_or_empty(data.get("name_enc"))
         return data
 
@@ -102,7 +101,6 @@ async def create_user(telegram_id: int, name: str) -> Dict[str, Any]:
             trial_end,
         )
     user = await get_user_by_tg_id(telegram_id)
-    # должен существовать после вставки (или существовал раньше)
     return user or {}
 
 
@@ -192,7 +190,6 @@ async def get_student(student_id: int) -> Optional[Dict[str, Any]]:
         "subject": _decrypt_or_empty(d.get("subject")),
         "level": _decrypt_or_empty(d.get("level")),
         "notes": _decrypt_or_empty(d.get("notes")) if d.get("notes") else "",
-        # если нужны счётчики, добавьте их здесь (usage_count, tokens_*)
         **{k: v for k, v in d.items() if k not in {"id", "user_id", "name", "subject", "level", "notes"}},
     }
 
@@ -222,10 +219,6 @@ async def update_student(
     level: Optional[str] = None,
     notes: Optional[str] = None,
 ) -> None:
-    """
-    Частичное обновление — можно передавать только изменяемые поля.
-    Пример: await update_student(student_id=sid, name="Новая ассоциация")
-    """
     sets: List[str] = []
     values: List[Any] = []
 
@@ -243,7 +236,7 @@ async def update_student(
         values.append(encryption.encrypt_str(notes) if notes else "")
 
     if not sets:
-        return  # нечего обновлять
+        return
 
     values.append(student_id)
     sql = f"UPDATE students SET {', '.join(sets)} WHERE id=$%d" % (len(values))
@@ -381,3 +374,32 @@ async def delete_user(user_id: int) -> None:
     tg_hash = hash_telegram_id(user_id)
     async with _get_pool().acquire() as conn:
         await conn.execute("DELETE FROM users WHERE telegram_hash=$1", tg_hash)
+
+
+# ===== удобный снапшот подписки (на будущее) =====
+async def get_subscription_snapshot(user_id: int) -> Dict[str, Any]:
+    """
+    Возвращает:
+    {
+      'plan': 'standard'|'premium'|'trial',
+      'students_limit': int,
+      'subscription_expires': datetime|None,
+      'is_paid_active': bool
+    }
+    """
+    u = await get_user_by_tg_id(user_id) or {}
+    plan = (u.get("plan") or "standard").lower()
+    students = int(u.get("students_limit") or 0)
+    expires = u.get("subscription_expires")
+    if expires and isinstance(expires, str):
+        try:
+            expires = datetime.fromisoformat(expires)
+        except Exception:
+            expires = None
+    is_paid_active = (plan != "trial") and (expires and expires > datetime.now())
+    return {
+        "plan": plan,
+        "students_limit": students,
+        "subscription_expires": expires,
+        "is_paid_active": bool(is_paid_active),
+    }

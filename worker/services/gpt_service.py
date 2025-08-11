@@ -8,7 +8,7 @@ from worker import config
 
 logger = logging.getLogger(__name__)
 
-_PREFERRED_MODELS: List[str] = ["gpt-4o", "gpt-4o-mini", "gpt-3.5-turbo"]
+_PREFERRED_MODELS: List[str] = ["gpt-5-mini"]
 
 
 def _pick_key() -> str:

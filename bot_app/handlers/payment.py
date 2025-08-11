@@ -50,21 +50,125 @@ def _kb_admin_confirm(invoice_id: str) -> InlineKeyboardMarkup:
     ])
 
 
+# ======== Pricing & proration helpers (локально, чтобы не плодить зависимости) ========
+
+def _compute_month_price_rub(model: str, students: int) -> int:
+    """
+    Твоя текущая модель цены (как была в subscription.py):
+    price ~= (students * 8 * 4 * 10000 tokens) * 2 руб/1M * (multiplier)
+    затем округление до сотен.
+    """
+    total_generations = students * 8 * 4
+    total_tokens = total_generations * 10_000
+    cost_per_million = 2.0
+    multiplier = 1.0 if model == "standard" else 1.5
+    price_rub = int(round((total_tokens / 1_000_000) * cost_per_million * 100 * multiplier))
+    price_rub = ((price_rub + 50) // 100) * 100
+    return max(price_rub, 0)
+
+
+def _prorate(user_dict: dict, new_model: str, new_students: int) -> dict:
+    """
+    Возвращает dict с разложением proration:
+    {
+      'old_plan', 'old_students', 'sub_until', 'days_left',
+      'old_price', 'new_price', 'credit', 'final_amount'
+    }
+    Кредит считаем только если активная платная подписка (не trial) и дата в будущем.
+    """
+    now = datetime.now()
+    old_plan = (user_dict.get("plan") or "standard").lower()
+    old_students = int(user_dict.get("students_limit") or 0)
+    sub_until = user_dict.get("subscription_expires")
+
+    # нормализуем дату
+    if sub_until and isinstance(sub_until, str):
+        try:
+            sub_until = datetime.fromisoformat(sub_until)
+        except Exception:
+            sub_until = None
+
+    is_paid_active = (old_plan != "trial") and (sub_until and sub_until > now)
+
+    old_price = _compute_month_price_rub(old_plan, old_students) if is_paid_active else 0
+    new_price = _compute_month_price_rub(new_model, new_students)
+
+    days_left = 0
+    if is_paid_active:
+        try:
+            days_left = max((sub_until.date() - now.date()).days, 0)
+        except Exception:
+            days_left = 0
+
+    credit = int(round((old_price / 30.0) * days_left)) if days_left > 0 else 0
+    final_amount = max(new_price - credit, 0)
+
+    return {
+        "old_plan": old_plan,
+        "old_students": old_students,
+        "sub_until": sub_until,
+        "days_left": days_left,
+        "old_price": int(old_price),
+        "new_price": int(new_price),
+        "credit": int(credit),
+        "final_amount": int(final_amount),
+    }
+
+
+# ======== Handlers ========
+
 @router.callback_query(F.data.startswith("pay:"))
 async def cb_pay(callback: CallbackQuery):
     """
     Формат callback_data: 'pay:<model>:<students>:<amount_rub>'
+    amount_rub — может быть 0, если proration покрыла стоимость (тогда переключаем тариф бесплатно).
     """
     try:
-        _, model, students_str, amount_str = callback.data.split(":")
+        _, model, students_str, _amount_str = callback.data.split(":")
         students = int(students_str)
-        amount_rub = int(amount_str)
     except Exception:
         await callback.answer("Некорректные параметры оплаты", show_alert=True)
         return
 
+    # Пересчёт по факту вызова (из актуального состояния пользователя)
+    user = await db.get_user_by_tg_id(callback.from_user.id)
+    if not user:
+        await callback.answer("Пользователь не найден", show_alert=True)
+        return
+
+    pr = _prorate(user, model, students)
+    amount_rub = pr["final_amount"]
+
+    # Если к оплате 0 — переключаем тариф без счёта, срок оставляем прежним
+    if amount_rub <= 0:
+        until = pr["sub_until"]
+        if not until or until <= datetime.now():
+            # теоретически сюда попадём редко (кредит 0 и подписки нет) — тогда даём 30 дней
+            until = datetime.now() + timedelta(days=30)
+
+        await db.set_subscription(callback.from_user.id, model, students, until)
+        await db.set_plan(callback.from_user.id, model)
+        await database.db.reset_usage(callback.from_user.id)
+
+        await callback.message.edit_text(
+            f"✅ Тариф переключён бесплатно. Новый тариф '{model}' действует до {until.date()}."
+        )
+        return await callback.answer()
+
     description = f"{model} x{students} / {callback.from_user.id}"
-    metadata = {"user_id": callback.from_user.id, "model": model, "students": students}
+    metadata = {
+        "user_id": callback.from_user.id,
+        "model": model,
+        "students": students,
+        # подробности proration для прозрачности
+        "old_plan": pr["old_plan"],
+        "old_students": pr["old_students"],
+        "days_left": pr["days_left"],
+        "old_price": pr["old_price"],
+        "new_price": pr["new_price"],
+        "credit": pr["credit"],
+        "final_amount": pr["final_amount"],
+    }
 
     # Попытка YooKassa (если включена)
     if _provider_is_yookassa():
@@ -143,7 +247,7 @@ async def cb_manual_paid(callback: CallbackQuery):
         except Exception:
             pass
 
-    await callback.message.edit_text("✅ Заявка об оплате отправлена. Мы проверим перевод и активируем подписку.")
+    await callback.message.edit_text("✅ Заявка об оплате отправлена. Мы проверим платёж и активируем подписку.")
     await callback.answer()
 
 
