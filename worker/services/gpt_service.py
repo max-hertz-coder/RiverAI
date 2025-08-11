@@ -8,7 +8,8 @@ from worker import config
 
 logger = logging.getLogger(__name__)
 
-_PREFERRED_MODELS: List[str] = ["gpt-5-mini"]
+_PREFERRED_MODELS: List[str] = ["gpt-4o", "gpt-4o-mini", "gpt-3.5-turbo"]
+
 
 def _pick_key() -> str:
     if not config.OPENAI_API_KEYS:
@@ -19,12 +20,6 @@ def _pick_key() -> str:
     logger.info("🔧 Выбран OpenAI ключ: ****%s (из %d)", key[-4:], len(config.OPENAI_API_KEYS))
     return key
 
-def _is_gpt5_family(model: str) -> bool:
-    m = (model or "").lower()
-    return m.startswith("gpt-5")
-
-def _use_max_completion_tokens(model: str) -> bool:
-    return _is_gpt5_family(model)
 
 async def _call_chat_completion(
     client: AsyncOpenAI,
@@ -33,20 +28,12 @@ async def _call_chat_completion(
     temperature: float,
     max_tokens: int,
 ) -> Dict[str, Any]:
-    params: Dict[str, Any] = {
-        "model": model,
-        "messages": messages,
-    }
-    # Для gpt-5* запрещён произвольный temperature — не передаём его вовсе.
-    if not _is_gpt5_family(model):
-        params["temperature"] = temperature
-
-    if _use_max_completion_tokens(model):
-        params["max_completion_tokens"] = max_tokens
-    else:
-        params["max_tokens"] = max_tokens
-
-    resp = await client.chat.completions.create(**params)
+    resp = await client.chat.completions.create(
+        model=model,
+        messages=messages,
+        temperature=temperature,
+        max_tokens=max_tokens,
+    )
     text = (resp.choices[0].message.content or "").strip()
     usage = resp.usage or None
     return {
@@ -55,6 +42,7 @@ async def _call_chat_completion(
         "completion_tokens": int(getattr(usage, "completion_tokens", 0) or 0),
         "total_tokens": int(getattr(usage, "total_tokens", 0) or 0),
     }
+
 
 async def chat_with_gpt(
     messages: List[Dict[str, str]],
@@ -76,10 +64,8 @@ async def chat_with_gpt(
             key = _pick_key()
             client = AsyncOpenAI(api_key=key)
             try:
-                logger.info(
-                    "🧠 GPT call: model=%s, attempt=%d/%d, last_user='%s...'",
-                    mdl, attempt, max_retries, (messages[-1].get("content") or "")[:60]
-                )
+                logger.info("🧠 GPT call: model=%s, attempt=%d/%d, last_user='%s...'",
+                            mdl, attempt, max_retries, (messages[-1].get("content") or "")[:60])
                 result = await _call_chat_completion(client, messages, mdl, temperature, max_tokens)
                 logger.info(
                     "✅ GPT ok (model=%s) tokens: prompt=%d, completion=%d, total=%d",
@@ -89,10 +75,7 @@ async def chat_with_gpt(
             except Exception as e:
                 last_exc = e
                 delay = min(2 ** (attempt - 1), 8) + random.uniform(0, 0.5)
-                logger.warning(
-                    "⚠️ GPT error (model=%s, attempt=%d): %s; retry in %.1fs",
-                    mdl, attempt, e, delay
-                )
+                logger.warning("⚠️ GPT error (model=%s, attempt=%d): %s; retry in %.1fs", mdl, attempt, e, delay)
                 await asyncio.sleep(delay)
                 continue
 
