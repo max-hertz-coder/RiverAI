@@ -32,7 +32,7 @@ def _sync_correct(instruction: str, raw: str) -> str:
             {"role": "user", "content": full},
         ],
         temperature=0.0,
-        max_tokens=800,
+        max_completion_tokens=800,
     )
     text = (resp.choices[0].message.content or "").strip()
     if text.startswith("```") and text.endswith("```"):
