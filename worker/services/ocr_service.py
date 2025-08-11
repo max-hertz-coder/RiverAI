@@ -55,7 +55,7 @@ def sync_ocr(path_or_url: str) -> str:
         image_data = {"url": _to_data_uri(path_or_url), "detail": "high"}
 
     resp = client.chat.completions.create(
-        model="gpt-5-mini",
+        model="gpt-5",
         messages=[{
             "role": "user",
             "content": [
@@ -64,7 +64,8 @@ def sync_ocr(path_or_url: str) -> str:
             ],
         }],
         temperature=0.0,
-        max_tokens=2000,
+        # gpt-5* требует max_completion_tokens
+        max_completion_tokens=4000,
     )
     text = (resp.choices[0].message.content or "").strip()
     low = text.lower()

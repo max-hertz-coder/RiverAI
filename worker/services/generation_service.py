@@ -24,15 +24,14 @@ _system_prompts = {
     ),
 }
 
-
-
-
 async def _async_call(prompt: str, role: str) -> dict:
     messages = [
         {"role": "system", "content": _system_prompts[role]},
         {"role": "user", "content": prompt},
     ]
-    resp = await chat_with_gpt(messages, temperature=0.0, max_tokens=1500)
+    # max_tokens оставляем в интерфейсе; внутри gpt_service он корректно
+    # подменится на max_completion_tokens для gpt-5*
+    resp = await chat_with_gpt(messages, temperature=0.0, max_tokens=6000)
     text = resp.get("text", "")
     if text.startswith("```") and text.endswith("```"):
         text = text.strip("`\n")
@@ -43,16 +42,11 @@ async def _async_call(prompt: str, role: str) -> dict:
         "total_tokens": int(resp.get("total_tokens", 0) or (resp.get("prompt_tokens", 0) + resp.get("completion_tokens", 0))),
     }
 
-
 async def generate_raw_tasks(prompt: str) -> dict:
     return await _async_call(prompt, "tasks")
 
-
-
-
 async def generate_raw_solutions(tasks: str) -> dict:
     return await _async_call(tasks, "solutions")
-
 
 async def generate_solutions_continuation(original_sols: str, prompt: str) -> dict:
     full = (original_sols or "").strip() + "\n\n" + (prompt or "").strip()

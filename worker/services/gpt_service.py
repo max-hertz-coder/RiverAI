@@ -8,8 +8,7 @@ from worker import config
 
 logger = logging.getLogger(__name__)
 
-_PREFERRED_MODELS: List[str] = ["gpt-5-mini", "gpt-5-mini", "gpt-5-mini"]
-
+_PREFERRED_MODELS: List[str] = ["gpt-5-mini"]
 
 def _pick_key() -> str:
     if not config.OPENAI_API_KEYS:
@@ -20,6 +19,13 @@ def _pick_key() -> str:
     logger.info("🔧 Выбран OpenAI ключ: ****%s (из %d)", key[-4:], len(config.OPENAI_API_KEYS))
     return key
 
+def _use_max_completion_tokens(model: str) -> bool:
+    """
+    Для линейки gpt-5/gpt-5-mini в Chat Completions нужен параметр max_completion_tokens.
+    Для старых/прочих моделей — классический max_tokens.
+    """
+    m = (model or "").lower()
+    return m.startswith("gpt-5")
 
 async def _call_chat_completion(
     client: AsyncOpenAI,
@@ -28,12 +34,17 @@ async def _call_chat_completion(
     temperature: float,
     max_tokens: int,
 ) -> Dict[str, Any]:
-    resp = await client.chat.completions.create(
-        model=model,
-        messages=messages,
-        temperature=temperature,
-        max_tokens=max_tokens,
-    )
+    params: Dict[str, Any] = {
+        "model": model,
+        "messages": messages,
+        "temperature": temperature,
+    }
+    if _use_max_completion_tokens(model):
+        params["max_completion_tokens"] = max_tokens
+    else:
+        params["max_tokens"] = max_tokens
+
+    resp = await client.chat.completions.create(**params)
     text = (resp.choices[0].message.content or "").strip()
     usage = resp.usage or None
     return {
@@ -42,7 +53,6 @@ async def _call_chat_completion(
         "completion_tokens": int(getattr(usage, "completion_tokens", 0) or 0),
         "total_tokens": int(getattr(usage, "total_tokens", 0) or 0),
     }
-
 
 async def chat_with_gpt(
     messages: List[Dict[str, str]],
@@ -64,8 +74,10 @@ async def chat_with_gpt(
             key = _pick_key()
             client = AsyncOpenAI(api_key=key)
             try:
-                logger.info("🧠 GPT call: model=%s, attempt=%d/%d, last_user='%s...'",
-                            mdl, attempt, max_retries, (messages[-1].get("content") or "")[:60])
+                logger.info(
+                    "🧠 GPT call: model=%s, attempt=%d/%d, last_user='%s...'",
+                    mdl, attempt, max_retries, (messages[-1].get("content") or "")[:60]
+                )
                 result = await _call_chat_completion(client, messages, mdl, temperature, max_tokens)
                 logger.info(
                     "✅ GPT ok (model=%s) tokens: prompt=%d, completion=%d, total=%d",
@@ -75,7 +87,10 @@ async def chat_with_gpt(
             except Exception as e:
                 last_exc = e
                 delay = min(2 ** (attempt - 1), 8) + random.uniform(0, 0.5)
-                logger.warning("⚠️ GPT error (model=%s, attempt=%d): %s; retry in %.1fs", mdl, attempt, e, delay)
+                logger.warning(
+                    "⚠️ GPT error (model=%s, attempt=%d): %s; retry in %.1fs",
+                    mdl, attempt, e, delay
+                )
                 await asyncio.sleep(delay)
                 continue
 

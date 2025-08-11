@@ -1,4 +1,3 @@
-
 import os
 import asyncio
 import base64
@@ -20,9 +19,6 @@ _SYSTEM_PROMPT = (
     "Верните исправленный raw-список в том же формате."
 )
 
-
-
-
 def _sync_correct(instruction: str, raw: str) -> str:
     full = (instruction or "").strip() + "\n\n" + (raw or "").strip()
     resp = client.chat.completions.create(
@@ -32,17 +28,16 @@ def _sync_correct(instruction: str, raw: str) -> str:
             {"role": "user", "content": full},
         ],
         temperature=0.0,
-        max_tokens=800,
+        # В новых моделях используется max_completion_tokens вместо max_tokens
+        max_completion_tokens=4000,
     )
     text = (resp.choices[0].message.content or "").strip()
     if text.startswith("```") and text.endswith("```"):
         text = text.strip("`\n")
     return text
 
-
 async def generate_corrected_tasks(instruction: str, raw_tasks: str) -> str:
     return await asyncio.to_thread(_sync_correct, instruction, raw_tasks)
-
 
 async def handle_correct_tasks(task: Dict) -> Dict:
     """
