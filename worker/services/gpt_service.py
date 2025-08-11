@@ -19,13 +19,12 @@ def _pick_key() -> str:
     logger.info("🔧 Выбран OpenAI ключ: ****%s (из %d)", key[-4:], len(config.OPENAI_API_KEYS))
     return key
 
-def _use_max_completion_tokens(model: str) -> bool:
-    """
-    Для линейки gpt-5/gpt-5-mini в Chat Completions нужен параметр max_completion_tokens.
-    Для старых/прочих моделей — классический max_tokens.
-    """
+def _is_gpt5_family(model: str) -> bool:
     m = (model or "").lower()
     return m.startswith("gpt-5")
+
+def _use_max_completion_tokens(model: str) -> bool:
+    return _is_gpt5_family(model)
 
 async def _call_chat_completion(
     client: AsyncOpenAI,
@@ -37,8 +36,11 @@ async def _call_chat_completion(
     params: Dict[str, Any] = {
         "model": model,
         "messages": messages,
-        "temperature": temperature,
     }
+    # Для gpt-5* запрещён произвольный temperature — не передаём его вовсе.
+    if not _is_gpt5_family(model):
+        params["temperature"] = temperature
+
     if _use_max_completion_tokens(model):
         params["max_completion_tokens"] = max_tokens
     else:

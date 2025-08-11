@@ -54,6 +54,7 @@ def sync_ocr(path_or_url: str) -> str:
     else:
         image_data = {"url": _to_data_uri(path_or_url), "detail": "high"}
 
+    # В gpt-5* запрещён произвольный temperature — не передаём его вовсе.
     resp = client.chat.completions.create(
         model="gpt-5",
         messages=[{
@@ -63,8 +64,7 @@ def sync_ocr(path_or_url: str) -> str:
                 {"type": "image_url", "image_url": image_data},
             ],
         }],
-        temperature=0.0,
-        # gpt-5* требует max_completion_tokens
+        # Для gpt-5* используем max_completion_tokens
         max_completion_tokens=4000,
     )
     text = (resp.choices[0].message.content or "").strip()
@@ -138,7 +138,8 @@ async def handle_ocr_and_generate(task: dict) -> dict:
     user_prompt = (task.get("prompt") or "").strip()
     final_prompt = f"{user_prompt}\n\n{ocr_text}" if user_prompt else ocr_text
 
+    from worker.services.tasks_service import handle_tasks
     gen_task = {"task_id": task_id, "type": "generate_tasks", "prompt": final_prompt}
-    result = await handle_tasks(gen_task)  # уже с PDF base64
+    result = await handle_tasks(gen_task)
     result["prompt"] = final_prompt
     return result

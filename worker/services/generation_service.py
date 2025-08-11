@@ -3,7 +3,6 @@ from worker.services.gpt_service import chat_with_gpt
 
 logger = logging.getLogger(__name__)
 
-# Системные подсказки под разные роли из OnlyGPT
 _system_prompts = {
     'tasks': (
         "Вы — педагог-математик. Генерируйте ТОЛЬКО задания без решений и ответов. "
@@ -29,8 +28,7 @@ async def _async_call(prompt: str, role: str) -> dict:
         {"role": "system", "content": _system_prompts[role]},
         {"role": "user", "content": prompt},
     ]
-    # max_tokens оставляем в интерфейсе; внутри gpt_service он корректно
-    # подменится на max_completion_tokens для gpt-5*
+    # Внутри chat_with_gpt параметр temperature будет отправлен только если модель это поддерживает
     resp = await chat_with_gpt(messages, temperature=0.0, max_tokens=6000)
     text = resp.get("text", "")
     if text.startswith("```") and text.endswith("```"):
