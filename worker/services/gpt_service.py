@@ -30,6 +30,8 @@ async def _call_chat_completion(
 ) -> Dict[str, Any]:
     # Для новых моделей gpt-5 используем max_completion_tokens, для старых - max_tokens
     if model.startswith("gpt-5"):
+        if model.endswith("mini") and temperature != 1.0:
+            temperature = 1.0
         kwargs = {
             "model": model,
             "messages": messages,
@@ -43,7 +45,6 @@ async def _call_chat_completion(
             "temperature": temperature,
             "max_tokens": max_tokens,
         }
-    
     resp = await client.chat.completions.create(**kwargs)
     text = (resp.choices[0].message.content or "").strip()
     usage = resp.usage or None

@@ -6,11 +6,13 @@ def main_menu_kb(lang: str = "RU") -> InlineKeyboardMarkup:
     if lang.upper() == "EN":
         kb.button(text="👤 Students", callback_data="show_students")
         kb.button(text="💳 Subscription", callback_data="subscription")
-        kb.button(text="⚙️ Settings", callback_data="settings")
+        kb.button(text="ℹ️ Instructions", callback_data="instructions")
+        kb.button(text="🆘 Support", url="https://t.me/YourSupportAccount")
     else:
         kb.button(text="👤 Ученики", callback_data="show_students")
         kb.button(text="💳 Подписка", callback_data="subscription")
-        kb.button(text="⚙️ Настройки", callback_data="settings")
+        kb.button(text="ℹ️ Инструкции", callback_data="instructions")
+        kb.button(text="🆘 Поддержка", url="https://t.me/YourSupportAccount")
     kb.adjust(1)
     return kb.as_markup()
 
@@ -22,9 +24,9 @@ def back_button(text: str = "← Назад", cb_data: str = "back:main") -> Inl
 
 def bottom_menu_kb(lang: str = "RU") -> ReplyKeyboardMarkup:
     labels = (
-        ["👤 Students", "💳 Subscription", "⚙️ Settings"]
+        ["👤 Students", "💳 Subscription", "ℹ️ Instructions", "🆘 Support"]
         if lang.upper() == "EN"
-        else ["👤 Ученики", "💳 Подписка", "⚙️ Настройки"]
+        else ["👤 Ученики", "💳 Подписка", "ℹ️ Инструкции", "🆘 Поддержка"]
     )
     rb = ReplyKeyboardBuilder()
     for label in labels:

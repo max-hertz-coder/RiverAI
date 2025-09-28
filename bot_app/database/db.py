@@ -1,4 +1,3 @@
-# bot_app/database/db.py
 import asyncpg
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
@@ -7,6 +6,7 @@ from bot_app.utils import encryption
 from bot_app.utils.identity import hash_telegram_id
 
 _pool: asyncpg.Pool | None = None
+
 
 
 # ==============================
@@ -148,12 +148,26 @@ async def update_user_notifications(user_id: int, enabled: bool) -> None:
 # ==============================
 # Student-related operations
 # ==============================
+import asyncpg
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional, Tuple
+
+from bot_app.utils import encryption
+from bot_app.utils.identity import hash_telegram_id
+
+_pool: asyncpg.Pool | None = None
+
+# ... (вспомогательные функции _rec_to_dict, _decrypt_or_empty остаются без изменений) ...
+
+# ==============================
+# Student-related operations
+# ==============================
 async def get_students_by_user(user_id: int) -> List[Dict[str, Any]]:
     tg_hash = hash_telegram_id(user_id)
     async with _get_pool().acquire() as conn:
         rows = await conn.fetch(
             """
-            SELECT id, name, subject, level, notes
+            SELECT id, name, subject, grade, level, notes
             FROM students
             WHERE user_id=$1
             ORDER BY id
@@ -168,11 +182,11 @@ async def get_students_by_user(user_id: int) -> List[Dict[str, Any]]:
                 "name": _decrypt_or_empty(r["name"]),
                 "subject": _decrypt_or_empty(r["subject"]),
                 "level": _decrypt_or_empty(r["level"]),
+                "grade": _decrypt_or_empty(r["grade"]) if r["grade"] else "",
                 "notes": _decrypt_or_empty(r["notes"]) if r["notes"] else "",
             }
         )
     return result
-
 
 async def get_student(student_id: int) -> Optional[Dict[str, Any]]:
     async with _get_pool().acquire() as conn:
@@ -185,63 +199,65 @@ async def get_student(student_id: int) -> Optional[Dict[str, Any]]:
     d = dict(row)
     return {
         "id": d["id"],
-        "user_id": d["user_id"],  # это telegram_hash пользователя
+        "user_id": d["user_id"],
         "name": _decrypt_or_empty(d.get("name")),
         "subject": _decrypt_or_empty(d.get("subject")),
         "level": _decrypt_or_empty(d.get("level")),
+        "grade": _decrypt_or_empty(d.get("grade")) if d.get("grade") else "",
         "notes": _decrypt_or_empty(d.get("notes")) if d.get("notes") else "",
-        **{k: v for k, v in d.items() if k not in {"id", "user_id", "name", "subject", "level", "notes"}},
+        **{k: v for k, v in d.items() if k not in {"id", "user_id", "name", "subject", "grade", "level", "notes"}},
     }
 
-
-async def add_student(user_id: int, name: str, subject: str, level: str, notes: str) -> Optional[int]:
+async def add_student(user_id: int, name: str, subject: str, grade: str, level: str, notes: str) -> Optional[int]:
     tg_hash = hash_telegram_id(user_id)
     async with _get_pool().acquire() as conn:
         row = await conn.fetchrow(
             """
-            INSERT INTO students (user_id, name, subject, level, notes)
-            VALUES ($1, $2, $3, $4, $5)
+            INSERT INTO students (user_id, name, subject, grade, level, notes)
+            VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING id
             """,
             tg_hash,
             encryption.encrypt_str(name),
             encryption.encrypt_str(subject),
+            encryption.encrypt_str(grade) if grade else "",
             encryption.encrypt_str(level),
-            encryption.encrypt_str(notes) if notes else "",
+            encryption.encrypt_str(notes) if notes else ""
         )
     return int(row["id"]) if row else None
-
 
 async def update_student(
     student_id: int,
     name: Optional[str] = None,
     subject: Optional[str] = None,
+    grade: Optional[str] = None,
     level: Optional[str] = None,
     notes: Optional[str] = None,
 ) -> None:
     sets: List[str] = []
     values: List[Any] = []
-
     if name is not None:
         sets.append("name=$%d" % (len(values) + 1))
         values.append(encryption.encrypt_str(name))
     if subject is not None:
         sets.append("subject=$%d" % (len(values) + 1))
         values.append(encryption.encrypt_str(subject))
+    if grade is not None:
+        sets.append("grade=$%d" % (len(values) + 1))
+        values.append(encryption.encrypt_str(grade) if grade else "")
     if level is not None:
         sets.append("level=$%d" % (len(values) + 1))
         values.append(encryption.encrypt_str(level))
     if notes is not None:
         sets.append("notes=$%d" % (len(values) + 1))
         values.append(encryption.encrypt_str(notes) if notes else "")
-
     if not sets:
         return
-
     values.append(student_id)
     sql = f"UPDATE students SET {', '.join(sets)} WHERE id=$%d" % (len(values))
     async with _get_pool().acquire() as conn:
         await conn.execute(sql, *values)
+
 
 
 async def delete_student(student_id: int) -> None:

@@ -23,12 +23,9 @@ def model_choice_kb():
     ])
 
 def _compute_month_price_rub(model: str, students: int) -> int:
-    total_generations = students * 8 * 4
-    total_tokens = total_generations * 10_000
-    cost_per_million = 2.0
-    multiplier = 1.0 if model == "standard" else 1.5
-    price_rub = int(round((total_tokens / 1_000_000) * cost_per_million * 100 * multiplier))
-    price_rub = ((price_rub + 50) // 100) * 100
+    price_rub = students * 100
+    if model != "standard":
+        price_rub = int(price_rub * 1.5)
     return max(price_rub, 0)
 
 def _make_proration_text(user: dict, new_model: str, new_students: int) -> tuple[int, str]:
