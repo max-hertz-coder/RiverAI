@@ -12,11 +12,8 @@ def _strip_code_fences(text: str) -> str:
         return ""
     s = text.strip()
     if s.startswith("```") and s.endswith("```"):
-        # отрезаем обрамление ```lang ... ```
         first = s.find("\n")
-        if first != -1:
-            return s[first+1:].rstrip("` \n")
-        return s.strip("`\n")
+        return s[first + 1 :].rstrip("` \n") if first != -1 else s.strip("`\n")
     return s
 
 def _split_numbered(text: str) -> List[str]:
@@ -60,13 +57,21 @@ async def handle_tasks(task: Dict) -> Dict:
         total_prompt_tokens = 0
         total_completion_tokens = 0
 
-        # 1) исходные задания
+        # 1) Получаем исходные задания
         if task_type == "generate_tasks":
             if not prompt:
                 return {"task_id": task_id, "type": "error", "message": "Нет запроса."}
-            logger.info("🔧 handle_tasks: промпт: %s", prompt[:200] + "…")
+            logger.info("🔧 handle_tasks: промпт (первые 200): %s", prompt[:200].replace("\n", " ") + ("…" if len(prompt) > 200 else ""))
+
             t_resp = await generation_service.generate_raw_tasks(prompt)
             raw_tasks = _strip_code_fences(t_resp.get("text", ""))
+
+            # ✨ Повторная попытка, если пусто
+            if not raw_tasks:
+                logger.warning("⚠️ GPT вернул пустые задания. Повторяю попытку с уточнением.")
+                t_resp = await generation_service.generate_raw_tasks(prompt + "\n\nСформируйте минимум 5 кратких задач в нумерованном списке.")
+                raw_tasks = _strip_code_fences(t_resp.get("text", ""))
+
             total_prompt_tokens += int(t_resp.get("prompt_tokens", 0))
             total_completion_tokens += int(t_resp.get("completion_tokens", 0))
 
@@ -87,22 +92,36 @@ async def handle_tasks(task: Dict) -> Dict:
 
         # 3) решения
         s_resp = await generation_service.generate_raw_solutions(cleaned)
-        solutions_text = _strip_code_fences(s_resp.get("text", ""))
-        total_prompt_tokens += int(s_resp.get("prompt_tokens", 0))
-        total_completion_tokens += int(s_resp.get("completion_tokens", 0))
+        solutions_text = _strip_code_fences(s_resp.get("text", "")).strip()
 
-        solutions_list = _split_numbered(solutions_text)
-
-        if len(solutions_list) != len(tasks_list):
-            logger.warning("Количество решений (%d) != количеству задач (%d). Догенерируем поштучно…",
-                           len(solutions_list), len(tasks_list))
-            solutions_list = []
+        # Ещё одна защита от пустоты
+        if not solutions_text:
+            logger.warning("⚠️ Пустые решения. Делаю покомпонентную догенерацию.")
+            solutions_list: List[str] = []
             for item in tasks_list:
                 one = await generation_service.generate_raw_solutions(item)
                 text = _strip_code_fences(one.get("text", "")).strip() or "Решение не получено."
                 solutions_list.append(text)
                 total_prompt_tokens += int(one.get("prompt_tokens", 0))
                 total_completion_tokens += int(one.get("completion_tokens", 0))
+        else:
+            solutions_list = _split_numbered(solutions_text)
+
+        if len(solutions_list) != len(tasks_list):
+            logger.warning("Количество решений (%d) != количеству задач (%d). Догенерируем поштучно…",
+                           len(solutions_list), len(tasks_list))
+            # выравнивание
+            fixed: List[str] = []
+            for item in tasks_list:
+                if solutions_list:
+                    fixed.append(solutions_list.pop(0))
+                else:
+                    one = await generation_service.generate_raw_solutions(item)
+                    text = _strip_code_fences(one.get("text", "")).strip() or "Решение не получено."
+                    fixed.append(text)
+                    total_prompt_tokens += int(one.get("prompt_tokens", 0))
+                    total_completion_tokens += int(one.get("completion_tokens", 0))
+            solutions_list = fixed
 
         # 4) санитизация и сборка LaTeX
         solutions_list = pdf_utils.sanitize_solutions(solutions_list)
@@ -115,7 +134,7 @@ async def handle_tasks(task: Dict) -> Dict:
             content_tasks=items_tasks, content_solutions=items_solutions
         )
 
-        # 5) компилируем на воркере → base64
+        # 5) компиляция PDF → base64
         tasks_pdf_b64, log_t = pdf_utils.compile_latex_to_b64(latex_tasks)
         solutions_pdf_b64, log_s = pdf_utils.compile_latex_to_b64(latex_solutions)
 

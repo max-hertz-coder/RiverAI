@@ -8,11 +8,16 @@ from worker import config
 
 logger = logging.getLogger(__name__)
 
+# порядок предпочтения моделей (сверху — приоритетнее)
 _PREFERRED_MODELS: List[str] = ["gpt-5", "gpt-5-mini", "gpt-4o", "gpt-4o-mini", "gpt-3.5-turbo"]
 
 
 def _pick_key() -> str:
-    if not config.OPENAI_API_KEYS:
+    """
+    Выбираем один ключ из списка config.OPENAI_API_KEYS.
+    Обязательно наличие хотя бы одного ключа.
+    """
+    if not getattr(config, "OPENAI_API_KEYS", None):
         raise RuntimeError("OPENAI_API_KEYS не настроены")
     key = random.choice(config.OPENAI_API_KEYS).strip()
     if not key or len(key) < 10:
@@ -28,10 +33,14 @@ async def _call_chat_completion(
     temperature: float,
     max_tokens: int,
 ) -> Dict[str, Any]:
-    # Для новых моделей gpt-5 используем max_completion_tokens, для старых - max_tokens
+    """
+    Единая точка вызова Chat Completions.
+    Для всех моделей семейства gpt-5 (включая mini) выставляем temperature=1.0,
+    и используем параметр max_completion_tokens (требование новых моделей).
+    """
     if model.startswith("gpt-5"):
-        if model.endswith("mini") and temperature != 1.0:
-            temperature = 1.0
+        # 🔒 Защита от 400: у gpt-5(и -mini) поддерживается только дефолтное значение температуры
+        temperature = 1.0
         kwargs = {
             "model": model,
             "messages": messages,
@@ -45,6 +54,7 @@ async def _call_chat_completion(
             "temperature": temperature,
             "max_tokens": max_tokens,
         }
+
     resp = await client.chat.completions.create(**kwargs)
     text = (resp.choices[0].message.content or "").strip()
     usage = resp.usage or None
@@ -63,31 +73,46 @@ async def chat_with_gpt(
     model: Optional[str] = None,
     max_retries: int = 3,
 ) -> Dict[str, Any]:
+    """
+    Универсальный вызов GPT с ретраями и автоматическим переключением моделей.
+    """
     if not messages:
         raise ValueError("messages пуст")
 
-    models_chain = [model] + _PREFERRED_MODELS if model else list(_PREFERRED_MODELS)
+    # Цепочка моделей: либо (model + дефолты), либо просто дефолты
+    models_chain: List[str] = []
+    if model:
+        models_chain.append(model)
+    models_chain.extend(m for m in _PREFERRED_MODELS if m not in models_chain)
 
     last_exc: Optional[Exception] = None
+
     for mdl in models_chain:
         if not mdl:
             continue
+
         for attempt in range(1, max_retries + 1):
             key = _pick_key()
             client = AsyncOpenAI(api_key=key)
             try:
-                logger.info("🧠 GPT call: model=%s, attempt=%d/%d, last_user='%s...'",
-                            mdl, attempt, max_retries, (messages[-1].get("content") or "")[:60])
+                logger.info(
+                    "🧠 GPT call: model=%s, attempt=%d/%d, last_user='%s...'",
+                    mdl, attempt, max_retries, (messages[-1].get("content") or "")[:120]
+                )
                 result = await _call_chat_completion(client, messages, mdl, temperature, max_tokens)
                 logger.info(
                     "✅ GPT ok (model=%s) tokens: prompt=%d, completion=%d, total=%d",
                     mdl, result["prompt_tokens"], result["completion_tokens"], result["total_tokens"]
                 )
                 return result
+
             except Exception as e:
                 last_exc = e
                 delay = min(2 ** (attempt - 1), 8) + random.uniform(0, 0.5)
-                logger.warning("⚠️ GPT error (model=%s, attempt=%d): %s; retry in %.1fs", mdl, attempt, e, delay)
+                logger.warning(
+                    "⚠️ GPT error (model=%s, attempt=%d): %s; retry in %.1fs",
+                    mdl, attempt, str(e), delay
+                )
                 await asyncio.sleep(delay)
                 continue
 

@@ -1,17 +1,25 @@
 # worker/services/ocr_service.py
+from __future__ import annotations
+
 import os
 import base64
 import tempfile
 import logging
 import asyncio
+from importlib import import_module
+from typing import Optional
 
 import fitz  # PyMuPDF
 from openai import OpenAI
 
 from worker.services.tasks_service import handle_tasks
 
+logger = logging.getLogger(__name__)
+
+# -------- OpenAI Vision OCR (через Chat Completions) --------
+
 def _pick_openai_key() -> str:
-    keys = []
+    keys: list[str] = []
     raw = (os.getenv("OPENAI_API_KEYS") or "") + "," + (os.getenv("OPENAI_API_KEY") or "")
     for k in raw.replace("\n", ",").split(","):
         k = k.strip()
@@ -23,7 +31,6 @@ def _pick_openai_key() -> str:
 
 OPENAI_KEY = _pick_openai_key()
 client = OpenAI(api_key=OPENAI_KEY)
-logger = logging.getLogger(__name__)
 
 def _pdf_to_png_bytes(path: str) -> bytes:
     doc = fitz.open(path)
@@ -41,13 +48,16 @@ def _to_data_uri(path: str) -> str:
     else:
         with open(path, "rb") as f:
             img_bytes = f.read()
-        mime = "jpeg" if ext in (".jpg", ".jpeg") else ext.lstrip(".")
+        mime = "jpeg" if ext in (".jpg", ".jpeg") else ext.lstrip(".") or "png"
     if len(img_bytes) > 20 * 1024 * 1024:
         raise ValueError("File too large for OCR")
     b64 = base64.b64encode(img_bytes).decode("utf-8")
     return f"data:image/{mime};base64,{b64}"
 
 def sync_ocr(path_or_url: str) -> str:
+    """
+    OCR через OpenAI. Для моделей семейства gpt-5 используем temperature=1.0 и max_completion_tokens.
+    """
     logger.info("🔧 OCR: %s", path_or_url)
     if path_or_url.startswith("http"):
         image_data = {"url": path_or_url, "detail": "high"}
@@ -59,51 +69,28 @@ def sync_ocr(path_or_url: str) -> str:
         messages=[{
             "role": "user",
             "content": [
-                {"type": "text", "text": "Что написано на этом изображении? Ответ — просто текст."},
+                {"type": "text", "text": "Что написано на этом изображении? Ответ верните чистым текстом без комментариев."},
                 {"type": "image_url", "image_url": image_data},
             ],
         }],
-        temperature=0.0,
+        temperature=1.0,              # ⟵ важно для gpt-5
         max_completion_tokens=2000,
     )
     text = (resp.choices[0].message.content or "").strip()
     low = text.lower()
-    if any(x in low for x in ("извин", "sorry", "can't", "не могу")):
-        return ""
-    if text in ("НЕТЕКСТ", "НЕТЕКСТ."):
+    if any(x in low for x in ("извин", "sorry", "can't", "не могу", "cannot")):
         return ""
     return text
 
 async def ocr_openai_vision(path_or_url: str) -> str:
     return await asyncio.to_thread(sync_ocr, path_or_url)
 
-# worker/services/ocr_service.py
-
-import base64
-import os
-import tempfile
-from importlib import import_module
-from typing import Optional, Tuple
-
-
-# Пытаемся использовать vision-OCR, если он у тебя реализован в проекте.
-# Если модуля нет — fallback: вернём "" и попробуем альтернативу.
-async def _ocr_openai_vision_safe(path: str) -> str:
-    try:
-        mod = import_module("worker.services.vision")
-        ocr_openai_vision = getattr(mod, "ocr_openai_vision", None)
-        if ocr_openai_vision is None:
-            return ""
-        text = await ocr_openai_vision(path)
-        return (text or "").strip()
-    except Exception:
-        return ""
-
+# -------- Альтернативный OCR (PIL + pytesseract), динамические импорты --------
 
 def _alt_ocr_image_bytes(data: bytes) -> str:
     """
-    Альтернативное OCR через PIL + pytesseract, без статических импортов.
-    Если библиотек нет — вернём пустую строку.
+    Альтернативный OCR через PIL + pytesseract.
+    Импортируем модули динамически, чтобы не падал линтер/рантайм, если пакетов нет.
     """
     try:
         pil_mod = import_module("PIL.Image")
@@ -119,11 +106,11 @@ def _alt_ocr_image_bytes(data: bytes) -> str:
     except Exception:
         return ""
 
+# -------- Входные обработчики задач --------
 
 async def handle_ocr(task: dict) -> dict:
     """
-    Вход: task = { task_id: str, file_data: base64, file_name: str, prompt?: str }
-    Выход: { type: "ocr"|"error", task_id, text?, prompt?, message? }
+    task = { task_id: str, file_data: base64, file_name: str, prompt?: str }
     """
     task_id = task.get("task_id")
     if not task_id:
@@ -140,21 +127,20 @@ async def handle_ocr(task: dict) -> dict:
 
     suffix = os.path.splitext(task.get("file_name", "file.jpg"))[1] or ".jpg"
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
-    try:
-        tmp.write(data)
-        tmp.flush()
-        tmp.close()
+    tmp.write(data)
+    tmp.flush()
+    tmp.close()
 
-        text = await _ocr_openai_vision_safe(tmp.name)
+    try:
+        text = (await ocr_openai_vision(tmp.name) or "").strip()
     finally:
-        # Удаляем файл независимо от результата вызова
         try:
             os.unlink(tmp.name)
         except Exception:
             pass
 
     if not text:
-        # Пробуем альтернативный OCR (если pillow+pytesseract доступны)
+        # Фолбэк: попробуем tesseract, если установлен
         text = _alt_ocr_image_bytes(data)
 
     if not text:
@@ -167,26 +153,36 @@ async def handle_ocr(task: dict) -> dict:
         "prompt": (task.get("prompt") or "").strip(),
     }
 
-
 async def handle_ocr_and_generate(task: dict) -> dict:
+    """
+    OCR -> генерация заданий (единый pipeline).
+    """
     task_id = task.get("task_id")
     if not task_id:
         return {"type": "error", "message": "Отсутствует task_id."}
 
+    file_b64 = task.get("file_data")
+    if not file_b64:
+        return {"type": "error", "task_id": task_id, "message": "Нет данных файла."}
+
     try:
-        data = base64.b64decode(task["file_data"])
+        data = base64.b64decode(file_b64)
     except Exception:
         return {"type": "error", "task_id": task_id, "message": "Ошибка обработки файла."}
 
     suffix = os.path.splitext(task.get("file_name", "file.jpg"))[1] or ".jpg"
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
-    tmp.write(data); tmp.close()
+    tmp.write(data)
+    tmp.flush()
+    tmp.close()
 
     try:
         ocr_text = (await ocr_openai_vision(tmp.name) or "").strip()
     finally:
-        try: os.remove(tmp.name)
-        except Exception: pass
+        try:
+            os.remove(tmp.name)
+        except Exception:
+            pass
 
     if not ocr_text:
         return {"type": "error", "task_id": task_id, "message": "Не удалось распознать текст."}
@@ -195,6 +191,6 @@ async def handle_ocr_and_generate(task: dict) -> dict:
     final_prompt = f"{user_prompt}\n\n{ocr_text}" if user_prompt else ocr_text
 
     gen_task = {"task_id": task_id, "type": "generate_tasks", "prompt": final_prompt}
-    result = await handle_tasks(gen_task)  # уже с PDF base64
+    result = await handle_tasks(gen_task)  # уже включает PDF base64
     result["prompt"] = final_prompt
     return result
