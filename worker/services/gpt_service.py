@@ -8,7 +8,7 @@ from worker import config
 
 logger = logging.getLogger(__name__)
 
-_PREFERRED_MODELS: List[str] = ["gpt-4o", "gpt-4o-mini", "gpt-3.5-turbo"]
+_PREFERRED_MODELS: List[str] = ["gpt-5", "gpt-5-mini", "gpt-4o", "gpt-4o-mini", "gpt-3.5-turbo"]
 
 
 def _pick_key() -> str:
@@ -28,12 +28,23 @@ async def _call_chat_completion(
     temperature: float,
     max_tokens: int,
 ) -> Dict[str, Any]:
-    resp = await client.chat.completions.create(
-        model=model,
-        messages=messages,
-        temperature=temperature,
-        max_tokens=max_tokens,
-    )
+    # Для новых моделей gpt-5 используем max_completion_tokens, для старых - max_tokens
+    if model.startswith("gpt-5"):
+        kwargs = {
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_completion_tokens": max_tokens,
+        }
+    else:
+        kwargs = {
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+    
+    resp = await client.chat.completions.create(**kwargs)
     text = (resp.choices[0].message.content or "").strip()
     usage = resp.usage or None
     return {

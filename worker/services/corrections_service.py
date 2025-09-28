@@ -26,13 +26,13 @@ _SYSTEM_PROMPT = (
 def _sync_correct(instruction: str, raw: str) -> str:
     full = (instruction or "").strip() + "\n\n" + (raw or "").strip()
     resp = client.chat.completions.create(
-        model="gpt-4.1-mini",
+        model="gpt-5-mini",
         messages=[
             {"role": "system", "content": _SYSTEM_PROMPT},
             {"role": "user", "content": full},
         ],
         temperature=0.0,
-        max_tokens=800,
+        max_completion_tokens=800,
     )
     text = (resp.choices[0].message.content or "").strip()
     if text.startswith("```") and text.endswith("```"):
