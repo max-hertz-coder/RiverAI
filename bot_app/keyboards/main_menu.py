@@ -5,6 +5,10 @@ from aiogram.types import InlineKeyboardMarkup, ReplyKeyboardMarkup
 SUPPORT_URL = "https://t.me/mx_hertz"
 
 def main_menu_kb(lang: str = "RU") -> InlineKeyboardMarkup:
+    """
+    Верхнее (inline) меню под сообщением.
+    «Поддержка» делаем URL-кнопкой.
+    """
     kb = InlineKeyboardBuilder()
     if lang.upper() == "EN":
         kb.button(text="👤 Students", callback_data="show_students")
@@ -19,13 +23,11 @@ def main_menu_kb(lang: str = "RU") -> InlineKeyboardMarkup:
     kb.adjust(1)
     return kb.as_markup()
 
-def back_button(text: str = "← Назад", cb_data: str = "back:main") -> InlineKeyboardMarkup:
-    kb = InlineKeyboardBuilder()
-    kb.button(text=text, callback_data=cb_data)
-    kb.adjust(1)
-    return kb.as_markup()
-
 def bottom_menu_kb(lang: str = "RU") -> ReplyKeyboardMarkup:
+    """
+    Нижняя (reply) клавиатура: это простые текстовые кнопки,
+    значит на них должны быть Message-хэндлеры по точному тексту.
+    """
     labels = (
         ["👤 Students", "💳 Subscription", "ℹ️ Instructions", "🆘 Support"]
         if lang.upper() == "EN"
@@ -35,4 +37,10 @@ def bottom_menu_kb(lang: str = "RU") -> ReplyKeyboardMarkup:
     for label in labels:
         rb.button(text=label)
     rb.adjust(1)
-    return rb.as_markup(resize_keyboard=True)
+    return rb.as_markup(resize_keyboard=True, one_time_keyboard=False)
+
+def back_button(text: str = "← Назад", cb_data: str = "back:main") -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(text=text, callback_data=cb_data)
+    kb.adjust(1)
+    return kb.as_markup()

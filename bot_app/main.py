@@ -21,6 +21,7 @@ from bot_app.database import db
 
 # Роутеры хэндлеров
 from bot_app.handlers.start import router as start_router
+from bot_app.handlers.instructions import router as instructions_router   # ⬅️ НОВОЕ
 from bot_app.handlers.students import router as students_router
 from bot_app.handlers.ocr_and_generate import router as ocr_and_generate_router
 from bot_app.handlers.generation import router as generation_router
@@ -45,7 +46,6 @@ import bot_app  # чтобы положить connection/channel в простр
 async def on_startup(bot_: Bot, dp: Dispatcher):
     logging.info("🚀 Startup: очищаем команды и инициализируем сервисы")
 
-    # Сбрасываем команды (RU/EN)
     await bot_.delete_my_commands(scope=BotCommandScopeDefault(), language_code="ru")
     await bot_.delete_my_commands(scope=BotCommandScopeDefault(), language_code="en")
     await bot_.delete_my_commands(scope=None)
@@ -64,7 +64,6 @@ async def on_startup(bot_: Bot, dp: Dispatcher):
 
 async def on_shutdown(bot_: Bot, dp: Dispatcher):
     logging.info("🔌 Shutdown: закрываем ресурсы")
-    # Закрываем пул БД
     try:
         if db._pool:
             await db._pool.close()
@@ -72,7 +71,6 @@ async def on_shutdown(bot_: Bot, dp: Dispatcher):
     except Exception:
         logging.exception("Ошибка закрытия DB pool")
 
-    # Закрываем RabbitMQ канал и соединение
     try:
         if getattr(bot_app, "rabbit_channel", None):
             await bot_app.rabbit_channel.close()
@@ -117,8 +115,9 @@ async def main():
     dp.message.middleware(AuthMiddleware())
     dp.callback_query.middleware(AuthMiddleware())
 
-    # 6) Роутеры
+    # 6) Роутеры (ВАЖНО: instructions_router подключаем до main_menu_router — чтобы перехватывать нажатия)
     dp.include_router(start_router)
+    dp.include_router(instructions_router)       # ⬅️ добавлен
     dp.include_router(students_router)
     dp.include_router(ocr_and_generate_router)
     dp.include_router(generation_router)
@@ -131,14 +130,13 @@ async def main():
 
     # 7) AIOHTTP: вебхук оплаты
     webhook_port = int(os.getenv("PAYMENT_WEBHOOK_PORT", "8080"))
-    payment_app = build_payment_app()
-    runner = web.AppRunner(payment_app)
+    runner = web.AppRunner(build_payment_app())
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", webhook_port)
     await site.start()
     logging.info("🌐 Payment webhook is listening on 0.0.0.0:%d", webhook_port)
 
-    # 8) Консьюмеры результатов (AMQP + Redis)
+    # 8) Консьюмеры результатов
     consumers_task = asyncio.create_task(run_result_consumers(bot), name="result_consumers")
 
     # 9) Запуск бота
