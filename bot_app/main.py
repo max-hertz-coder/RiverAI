@@ -24,7 +24,7 @@ from bot_app.handlers.start import router as start_router
 from bot_app.handlers.students import router as students_router
 from bot_app.handlers.ocr_and_generate import router as ocr_and_generate_router
 from bot_app.handlers.generation import router as generation_router
-from bot_app.handlers.chatgpt import router as chatgpt_router  # ⟵ один роутер
+from bot_app.handlers.chatgpt import router as chatgpt_router
 from bot_app.handlers.subscription import router as subscription_router
 from bot_app.handlers.settings import router as settings_router
 from bot_app.handlers.homework_check import router as homework_check_router
@@ -37,7 +37,7 @@ from bot_app.result_consumer import run_result_consumers
 # Middleware
 from bot_app.middlewares.auth import AuthMiddleware
 
-# RabbitMQ общий канал для быстрой публикации из хэндлеров
+# RabbitMQ общий канал
 import aio_pika
 import bot_app  # чтобы положить connection/channel в пространство пакета
 
@@ -89,29 +89,20 @@ async def on_shutdown(bot_: Bot, dp: Dispatcher):
 
 
 async def main():
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s"
-    )
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(name)s | %(message)s")
 
-    # 1) Redis pool (общий для проекта)
-    await init_redis_pool(
-        app_config.REDIS_HOST,
-        app_config.REDIS_PORT,
-        app_config.REDIS_DB_CACHE,  # пул по умолчанию для кэша/контекстов
-    )
+    # 1) Redis
+    await init_redis_pool(app_config.REDIS_HOST, app_config.REDIS_PORT, app_config.REDIS_DB_CACHE)
 
-    # 2) PostgreSQL pool
+    # 2) PostgreSQL
     await db.init_db_pool(app_config.POSTGRES_DSN())
 
     # 3) Bot + Dispatcher
     bot = Bot(token=app_config.BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-    storage = RedisStorage.from_url(
-        f"redis://{app_config.REDIS_HOST}:{app_config.REDIS_PORT}/{app_config.REDIS_DB_FSM}"
-    )
+    storage = RedisStorage.from_url(f"redis://{app_config.REDIS_HOST}:{app_config.REDIS_PORT}/{app_config.REDIS_DB_FSM}")
     dp = Dispatcher(storage=storage)
 
-    # 4) Инициализируем общий RabbitMQ channel (для публикации задач из UI)
+    # 4) RabbitMQ канал
     logging.info("🔧 Инициализация RabbitMQ канала…")
     bot_app.rabbit_connection = await aio_pika.connect_robust(
         host=app_config.RABBITMQ_HOST,
@@ -131,14 +122,14 @@ async def main():
     dp.include_router(students_router)
     dp.include_router(ocr_and_generate_router)
     dp.include_router(generation_router)
-    dp.include_router(chatgpt_router)            # только один чат-роутер
+    dp.include_router(chatgpt_router)
     dp.include_router(subscription_router)
     dp.include_router(settings_router)
     dp.include_router(homework_check_router)
     dp.include_router(main_menu_router)
     dp.include_router(payment_router)
 
-    # 7) Поднимаем aiohttp-вебсервер для платежного вебхука
+    # 7) AIOHTTP: вебхук оплаты
     webhook_port = int(os.getenv("PAYMENT_WEBHOOK_PORT", "8080"))
     payment_app = build_payment_app()
     runner = web.AppRunner(payment_app)
@@ -147,17 +138,16 @@ async def main():
     await site.start()
     logging.info("🌐 Payment webhook is listening on 0.0.0.0:%d", webhook_port)
 
-    # 8) Параллельно запускаем консюмеры результатов (AMQP + Redis)
+    # 8) Консьюмеры результатов (AMQP + Redis)
     consumers_task = asyncio.create_task(run_result_consumers(bot), name="result_consumers")
 
-    # 9) Polling
+    # 9) Запуск бота
     try:
         await dp.start_polling(bot, skip_updates=True, on_startup=on_startup, on_shutdown=on_shutdown)
     finally:
         consumers_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await consumers_task
-        # останавливаем aiohttp вебсервер
         with contextlib.suppress(Exception):
             await runner.cleanup()
 

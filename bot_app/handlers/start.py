@@ -1,5 +1,4 @@
 # bot_app/handlers/start.py
-
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import (
@@ -12,6 +11,7 @@ from aiogram.types import (
 import os
 
 from bot_app.keyboards.main_menu import main_menu_kb, bottom_menu_kb
+from bot_app.database import db
 
 router = Router()
 
@@ -38,10 +38,39 @@ def _yes_no_kb(yes_cb: str, no_cb: str) -> InlineKeyboardMarkup:
 async def cmd_start(message: Message):
     """
     /start:
-    1) Показываем два файла (соглашение и политику) + кнопки Да/Нет.
-    2) При "Да" – спрашиваем про просмотр инструкций.
+      1) если пользователь новый — создаём запись;
+      2) если согласие уже принято → проверяем, спрашивали ли про туториал:
+         - если уже спрашивали → сразу главный экран;
+         - если не спрашивали → один раз спросим «Хотите посмотреть инструкции?».
+      3) если согласие не принято → показываем документы + «Да/Нет».
     """
-    # Пытаемся отправить 2 файла (если они есть в рабочем каталоге)
+    # 0) гарантируем пользователя в БД
+    user = await db.get_user_by_tg_id(message.from_user.id)
+    if not user:
+        await db.create_user(message.from_user.id, message.from_user.full_name or "")
+        user = await db.get_user_by_tg_id(message.from_user.id)
+
+    # 1) если уже приняли условия
+    if await db.has_user_consent(message.from_user.id):
+        # Предлагали ли туториал раньше?
+        if await db.has_tutorial_asked(message.from_user.id):
+            # Ничего больше не спрашиваем — сразу на главный экран
+            first_name = message.from_user.first_name or ""
+            await message.answer(
+                f"🤖 ИИ-Ассистент для Репетитора\nДобро пожаловать, {first_name}!\nЧем займёмся сегодня?",
+                reply_markup=main_menu_kb("RU"),
+            )
+            await message.answer("⬇ Меню под полем ввода:", reply_markup=bottom_menu_kb("RU"))
+            return
+
+        # Один раз предлагаем посмотреть инструкции
+        await message.answer(
+            "Отлично! Мы подготовили видео-инструкции по пользованию ботом, чтобы раскрыть потенциал его функционала. Хотите ли вы с ними ознакомиться?",
+            reply_markup=_yes_no_kb("start_tutorial", "skip_tutorial"),
+        )
+        return
+
+    # 2) согласие не принято — показываем документы с кнопками
     policy_path = "policy.pdf"
     privacy_path = "privacy.pdf"
 
@@ -66,11 +95,27 @@ async def cmd_start(message: Message):
 
 @router.callback_query(F.data == "accept_policy")
 async def cb_accept_policy(callback: CallbackQuery):
-    """Пользователь принял соглашение: предлагаем видео-инструкции."""
+    """
+    Пользователь принял соглашение:
+      — сохраняем согласие,
+      — один раз предлагаем инструкции (если ещё не спрашивали).
+    """
+    await db.set_user_consent(callback.from_user.id)
     try:
         await callback.message.edit_reply_markup(reply_markup=None)
     except Exception:
         pass
+
+    # если вдруг уже спрашивали — сразу на главный экран
+    if await db.has_tutorial_asked(callback.from_user.id):
+        first_name = callback.from_user.first_name or ""
+        await callback.message.answer(
+            f"🤖 ИИ-Ассистент для Репетитора\nДобро пожаловать, {first_name}!\nЧем займёмся сегодня?",
+            reply_markup=main_menu_kb("RU"),
+        )
+        await callback.message.answer("⬇ Меню под полем ввода:", reply_markup=bottom_menu_kb("RU"))
+        await callback.answer()
+        return
 
     await callback.message.answer(
         "Отлично! Мы подготовили видео-инструкции по пользованию ботом, чтобы раскрыть потенциал его функционала. Хотите ли вы с ними ознакомиться?",
@@ -81,19 +126,20 @@ async def cb_accept_policy(callback: CallbackQuery):
 
 @router.callback_query(F.data == "reject_policy")
 async def cb_reject_policy(callback: CallbackQuery):
-    """Отказ — показываем предупреждение."""
     await callback.answer("Чтобы пользоваться ботом, необходимо принять условия.", show_alert=True)
 
 
 @router.callback_query(F.data == "start_tutorial")
 async def cb_start_tutorial(callback: CallbackQuery):
     """
-    Начинаем показ видеороликов. Структура:
-    1) Генерация материала → «Да ✅»
-    2) Проверка ДЗ → «Да ✅»
-    3) Ведение досье → «Да ✅»
-    4) Чат с GPT → «Да ✅» → главный экран
+    Пользователь согласился смотреть видео:
+      — помечаем, что уже спрашивали,
+      — помечаем, что видео показывали (чтобы больше не предлагать на /start),
+      — запускаем последовательность из 4 роликов «с кнопкой Да ✅».
     """
+    await db.set_tutorial_asked(callback.from_user.id)
+    await db.set_tutorial_shown(callback.from_user.id)
+
     try:
         await callback.message.edit_reply_markup(reply_markup=None)
     except Exception:
@@ -105,7 +151,13 @@ async def cb_start_tutorial(callback: CallbackQuery):
 
 @router.callback_query(F.data == "skip_tutorial")
 async def cb_skip_tutorial(callback: CallbackQuery):
-    """Пропустили инструкции — на главный экран."""
+    """
+    Пользователь отказался от инструкций:
+      — помечаем, что уже спрашивали,
+      — дальше на главный экран; повторно при /start не предлагаем.
+    """
+    await db.set_tutorial_asked(callback.from_user.id)
+
     try:
         await callback.message.edit_reply_markup(reply_markup=None)
     except Exception:
@@ -122,7 +174,7 @@ async def cb_skip_tutorial(callback: CallbackQuery):
 
 @router.callback_query(F.data.startswith("tutorial:"))
 async def cb_tutorial_step(callback: CallbackQuery):
-    """Переход по шагам «Да ✅»."""
+    """Переход по шагам «Да ✅» (после каждого видео)."""
     try:
         step = int(callback.data.split(":", 1)[1])
     except Exception:
@@ -172,5 +224,4 @@ async def _send_tutorial_video(callback: CallbackQuery, step: int):
     if file_path and os.path.exists(file_path):
         await callback.message.answer_video(FSInputFile(file_path), caption=captions.get(step, ""), reply_markup=btn)
     else:
-        # Если файла нет — шлём заглушку
         await callback.message.answer(f"{captions.get(step, 'Инструкция')}\n(Видео пока не загружено)", reply_markup=btn)

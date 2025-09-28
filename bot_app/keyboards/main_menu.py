@@ -1,18 +1,21 @@
+# bot_app/keyboards/main_menu.py
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 from aiogram.types import InlineKeyboardMarkup, ReplyKeyboardMarkup
+
+SUPPORT_URL = "https://t.me/mx_hertz"
 
 def main_menu_kb(lang: str = "RU") -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     if lang.upper() == "EN":
         kb.button(text="👤 Students", callback_data="show_students")
         kb.button(text="💳 Subscription", callback_data="subscription")
-        kb.button(text="ℹ️ Instructions", callback_data="instructions")
-        kb.button(text="🆘 Support", url="https://t.me/YourSupportAccount")
+        kb.button(text="ℹ️ Instructions", callback_data="instructions:open")
+        kb.button(text="🆘 Support", url=SUPPORT_URL)
     else:
         kb.button(text="👤 Ученики", callback_data="show_students")
         kb.button(text="💳 Подписка", callback_data="subscription")
-        kb.button(text="ℹ️ Инструкции", callback_data="instructions")
-        kb.button(text="🆘 Поддержка", url="https://t.me/YourSupportAccount")
+        kb.button(text="ℹ️ Инструкции", callback_data="instructions:open")
+        kb.button(text="🆘 Поддержка", url=SUPPORT_URL)
     kb.adjust(1)
     return kb.as_markup()
 
