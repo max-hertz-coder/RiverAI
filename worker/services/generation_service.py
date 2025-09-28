@@ -3,86 +3,76 @@ from worker.services.gpt_service import chat_with_gpt
 
 logger = logging.getLogger(__name__)
 
-# Системные подсказки под разные роли
-_system_prompts = {
-    "tasks": (
-        "Вы — педагог-математик. Сгенерируйте ТОЛЬКО задания без решений и ответов.\n"
-        "Создайте ровно запрошенное количество задач с сохранением структуры (номеров и подпунктов a), b), c)).\n"
-        "НЕ включайте решения, ответы, пояснения или ход решения.\n"
-        "Только условия задач в чистом виде.\n"
-        "Используйте LaTeX для формул: `$...$` для inline и `\\[...\\]` для display."
-    ),
-    "solutions": (
-        "Вы — педагог-математик. Пользователь прислал список задач с подпунктами a), b), c).\n"
-        "Верните ровно столько пунктов решения, сколько было задано (одно \\item на подпункт), "
-        "без вложенных списков и дополнительной нумерации.\n"
-        "Каждое решение — один абзац: кратко повторите условие подпункта, затем ход решения, затем итоговый ответ.\n"
-        "Используйте LaTeX для формул (`$...$` и `\\[...\\]`)."
-    ),
-}
+_SYSTEM_TASKS = (
+    "Вы — педагог-методист. Сгенерируйте ТОЛЬКО условия задач без решений и ответов. "
+    "Нужен нумерованный список. Допускаются подпункты a), b), c). "
+    "Формулы оформляйте в LaTeX: `$...$` или `\\[...\\]`. Не добавляйте комментариев."
+)
 
-_FALLBACK_NUDGE = (
-    "\n\nВАЖНО: Верните как минимум 5 нумерованных задач в формате:\n"
-    "1. [условие]\n"
-    "2. [условие]\n"
-    "...\n"
-    "Только список условий, без решений."
+_SYSTEM_SOLUTIONS = (
+    "Вы — преподаватель. Даны условия задач с подпунктами. Верните решения в формате нумерованного списка, "
+    "строго соответствующего исходным пунктам (одно \\item на подпункт), кратко и по делу. "
+    "Формулы — в LaTeX. Без вводных фраз."
+)
+
+# «пинок» к структуре — если LLM «зависает» и молчит
+_NUDGE = (
+    "\n\nВАЖНО: Верните минимум 5 пунктов в нумерованном списке.\n"
+    "1. [условие]\n2. [условие]\n3. [условие]\n4. [условие]\n5. [условие]\n"
+    "Только условия, без решений и ответов."
 )
 
 
-async def _async_call(prompt: str, role: str) -> dict:
+async def _call_llm(messages, *, max_tokens=1500):
     """
-    Базовый вызов GPT с повтором, если ответ пустой.
-    Сначала пробуем gpt-5-mini, если пусто — пробуем gpt-5.
-    Если снова пусто — добавляем «пинок-промпт» и пробуем ещё раз.
+    Вызываем chat_with_gpt без фиксации конкретной модели — даём шанс фолбэкам.
     """
-    messages = [
-        {"role": "system", "content": _system_prompts[role]},
-        {"role": "user", "content": prompt},
-    ]
+    return await chat_with_gpt(messages, temperature=1.0, max_tokens=max_tokens, model=None, max_retries=3)
 
-    # 1) Первая попытка (mini)
-    resp = await chat_with_gpt(messages, temperature=1.0, max_tokens=1500, model="gpt-5-mini")
+
+async def _safe_llm(system_prompt: str, user_prompt: str, *, nudge: bool = False) -> str:
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt if not nudge else (user_prompt + _NUDGE)},
+    ]
+    resp = await _call_llm(messages, max_tokens=1800)
     text = (resp.get("text") or "").strip()
 
-    # 2) Если пусто — пробуем обычный gpt-5
-    if not text:
-        logger.warning("⚠️ Пустой ответ от GPT (mini). Повтор с model=gpt-5")
-        resp = await chat_with_gpt(messages, temperature=1.0, max_tokens=1500, model="gpt-5")
-        text = (resp.get("text") or "").strip()
-
-    # 3) Если всё ещё пусто — «пинок» к структуре
-    if not text:
-        logger.warning("⚠️ Снова пусто. Добавляю инструкцию-напоминание о структуре и повторяю.")
-        messages[-1]["content"] = prompt + _FALLBACK_NUDGE
-        resp = await chat_with_gpt(messages, temperature=1.0, max_tokens=1500, model="gpt-5")
-        text = (resp.get("text") or "").strip()
-
-    # 4) Снимаем тройные бэктики, если LLM вернул код-блок
+    # снимем обёртку из код-блоков
     if text.startswith("```") and text.endswith("```"):
         inner = text.strip("`\n")
-        first_nl = inner.find("\n")
-        text = inner[first_nl + 1 :] if first_nl != -1 else inner
+        nl = inner.find("\n")
+        text = inner[nl + 1 :] if nl != -1 else inner
 
-    return {
-        "text": text,
-        "prompt_tokens": int(resp.get("prompt_tokens", 0)),
-        "completion_tokens": int(resp.get("completion_tokens", 0)),
-        "total_tokens": int(
-            resp.get("total_tokens", 0)
-            or (int(resp.get("prompt_tokens", 0)) + int(resp.get("completion_tokens", 0)))
-        ),
-    }
+    return text
 
 
 async def generate_raw_tasks(prompt: str) -> dict:
-    return await _async_call(prompt, "tasks")
+    """
+    Генерация только условий задач.
+    """
+    try:
+        text = await _safe_llm(_SYSTEM_TASKS, prompt, nudge=False)
+    except Exception:
+        logger.warning("⚠️ Первая попытка генерации задач не удалась — пробую с NUDGE.")
+        text = await _safe_llm(_SYSTEM_TASKS, prompt, nudge=True)
+
+    return {"text": text or ""}
 
 
 async def generate_raw_solutions(tasks: str) -> dict:
-    return await _async_call(tasks, "solutions")
+    """
+    Генерация решений к условиям.
+    """
+    try:
+        text = await _safe_llm(_SYSTEM_SOLUTIONS, tasks, nudge=False)
+    except Exception:
+        logger.warning("⚠️ Первая попытка генерации решений не удалась — пробую с NUDGE.")
+        text = await _safe_llm(_SYSTEM_SOLUTIONS, tasks, nudge=True)
+
+    return {"text": text or ""}
 
 
 async def generate_solutions_continuation(original_sols: str, prompt: str) -> dict:
     full = (original_sols or "").strip() + "\n\n" + (prompt or "").strip()
-    return await _async_call(full, "solutions")
+    return await generate_raw_solutions(full)
