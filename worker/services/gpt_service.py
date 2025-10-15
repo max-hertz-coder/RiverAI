@@ -13,18 +13,18 @@ from worker import config
 
 logger = logging.getLogger(__name__)
 
-# Доступные/проверенные цепочки без gpt-5-turbo (по логам у тебя 404)
+# Быстрая и доступная цепочка (исключили у тебя неработающий gpt-5-turbo)
 PREFERRED_MODELS: List[str] = [
-    "gpt-5",        # основной (учитываем особые параметры)
-    "gpt-4-turbo",  # быстрый и стабильный
-    "gpt-5-mini",   # удешевлённый/быстрый фолбэк
-    "gpt-4o",       # универсал
+    "gpt-4-turbo",  # быстрый и стабильный для текста
+    "gpt-4o",       # универсал (vision/текст)
+    "gpt-5-mini",   # быстрый/дешёвый, но требует особых параметров
+    "gpt-5",        # как fallback; у тебя бывает пустая генерация/401
 ]
 
 def _collect_keys() -> List[str]:
     keys: List[str] = []
 
-    # из конфига
+    # из config
     if getattr(config, "OPENAI_API_KEYS", None):
         try:
             for k in list(config.OPENAI_API_KEYS):
@@ -38,17 +38,16 @@ def _collect_keys() -> List[str]:
         if k:
             keys.append(k)
 
-    # из окружения (на всякий)
+    # из окружения
     env_multi = os.getenv("OPENAI_API_KEYS", "")
     if env_multi:
         keys += [x.strip() for x in env_multi.replace("\n", ",").split(",") if x.strip()]
-
     env_one = os.getenv("OPENAI_API_KEY", "")
     if env_one:
         keys.append(env_one.strip())
 
     keys = [k for k in keys if k and len(k) > 20]
-    # удалим повторы, сохраним порядок
+    # de-dup, preserve order
     return list(dict.fromkeys(keys))
 
 def _pick_key() -> str:
@@ -59,21 +58,28 @@ def _pick_key() -> str:
     logger.info("🔧 OpenAI ключ выбран: ****%s (всего=%d)", key[-4:], len(keys))
     return key
 
+async def _chat_create_with_timeout(client: AsyncOpenAI, timeout: float, **kwargs) -> Any:
+    # Жёсткий таймаут запроса, чтобы не зависать на минуту+
+    return await asyncio.wait_for(client.chat.completions.create(**kwargs), timeout=timeout)
+
 async def _call_chat_completion(
     client: AsyncOpenAI,
     messages: List[Dict[str, str]],
     model: str,
     temperature: float,
     max_tokens: int,
+    *,
+    request_timeout: float = 55.0,
 ) -> Dict[str, Any]:
     """
     Универсальный вызов Chat Completions.
-    Особенности API:
-      • для семейств gpt-5*/mini — temperature строго 1.0 и параметр max_completion_tokens
-      • для остальных — обычный max_tokens
+    Особенности API (по актуальным докам Chat Completions): для некоторых семейств
+    используется параметр `max_completion_tokens` вместо `max_tokens`. Мы это
+    учитываем для всех моделей, начинающихся с 'gpt-5' (и mini). :contentReference[oaicite:1]{index=1}
     """
     if model.startswith("gpt-5"):
-        temperature = 1.0  # строго для gpt-5*
+        # для gpt-5/mini — строго temperature=1.0 и max_completion_tokens
+        temperature = 1.0
         kwargs = {
             "model": model,
             "messages": messages,
@@ -88,7 +94,7 @@ async def _call_chat_completion(
             "max_tokens": max_tokens,
         }
 
-    resp = await client.chat.completions.create(**kwargs)
+    resp = await _chat_create_with_timeout(client, request_timeout, **kwargs)
     text = (resp.choices[0].message.content or "").strip()
     usage = resp.usage or None
 
@@ -106,15 +112,17 @@ async def chat_with_gpt(
     max_tokens: int = 1500,
     model: Optional[str] = None,
     max_retries: int = 3,
+    request_timeout: float = 55.0,
 ) -> Dict[str, Any]:
     """
-    Универсальный вызов GPT с ретраями и фолбэками по списку PREFERRED_MODELS.
-    Пустой текст — ошибка → ретрай / переход на следующую модель.
+    Универсальный вызов GPT с ретраями и фолбэками.
+    Пустой текст → ошибка → ретрай → переход на следующую модель.
+    Используем модели из оф. линеек GPT-4 Turbo и GPT-4o (стабильно поддерживаются). :contentReference[oaicite:2]{index=2}
     """
     if not messages:
         raise ValueError("messages пуст")
 
-    # Цепочка моделей: явный приоритет → наши фавориты
+    # Цепочка моделей: явная → приоритетная
     models_chain: List[str] = []
     if model:
         models_chain.append(model)
@@ -132,11 +140,12 @@ async def chat_with_gpt(
                     "🧠 GPT call: model=%s, attempt=%d/%d, prompt='%s...'",
                     mdl, attempt, max_retries, (messages[-1].get("content") or "")[:120]
                 )
-                result = await _call_chat_completion(client, messages, mdl, temperature, max_tokens)
+                result = await _call_chat_completion(
+                    client, messages, mdl, temperature, max_tokens, request_timeout=request_timeout
+                )
                 txt = (result.get("text") or "").strip()
                 if not txt:
                     raise RuntimeError("empty_completion")
-
                 logger.info(
                     "✅ GPT ok (model=%s) tokens: p=%d c=%d t=%d; preview='%s...'",
                     mdl, result["prompt_tokens"], result["completion_tokens"], result["total_tokens"],
@@ -145,9 +154,9 @@ async def chat_with_gpt(
                 return result
 
             except Exception as e:
-                # если модель отсутствует — выкидываем её из цепочки сразу
                 emsg = str(e)
-                if "model" in emsg and "not exist" in emsg or "model_not_found" in emsg:
+                # если модель реально недоступна — скипаем её
+                if "model_not_found" in emsg or "does not exist" in emsg:
                     logger.warning("⛔ Модель недоступна: %s — пропускаю", mdl)
                     break
                 last_exc = e
