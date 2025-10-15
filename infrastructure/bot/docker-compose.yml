@@ -49,4 +49,5 @@ services:
 
 networks:
   riverai-network:
-    external: true
+    name: riverai-network
+    driver: bridge
