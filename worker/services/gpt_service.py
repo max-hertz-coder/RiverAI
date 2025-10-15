@@ -1,40 +1,67 @@
+# worker/services/gpt_service.py
+from __future__ import annotations
+
 import asyncio
 import logging
+import os
 import random
 from typing import Any, Dict, List, Optional
 
 from openai import AsyncOpenAI
-
 from worker import config
 
 logger = logging.getLogger(__name__)
 
-# Порядок предпочтения моделей (сверху — приоритетнее)
+# Приоритет моделей для генерации школьных заданий (без gpt-3.5)
 PREFERRED_MODELS: List[str] = [
-    "gpt-5-turbo",    # Более быстрая версия, если доступна
-    "gpt-4-turbo",    # Более быстрая версия GPT-4, если доступна
-    "gpt-5-mini",
-    "gpt-5",
-    "gpt-4o",
-    "gpt-4o-mini",
-    "gpt-3.5-turbo",
+    "gpt-5-turbo",   # быстрый и сильный (если доступен)
+    "gpt-4-turbo",   # быстрый 4-й
+    "gpt-5",         # fallback: требует max_completion_tokens/temperature=1.0
+    "gpt-5-mini",    # ещё один fallback
+    "gpt-4o",        # универсальный vision/текст
 ]
 
-def _pick_key() -> str:
-    """Берём случайный ключ из списка, иначе основной из env."""
-    # Поддержка как списка ключей в конфиге, так и одиночного
-    keys = []
-    if getattr(config, "OPENAI_API_KEYS", None):
-        keys.extend([k.strip() for k in config.OPENAI_API_KEYS if k.strip()])
-    if getattr(config, "OPENAI_API_KEY", None):
-        keys.append(config.OPENAI_API_KEY.strip())
+def _collect_keys() -> List[str]:
+    """
+    Сбор API-ключей из:
+      - config.OPENAI_API_KEYS (list/iterable)
+      - config.OPENAI_API_KEY
+      - переменных окружения OPENAI_API_KEYS / OPENAI_API_KEY
+    """
+    keys: List[str] = []
 
-    keys = [k for k in keys if k and len(k) > 10]
+    if hasattr(config, "OPENAI_API_KEYS") and config.OPENAI_API_KEYS:
+        try:
+            for k in list(config.OPENAI_API_KEYS):
+                k = (k or "").strip()
+                if k:
+                    keys.append(k)
+        except Exception:
+            pass
+
+    if hasattr(config, "OPENAI_API_KEY") and config.OPENAI_API_KEY:
+        k = (config.OPENAI_API_KEY or "").strip()
+        if k:
+            keys.append(k)
+
+    env_multi = os.getenv("OPENAI_API_KEYS", "")
+    if env_multi:
+        keys += [x.strip() for x in env_multi.replace("\n", ",").split(",") if x.strip()]
+
+    env_one = os.getenv("OPENAI_API_KEY", "")
+    if env_one:
+        keys.append(env_one.strip())
+
+    # фильтруем мусор
+    keys = [k for k in keys if k and len(k) > 20]
+    return list(dict.fromkeys(keys))  # de-dup, preserve order
+
+def _pick_key() -> str:
+    keys = _collect_keys()
     if not keys:
         raise RuntimeError("OPENAI_API_KEY(S) не настроены")
-
     key = random.choice(keys)
-    logger.info("🔧 Выбран OpenAI ключ: ****%s (всего доступно: %d)", key[-4:], len(keys))
+    logger.info("🔧 OpenAI ключ выбран: ****%s (всего=%d)", key[-4:], len(keys))
     return key
 
 async def _call_chat_completion(
@@ -45,13 +72,13 @@ async def _call_chat_completion(
     max_tokens: int,
 ) -> Dict[str, Any]:
     """
-    Общий вызов Chat Completions.
-    Для моделей семейства gpt-5 используем ограничения API:
-    - temperature = 1.0
-    - max_completion_tokens вместо max_tokens
+    Универсальный вызов Chat Completions.
+    Особенности API:
+      • для семейств gpt-5*/mini — temperature строго 1.0 и параметр max_completion_tokens
+      • для остальных — обычный max_tokens
     """
     if model.startswith("gpt-5"):
-        temperature = 1.0  # fix для gpt-5/mini
+        temperature = 1.0  # строго для gpt-5*
         kwargs = {
             "model": model,
             "messages": messages,
@@ -67,9 +94,6 @@ async def _call_chat_completion(
         }
 
     resp = await client.chat.completions.create(**kwargs)
-
-    # В старом/новом SDK content может быть пустым, а полезная нагрузка уехать в tools и т.п.
-    # Нас интересует обычный текст:
     text = (resp.choices[0].message.content or "").strip()
     usage = resp.usage or None
 
@@ -78,24 +102,24 @@ async def _call_chat_completion(
         "prompt_tokens": int(getattr(usage, "prompt_tokens", 0) or 0),
         "completion_tokens": int(getattr(usage, "completion_tokens", 0) or 0),
         "total_tokens": int(getattr(usage, "total_tokens", 0) or 0),
-        "raw": resp,  # оставим на случай отладки
+        "raw": resp,
     }
 
 async def chat_with_gpt(
     messages: List[Dict[str, str]],
     temperature: float = 0.7,
-    max_tokens: int = 1200,
+    max_tokens: int = 1500,
     model: Optional[str] = None,
     max_retries: int = 3,
 ) -> Dict[str, Any]:
     """
-    Универсальный вызов GPT с ретраями и автоматическим переходом на другие модели.
-    ВАЖНО: теперь «пустой текст» считаем неуспехом → будет ретрай/фолбэк.
+    Универсальный вызов GPT с ретраями и фолбэками по списку PREFERRED_MODELS.
+    Пустой текст — ошибка → ретрай / переход на следующую модель.
     """
     if not messages:
         raise ValueError("messages пуст")
 
-    # Готовим цепочку моделей
+    # формируем цепочку моделей (приоритет — явный model, затем любимые)
     models_chain: List[str] = []
     if model:
         models_chain.append(model)
@@ -107,42 +131,31 @@ async def chat_with_gpt(
 
     for mdl in models_chain:
         for attempt in range(1, max_retries + 1):
-            key = _pick_key()
-            client = AsyncOpenAI(api_key=key)
+            client = AsyncOpenAI(api_key=_pick_key())
             try:
                 logger.info(
-                    "🧠 GPT call: model=%s, attempt=%d/%d, last_user='%s...'",
+                    "🧠 GPT call: model=%s, attempt=%d/%d, prompt='%s...'",
                     mdl, attempt, max_retries, (messages[-1].get("content") or "")[:120]
                 )
                 result = await _call_chat_completion(client, messages, mdl, temperature, max_tokens)
                 txt = (result.get("text") or "").strip()
-
                 if not txt:
-                    # ⚠️ Пустой ответ — считаем ошибкой и пробуем ещё/другую модель
-                    logger.warning("⚠️ GPT пустой ответ (model=%s, attempt=%d) — считаю неуспехом.", mdl, attempt)
                     raise RuntimeError("empty_completion")
 
                 logger.info(
-                    "✅ GPT ok (model=%s) tokens: prompt=%d, completion=%d, total=%d, preview='%s...'",
-                    mdl,
-                    result["prompt_tokens"],
-                    result["completion_tokens"],
-                    result["total_tokens"],
+                    "✅ GPT ok (model=%s) tokens: p=%d c=%d t=%d; preview='%s...'",
+                    mdl, result["prompt_tokens"], result["completion_tokens"], result["total_tokens"],
                     txt[:80].replace("\n", " "),
                 )
                 return result
 
             except Exception as e:
                 last_exc = e
-                # экспоненциальная пауза
-                delay = min(2 ** (attempt - 1), 8) + random.uniform(0, 0.5)
-                logger.warning(
-                    "⚠️ GPT error (model=%s, attempt=%d): %s; retry in %.1fs",
-                    mdl, attempt, str(e), delay
-                )
+                delay = min(2 ** (attempt - 1), 8) + random.uniform(0, 0.4)
+                logger.warning("⚠️ GPT error (model=%s, attempt=%d): %s; retry in %.1fs", mdl, attempt, str(e), delay)
                 await asyncio.sleep(delay)
 
-        logger.warning("↪️ Перехожу на следующую модель (после неудач): %s", mdl)
+        logger.warning("↪️ Перехожу на следующую модель после неудач: %s", mdl)
 
     logger.exception("🔴 Все попытки вызова GPT исчерпаны")
     if last_exc:

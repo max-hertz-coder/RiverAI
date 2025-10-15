@@ -27,7 +27,7 @@ __all__ = [
     "clear_conversation",
     "save_conversation",
     "get_conversation",
-    # работа с «последним файлом решений» (некоторые модули бота их импортируют)
+    # «последний файл решений»
     "save_last_solutions_file",
     "get_last_solutions_file",
     "clear_last_solutions_file",
@@ -51,7 +51,6 @@ async def init_redis_pool(
 ) -> None:
     """
     Инициализирует соединение с Redis с экспоненциальными ретраями.
-    Не падаем сразу при старте, если Redis ещё не поднялся или перезапускается.
     """
     global _client
     port = _int(port, 6379)
@@ -61,7 +60,7 @@ async def init_redis_pool(
         host=host,
         port=port,
         db=db,
-        decode_responses=True,          # строки/JSON без b'...'
+        decode_responses=True,
         socket_keepalive=True,
         socket_timeout=5,
         socket_connect_timeout=3,
@@ -99,31 +98,22 @@ def get_client() -> aioredis.Redis:
 _TASK_CTX_KEYS = (
     "task_context:{task_id}",  # новый ключ
     "context:{task_id}",       # старый ключ (совместимость)
-    "task:ctx:{task_id}",      # на всякий случай (если где-то оставался)
+    "task:ctx:{task_id}",      # на всякий случай
 )
 
 def _ctx_keys_for(task_id: str) -> list[str]:
     return [k.format(task_id=task_id) for k in _TASK_CTX_KEYS]
 
 async def set_task_context(task_id: str, ctx: Dict[str, Any], ttl_sec: int = 3600) -> None:
-    """
-    Сохранить контекст задачи (новый API).
-    """
     c = _get_client()
-    key = _ctx_keys_for(task_id)[0]  # используем новый ключ
+    key = _ctx_keys_for(task_id)[0]
     await c.set(key, json.dumps(ctx, ensure_ascii=False), ex=ttl_sec)
 
-# --- совместимость: старое имя функции ---
+# --- совместимость: старое имя ---
 async def save_context(task_id: str, ctx: Dict[str, Any], ttl_sec: int = 3600) -> None:
-    """
-    Совместимость со старым кодом: alias для set_task_context(...).
-    """
     await set_task_context(task_id, ctx, ttl_sec=ttl_sec)
 
 async def get_context_by_task_id(task_id: str) -> Dict[str, Any]:
-    """
-    Получить контекст по task_id. Поддерживает старые ключи.
-    """
     c = _get_client()
     for key in _ctx_keys_for(task_id):
         raw = await c.get(key)
@@ -135,17 +125,11 @@ async def get_context_by_task_id(task_id: str) -> Dict[str, Any]:
                 return {}
     return {}
 
-# --- совместимость: старое имя функции ---
+# --- совместимость: старое имя ---
 async def get_task_context(task_id: str) -> Dict[str, Any]:
-    """
-    Совместимость со старым кодом: alias для get_context_by_task_id(...).
-    """
     return await get_context_by_task_id(task_id)
 
 async def cleanup_task_context(task_id: str) -> None:
-    """
-    Удалить контекст по всем возможным ключам (чистка).
-    """
     c = _get_client()
     keys = _ctx_keys_for(task_id)
     if keys:
@@ -174,11 +158,6 @@ async def clear_conversation(user_id: int, student_id: int) -> None:
     await c.delete(_chat_key(user_id, student_id))
 
 # ======================== последний файл решений ========================
-# Некоторые обработчики бота (например, rabbit.py / homework_check / генерация решений)
-# хранят в Redis «последний PDF/файл с решениями» для дальнейшего повторного скачивания.
-# Мы поддерживаем два варианта ключей:
-#   1) по task_id:        solutions:file:{task_id}
-#   2) по user+student:   solutions:file:{user_id}:{student_id}
 
 def _solutions_key_by_task(task_id: str) -> str:
     return f"solutions:file:{task_id}"
@@ -186,27 +165,14 @@ def _solutions_key_by_task(task_id: str) -> str:
 def _solutions_key_by_user(user_id: int, student_id: int) -> str:
     return f"solutions:file:{user_id}:{student_id}"
 
-async def save_last_solutions_file(
-    file_b64: str | bytes,
+async def _save_last_solutions_file_impl(
+    file_b64: str,
     *,
     task_id: Optional[str] = None,
     user_id: Optional[int] = None,
     student_id: Optional[int] = None,
     ttl_sec: int = 24 * 3600,
 ) -> None:
-    """
-    Универсальное сохранение «последнего файла решений».
-    Приоритет ключа:
-       1) task_id (если задан)
-       2) user_id + student_id (оба обязательны)
-    file_b64 — ожидается base64-строка. Если передан bytes — попытаемся декодировать в ascii/utf-8.
-    """
-    if isinstance(file_b64, bytes):
-        try:
-            file_b64 = file_b64.decode("ascii")
-        except Exception:
-            file_b64 = base64.b64encode(file_b64).decode("ascii")
-
     if not isinstance(file_b64, str) or not file_b64:
         raise ValueError("file_b64 must be a non-empty base64 string")
 
@@ -216,11 +182,39 @@ async def save_last_solutions_file(
         await c.set(_solutions_key_by_task(task_id), file_b64, ex=ttl_sec)
         return
 
-    if user_id is not None and student_id is not None:
-        await c.set(_solutions_key_by_user(user_id, student_id), file_b64, ex=ttl_sec)
+    if user_id is not None:
+        sid = 0 if student_id is None else student_id
+        await c.set(_solutions_key_by_user(int(user_id), int(sid)), file_b64, ex=ttl_sec)
         return
 
-    raise ValueError("Either task_id or (user_id and student_id) must be provided")
+    raise ValueError("Either task_id or user_id must be provided")
+
+# ✅ Совместимость с ЛЮБЫМ старым вызовом:
+#   await save_last_solutions_file(user_id, file_b64)
+#   await save_last_solutions_file(user_id, student_id, file_b64)
+#   await save_last_solutions_file(file_b64=file, task_id=...)
+#   await save_last_solutions_file(file_b64=file, user_id=..., student_id=...)
+async def save_last_solutions_file(*args, **kwargs) -> None:
+    if args:
+        if len(args) == 2:
+            user_id, file_b64 = args
+            return await _save_last_solutions_file_impl(
+                file_b64, user_id=int(user_id), student_id=0
+            )
+        if len(args) == 3:
+            user_id, student_id, file_b64 = args
+            return await _save_last_solutions_file_impl(
+                file_b64, user_id=int(user_id), student_id=int(student_id)
+            )
+        raise TypeError("save_last_solutions_file(): unexpected positional arguments")
+    # kwargs-ветка
+    return await _save_last_solutions_file_impl(
+        kwargs.get("file_b64", ""),
+        task_id=kwargs.get("task_id"),
+        user_id=kwargs.get("user_id"),
+        student_id=kwargs.get("student_id"),
+        ttl_sec=kwargs.get("ttl_sec", 24 * 3600),
+    )
 
 async def get_last_solutions_file(
     *,
@@ -228,24 +222,16 @@ async def get_last_solutions_file(
     user_id: Optional[int] = None,
     student_id: Optional[int] = None,
 ) -> Optional[str]:
-    """
-    Получить «последний файл решений»:
-      - сначала по task_id (если задан),
-      - иначе по паре user_id+student_id.
-    Возвращает base64-строку или None.
-    """
     c = _get_client()
-
     if task_id:
         raw = await c.get(_solutions_key_by_task(task_id))
         if raw:
             return raw
-
-    if user_id is not None and student_id is not None:
-        raw = await c.get(_solutions_key_by_user(user_id, student_id))
+    if user_id is not None:
+        sid = 0 if student_id is None else student_id
+        raw = await c.get(_solutions_key_by_user(int(user_id), int(sid)))
         if raw:
             return raw
-
     return None
 
 async def clear_last_solutions_file(
@@ -254,14 +240,11 @@ async def clear_last_solutions_file(
     user_id: Optional[int] = None,
     student_id: Optional[int] = None,
 ) -> None:
-    """
-    Удалить сохранённый файл решений (по task_id или по паре user_id+student_id).
-    """
     c = _get_client()
     keys: list[str] = []
     if task_id:
         keys.append(_solutions_key_by_task(task_id))
-    if user_id is not None and student_id is not None:
-        keys.append(_solutions_key_by_user(user_id, student_id))
+    if user_id is not None:
+        keys.append(_solutions_key_by_user(int(user_id), int(0 if student_id is None else student_id)))
     if keys:
         await c.delete(*keys)

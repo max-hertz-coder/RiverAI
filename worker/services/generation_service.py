@@ -1,73 +1,121 @@
+# worker/services/generation_service.py
+from __future__ import annotations
+
 import logging
+import re
+from typing import Tuple
+
 from worker.services.gpt_service import chat_with_gpt
 
 logger = logging.getLogger(__name__)
 
-_SYSTEM_TASKS = (
-    "Вы — педагог-методист. Сгенерируйте ТОЛЬКО условия задач без решений и ответов. "
-    "Нужен нумерованный список. Допускаются подпункты a), b), c). "
-    "Формулы оформляйте в LaTeX: `$...$` или `\\[...\\]`. Не добавляйте комментариев."
+# ======= Системные промпты (школьная программа, информативно и красиво) =======
+
+_SYSTEM_COMBINED = (
+    "Вы — опытный методист по школьной математике. "
+    "Сгенерируйте набор задач и подробные решения к ним по запросу пользователя. "
+    "Требования к задачам:\n"
+    "• соответствуют школьной программе РФ; часть — базовый уровень, часть — средний, 1–2 — повышенный/олимпиадный;\n"
+    "• формулировки краткие, без лишнего текста; \n"
+    "• оформляйте математические выражения в LaTeX: $...$ или \\[ ... \\].\n\n"
+    "ФОРМАТ ВЫВОДА СТРОГО такой (без лишних комментариев и преамбул):\n"
+    "Задачи:\n"
+    "1. ...\n"
+    "2. ...\n"
+    "...\n"
+    "\n"
+    "Решения:\n"
+    "1. Краткое, но понятное решение с опорой на ключевые шаги. Итог оформляйте как \\(\\boxed{\\text{ответ}}\\).\n"
+    "2. ...\n"
+    "...\n"
 )
 
-_SYSTEM_SOLUTIONS = (
-    "Вы — преподаватель. Даны условия задач с подпунктами. Верните решения в формате нумерованного списка, "
-    "строго соответствующего исходным пунктам (одно \\item на подпункт), кратко и по делу. "
-    "Формулы — в LaTeX. Без вводных фраз."
-)
+# ======= Вспомогательные функции =======
 
-# «пинок» к структуре — если LLM «зависает» и молчит
-_NUDGE = (
-    "\n\nВАЖНО: Верните минимум 5 пунктов в нумерованном списке.\n"
-    "1. [условие]\n2. [условие]\n3. [условие]\n4. [условие]\n5. [условие]\n"
-    "Только условия, без решений и ответов."
-)
+def _strip_code_fences(text: str) -> str:
+    t = (text or "").strip()
+    if t.startswith("```"):
+        # уберём возможный язык после ```
+        t = re.sub(r"^```[a-zA-Z0-9_+-]*\s*", "", t)
+        if t.endswith("```"):
+            t = t[:-3]
+    return t.strip()
 
-async def _safe_llm(system_prompt: str, user_prompt: str, *, nudge: bool = False, model: str = None, max_tokens: int = 1800) -> str:
+def _split_tasks_solutions(text: str) -> Tuple[str, str]:
     """
-    Помощник для вызова chat_with_gpt с заданными системным и пользовательским промптом.
-    Если nudge=True, добавляет в конец пользовательского промпта пример структуры (_NUDGE).
+    Разбиваем по заголовкам "Задачи:" / "Решения:".
+    Если модель вернёт в другом регистре — учитываем.
     """
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_prompt if not nudge else (user_prompt + _NUDGE)},
-    ]
-    resp = await chat_with_gpt(messages, temperature=1.0, max_tokens=max_tokens, model=model or None)
+    t = _strip_code_fences(text)
+    # нормализуем
+    t = t.replace("\r", "")
+    # ищем секции
+    m = re.split(r"\n\s*Решения\s*:\s*\n", t, flags=re.IGNORECASE)
+    if len(m) == 2:
+        left = re.sub(r"^\s*Задачи\s*:\s*\n", "", m[0], flags=re.IGNORECASE).strip()
+        right = m[1].strip()
+        return left, right
+
+    # fallback: попробуем по ключевым словам
+    idx = t.lower().find("решения")
+    if idx != -1:
+        left = t[:idx].replace("Задачи:", "").strip()
+        right = t[idx:].replace("Решения:", "").strip()
+        return left, right
+
+    # если не нашли — считаем всё задачами
+    return t, ""
+
+# ======= Основные функции =======
+
+async def generate_tasks_and_solutions(prompt: str, *, count: int = 10, language: str = "ru") -> dict:
+    """
+    Генерация задач и решений ОДНИМ вызовом (ускоряет отклик).
+    count ограничиваем до 15.
+    """
+    count = max(1, min(15, int(count or 10)))
+    user_prompt = (
+        f"Нужно сгенерировать {count} задач(и) по запросу:\n{prompt.strip()}\n\n"
+        "Не добавляйте оглавления и лишние разделы — строго следуйте формату."
+    )
+
+    # стараемся использовать turbo; fallback на общую цепочку в gpt_service
+    resp = await chat_with_gpt(
+        messages=[
+            {"role": "system", "content": _SYSTEM_COMBINED},
+            {"role": "user", "content": user_prompt},
+        ],
+        temperature=0.7,
+        max_tokens=3500,   # хватает для 10–15 задач с краткими решениями
+        model="gpt-5-turbo",
+    )
     text = (resp.get("text") or "").strip()
-    # снимем обёртку из тройных кавычек (если модель вернула в формате кода)
-    if text.startswith("```") and text.endswith("```"):
-        inner = text.strip("`\n")
-        nl = inner.find("\n")
-        text = inner[nl + 1 :] if nl != -1 else inner
-    return text
+    if not text:
+        return {"text": "", "solutions": ""}
 
-async def generate_raw_tasks(prompt: str) -> dict:
-    """
-    Генерация только условий задач (без решений).
-    """
-    try:
-        # Используем быструю модель (gpt-3.5-turbo) для генерации условий задач
-        text = await _safe_llm(_SYSTEM_TASKS, prompt.strip(), model="gpt-3.5-turbo", max_tokens=1800)
-    except Exception:
-        logger.warning("⚠️ Первая попытка генерации задач не удалась — пробую с подсказкой структуры (NUDGE).")
-        text = await _safe_llm(_SYSTEM_TASKS, prompt.strip(), nudge=True, model="gpt-3.5-turbo", max_tokens=1800)
-    return {"text": text or ""}
+    tasks_text, solutions_text = _split_tasks_solutions(text)
+    return {
+        "text": tasks_text,
+        "solutions": solutions_text,
+        "prompt_tokens": int(resp.get("prompt_tokens", 0)),
+        "completion_tokens": int(resp.get("completion_tokens", 0)),
+    }
 
-async def generate_raw_solutions(tasks: str) -> dict:
+async def generate_only_tasks(prompt: str, *, count: int = 10) -> dict:
     """
-    Генерация решений к заданным условиям задач.
+    Если нужно только условия (без решений).
     """
-    try:
-        # Используем быструю модель для генерации решений; увеличиваем лимит токенов для вместимости всех решений
-        text = await _safe_llm(_SYSTEM_SOLUTIONS, tasks.strip(), model="gpt-3.5-turbo", max_tokens=3000)
-    except Exception:
-        logger.warning("⚠️ Первая попытка генерации решений не удалась — пробую с подсказкой (NUDGE).")
-        text = await _safe_llm(_SYSTEM_SOLUTIONS, tasks.strip(), nudge=True, model="gpt-3.5-turbo", max_tokens=3000)
-    return {"text": text or ""}
-
-async def generate_solutions_continuation(original_sols: str, prompt: str) -> dict:
-    """
-    Догенерация решений по продолжению (объединяет уже полученные решения с новым запросом).
-    """
-    full_prompt = (original_sols or "").strip() + "\n\n" + (prompt or "").strip()
-    # Продолжаем генерацию решений (использует ту же функцию generate_raw_solutions)
-    return await generate_raw_solutions(full_prompt)
+    cnt = max(1, min(15, int(count or 10)))
+    sys = (
+        "Вы — методист. Сформулируйте ТОЛЬКО условия задач (без решений), "
+        "соответствующие школьной программе; смесь базовых/средних и 1–2 повышенных. "
+        "Кратко, по делу, LaTeX для формул. Формат: нумерованный список."
+    )
+    user = f"Нужно получить {cnt} задач(и) по теме/запросу:\n{prompt.strip()}"
+    resp = await chat_with_gpt(
+        messages=[{"role": "system", "content": sys}, {"role": "user", "content": user}],
+        temperature=0.7,
+        max_tokens=1600,
+        model="gpt-5-turbo",
+    )
+    return {"text": (resp.get("text") or "").strip()}

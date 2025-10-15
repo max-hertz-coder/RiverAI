@@ -1,159 +1,143 @@
 # worker/services/tasks_service.py
-import re
-import logging
-from typing import Dict, List
+from __future__ import annotations
 
-from worker.services import generation_service, pdf_utils
+import logging
+from typing import Dict, Any
+
+from jinja2 import Template
+from worker.services.generation_service import (
+    generate_tasks_and_solutions,
+    generate_only_tasks,
+)
+from worker.services.pdf_utils import (
+    normalize_gpt_latex,
+    compile_latex_to_b64,
+)
 
 logger = logging.getLogger(__name__)
 
-def _strip_code_fences(text: str) -> str:
-    if not isinstance(text, str):
-        return ""
-    s = text.strip()
-    if s.startswith("```") and s.endswith("```"):
-        first = s.find("\n")
-        return s[first + 1 :].rstrip("` \n") if first != -1 else s.strip("`\n")
-    return s
+# Красивый XeLaTeX-шаблон: «Задачи» + «Решения»
+DOC_TPL = r"""
+\documentclass[12pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fontspec}
+\setmainfont{DejaVu Serif}
+\usepackage{polyglossia}
+\setdefaultlanguage{russian}
+\usepackage{amsmath,amssymb}
+\usepackage{enumitem}
+\setlist{noitemsep, topsep=4pt}
+\usepackage{titlesec}
+\titleformat{\section}{\large\bfseries}{\thesection.}{6pt}{}
+\begin{document}
 
-def _split_numbered(text: str) -> List[str]:
-    """
-    Делит на пункты по виду:
-      1. ...
-      2. ...
-    """
-    split_re = re.compile(r"(?m)^\s*(\d+)\.\s*([\s\S]*?)(?=^\s*\d+\.|\Z)")
-    items = [m.group(2).strip() for m in split_re.finditer(text)]
-    return items or [text.strip()]
+\begin{center}
+{\LARGE Задачи и решения}
+\end{center}
+\vspace{0.6cm}
 
-def _remove_solutions_from_tasks(raw: str) -> str:
-    """
-    Удаляет блоки «Решение/Решения/Варианты ответа ...» и строки со словами
-    решение/ответ/рассмотрим/для этого.
-    """
-    cleaned = re.sub(r"(?si)(Решени[ея]|Варианты ответа?):.*?(?=(?:\n\s*\d+\.\s)|\Z)", "", raw).strip()
-    filtered = []
-    for line in cleaned.splitlines():
-        low = line.lower()
-        if not any(w in low for w in ("решение", "ответ", "рассмотрим", "для этого")):
-            filtered.append(line)
-    return "\n".join(filtered).strip()
+\section*{Задачи}
+{\catcode`\^=12\relax \catcode`\_=12\relax
+{{ tasks | safe }}
+}
 
-async def handle_tasks(task: Dict) -> Dict:
+{% if solutions and solutions|length>0 %}
+\vspace{0.4cm}
+\section*{Решения}
+{\catcode`\^=12\relax \catcode`\_=12\relax
+{{ solutions | safe }}
+}
+{% endif %}
+
+\end{document}
+"""
+TPL = Template(DOC_TPL)
+
+
+def _cleanup_text(t: str) -> str:
     """
-    Универсальная обработка:
-      - generate_tasks: генерируем задания и решения, компилируем PDF и возвращаем base64
-      - generate_solutions: принимаем raw_tasks -> генерируем решения -> компилируем PDF
+    Убираем бэктики/мусор, чуть нормализуем для LaTeX.
+    """
+    t = (t or "").strip().replace("`", "")
+    return t
+
+
+async def handle_tasks(task: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Универсальный обработчик генерации:
+      • type='generate_tasks'  — генерим задачи И решения ОДНИМ вызовом (быстрее)
+      • type='generate_solutions' — оставлен для совместимости (ожидает tasks_text)
+    На выход отдаём:
+      • 'file' — общий PDF (base64)
+      • 'solutions_file' — то же самое (совместимость с ботом)
+      • 'solutions_pdf_b64' / 'tasks_pdf_b64' — на всякий случай для старого кода
     """
     task_id = task.get("task_id")
     task_type = (task.get("type") or "").strip()
-    prompt = (task.get("prompt") or "").strip()
-    raw_tasks = (task.get("tasks_text") or "").strip()
+    prompt = (task.get("prompt") or task.get("description") or "").strip()
+    only = bool(task.get("only_tasks") or False)
+    count = int(task.get("count") or 10)
+    count = max(1, min(15, count))
 
     if not task_id:
         return {"type": "error", "message": "Отсутствует task_id."}
 
     try:
-        total_prompt_tokens = 0
-        total_completion_tokens = 0
-
-        # 1) Получаем исходные задания
-        if task_type == "generate_tasks":
-            if not prompt:
-                return {"task_id": task_id, "type": "error", "message": "Нет запроса."}
-            logger.info("🔧 handle_tasks: промпт (первые 200): %s", prompt[:200].replace("\n", " ") + ("…" if len(prompt) > 200 else ""))
-
-            t_resp = await generation_service.generate_raw_tasks(prompt)
-            raw_tasks = _strip_code_fences(t_resp.get("text", ""))
-
-            # ✨ Повторная попытка, если пусто
+        # ===== 1) Генерация контента =====
+        if task_type == "generate_solutions":
+            # Совместимость: если передали только решения для уже имеющихся задач — сгенерируй только условия
+            raw_tasks = (task.get("tasks_text") or "").strip()
             if not raw_tasks:
-                logger.warning("⚠️ GPT вернул пустые задания. Повторяю попытку с уточнением.")
-                t_resp = await generation_service.generate_raw_tasks(prompt + "\n\nСформируйте минимум 5 кратких задач в нумерованном списке.")
-                raw_tasks = _strip_code_fences(t_resp.get("text", ""))
+                # не прислали задания — сгенерируем и задачи, и решения
+                only = False
 
-            total_prompt_tokens += int(t_resp.get("prompt_tokens", 0))
-            total_completion_tokens += int(t_resp.get("completion_tokens", 0))
-
-        elif task_type == "generate_solutions":
-            if not raw_tasks:
-                return {"task_id": task_id, "type": "error", "message": "Нет текста заданий."}
+        if only:
+            r = await generate_only_tasks(prompt, count=count)
+            tasks_text = _cleanup_text(r.get("text", ""))
+            solutions_text = ""
+            prompt_tokens = int(r.get("prompt_tokens", 0))
+            completion_tokens = int(r.get("completion_tokens", 0))
         else:
-            return {"task_id": task_id, "type": "error", "message": f"Некорректный тип: {task_type}"}
+            r = await generate_tasks_and_solutions(prompt, count=count)
+            tasks_text = _cleanup_text(r.get("text", ""))
+            solutions_text = _cleanup_text(r.get("solutions", ""))
+            prompt_tokens = int(r.get("prompt_tokens", 0))
+            completion_tokens = int(r.get("completion_tokens", 0))
 
-        if not raw_tasks:
-            return {"task_id": task_id, "type": "error", "message": "Генератор вернул пусто."}
+        if not tasks_text:
+            return {"type": "error", "task_id": task_id, "message": "Генератор вернул пустой текст задач."}
 
-        logger.info("🔧 handle_tasks: исходный текст длиной %d", len(raw_tasks))
+        # ===== 2) Подготовка для LaTeX =====
+        tasks_tex = normalize_gpt_latex(tasks_text)
+        solutions_tex = normalize_gpt_latex(solutions_text) if solutions_text else ""
 
-        # 2) вычищаем лишнее
-        cleaned = _remove_solutions_from_tasks(raw_tasks)
-        tasks_list = _split_numbered(cleaned)
+        latex_full = TPL.render(tasks=tasks_tex, solutions=solutions_tex)
 
-        # 3) решения
-        s_resp = await generation_service.generate_raw_solutions(cleaned)
-        solutions_text = _strip_code_fences(s_resp.get("text", "")).strip()
+        # ===== 3) Компиляция PDF =====
+        file_b64, log = compile_latex_to_b64(latex_full, engine="xelatex")
+        if not file_b64:
+            logger.error("PDF compile error: %s", log or "compile failed")
 
-        # Ещё одна защита от пустоты
-        if not solutions_text:
-            logger.warning("⚠️ Пустые решения. Делаю покомпонентную догенерацию.")
-            solutions_list: List[str] = []
-            for item in tasks_list:
-                one = await generation_service.generate_raw_solutions(item)
-                text = _strip_code_fences(one.get("text", "")).strip() or "Решение не получено."
-                solutions_list.append(text)
-                total_prompt_tokens += int(one.get("prompt_tokens", 0))
-                total_completion_tokens += int(one.get("completion_tokens", 0))
-        else:
-            solutions_list = _split_numbered(solutions_text)
-
-        if len(solutions_list) != len(tasks_list):
-            logger.warning("Количество решений (%d) != количеству задач (%d). Догенерируем поштучно…",
-                           len(solutions_list), len(tasks_list))
-            # выравнивание
-            fixed: List[str] = []
-            for item in tasks_list:
-                if solutions_list:
-                    fixed.append(solutions_list.pop(0))
-                else:
-                    one = await generation_service.generate_raw_solutions(item)
-                    text = _strip_code_fences(one.get("text", "")).strip() or "Решение не получено."
-                    fixed.append(text)
-                    total_prompt_tokens += int(one.get("prompt_tokens", 0))
-                    total_completion_tokens += int(one.get("completion_tokens", 0))
-            solutions_list = fixed
-
-        # 4) санитизация и сборка LaTeX
-        solutions_list = pdf_utils.sanitize_solutions(solutions_list)
-
-        items_tasks = "\n".join(f"\\item {pdf_utils.escape_latex(t)}" for t in tasks_list)
-        items_solutions = "\n".join(f"\\item {s}" for s in solutions_list)
-
-        latex_tasks = pdf_utils.template_basic.render(title="Задачи", content=items_tasks)
-        latex_solutions = pdf_utils.template_solutions.render(
-            content_tasks=items_tasks, content_solutions=items_solutions
-        )
-
-        # 5) компиляция PDF → base64
-        tasks_pdf_b64, log_t = pdf_utils.compile_latex_to_b64(latex_tasks)
-        solutions_pdf_b64, log_s = pdf_utils.compile_latex_to_b64(latex_solutions)
-
-        if not tasks_pdf_b64 or not solutions_pdf_b64:
-            logger.error("PDF compile error. tasks_log_len=%d, sol_log_len=%d",
-                         len(log_t or ""), len(log_s or ""))
-
-        return {
-            "task_id": task_id,
+        # Для совместимости со старым кодом бота — дублируем в несколько ключей
+        result: Dict[str, Any] = {
             "type": "tasks",
-            "tasks_text": "\n\n".join(f"{i+1}. {t}" for i, t in enumerate(tasks_list)),
-            "latex_tasks": latex_tasks,
-            "latex_solutions": latex_solutions,
-            "tasks_pdf_b64": tasks_pdf_b64,
-            "solutions_pdf_b64": solutions_pdf_b64,
-            "prompt_tokens": total_prompt_tokens,
-            "completion_tokens": total_completion_tokens,
+            "task_id": task_id,
+            "tasks_text": tasks_text,
+            "solutions_text": solutions_text,
+            "latex_content": latex_full,
+            # общий PDF
+            "file": file_b64 or "",
+            # старые обработчики могли смотреть сюда
+            "solutions_file": file_b64 or "",
+            # и на эти ключи
+            "solutions_pdf_b64": file_b64 or "",
+            "tasks_pdf_b64": file_b64 or "",
+            # метрики
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
         }
+        return result
 
     except Exception as e:
-        logger.exception("🔴 Exception in handle_tasks")
-        return {"task_id": task_id, "type": "error", "message": f"Ошибка генерации: {e}"}
+        logger.exception("Ошибка в handle_tasks")
+        return {"type": "error", "task_id": task_id, "message": f"Ошибка генерации: {e}"}
