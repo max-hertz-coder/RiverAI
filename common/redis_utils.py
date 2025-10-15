@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
 from typing import Any, Dict, Optional
@@ -12,17 +13,24 @@ _logger = logging.getLogger(__name__)
 _client: aioredis.Redis | None = None
 
 __all__ = [
+    # базовое
     "init_redis_pool",
     "get_client",
+    # контекст задач
     "set_task_context",
     "get_context_by_task_id",
     "cleanup_task_context",
-    # совместимость со старыми импортами
+    # совместимость со старым кодом
     "save_context",
     "get_task_context",
+    # история чата
     "clear_conversation",
     "save_conversation",
     "get_conversation",
+    # работа с «последним файлом решений» (некоторые модули бота их импортируют)
+    "save_last_solutions_file",
+    "get_last_solutions_file",
+    "clear_last_solutions_file",
 ]
 
 # ======================== базовые утилиты ========================
@@ -164,3 +172,96 @@ async def save_conversation(
 async def clear_conversation(user_id: int, student_id: int) -> None:
     c = _get_client()
     await c.delete(_chat_key(user_id, student_id))
+
+# ======================== последний файл решений ========================
+# Некоторые обработчики бота (например, rabbit.py / homework_check / генерация решений)
+# хранят в Redis «последний PDF/файл с решениями» для дальнейшего повторного скачивания.
+# Мы поддерживаем два варианта ключей:
+#   1) по task_id:        solutions:file:{task_id}
+#   2) по user+student:   solutions:file:{user_id}:{student_id}
+
+def _solutions_key_by_task(task_id: str) -> str:
+    return f"solutions:file:{task_id}"
+
+def _solutions_key_by_user(user_id: int, student_id: int) -> str:
+    return f"solutions:file:{user_id}:{student_id}"
+
+async def save_last_solutions_file(
+    file_b64: str | bytes,
+    *,
+    task_id: Optional[str] = None,
+    user_id: Optional[int] = None,
+    student_id: Optional[int] = None,
+    ttl_sec: int = 24 * 3600,
+) -> None:
+    """
+    Универсальное сохранение «последнего файла решений».
+    Приоритет ключа:
+       1) task_id (если задан)
+       2) user_id + student_id (оба обязательны)
+    file_b64 — ожидается base64-строка. Если передан bytes — попытаемся декодировать в ascii/utf-8.
+    """
+    if isinstance(file_b64, bytes):
+        try:
+            file_b64 = file_b64.decode("ascii")
+        except Exception:
+            file_b64 = base64.b64encode(file_b64).decode("ascii")
+
+    if not isinstance(file_b64, str) or not file_b64:
+        raise ValueError("file_b64 must be a non-empty base64 string")
+
+    c = _get_client()
+
+    if task_id:
+        await c.set(_solutions_key_by_task(task_id), file_b64, ex=ttl_sec)
+        return
+
+    if user_id is not None and student_id is not None:
+        await c.set(_solutions_key_by_user(user_id, student_id), file_b64, ex=ttl_sec)
+        return
+
+    raise ValueError("Either task_id or (user_id and student_id) must be provided")
+
+async def get_last_solutions_file(
+    *,
+    task_id: Optional[str] = None,
+    user_id: Optional[int] = None,
+    student_id: Optional[int] = None,
+) -> Optional[str]:
+    """
+    Получить «последний файл решений»:
+      - сначала по task_id (если задан),
+      - иначе по паре user_id+student_id.
+    Возвращает base64-строку или None.
+    """
+    c = _get_client()
+
+    if task_id:
+        raw = await c.get(_solutions_key_by_task(task_id))
+        if raw:
+            return raw
+
+    if user_id is not None and student_id is not None:
+        raw = await c.get(_solutions_key_by_user(user_id, student_id))
+        if raw:
+            return raw
+
+    return None
+
+async def clear_last_solutions_file(
+    *,
+    task_id: Optional[str] = None,
+    user_id: Optional[int] = None,
+    student_id: Optional[int] = None,
+) -> None:
+    """
+    Удалить сохранённый файл решений (по task_id или по паре user_id+student_id).
+    """
+    c = _get_client()
+    keys: list[str] = []
+    if task_id:
+        keys.append(_solutions_key_by_task(task_id))
+    if user_id is not None and student_id is not None:
+        keys.append(_solutions_key_by_user(user_id, student_id))
+    if keys:
+        await c.delete(*keys)
