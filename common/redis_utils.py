@@ -1,98 +1,107 @@
-import redis.asyncio as redis
+# common/redis_utils.py
+from __future__ import annotations
+
+import asyncio
 import json
+import logging
+import os
+from typing import Any, Dict, Optional
 
-_client: redis.Redis | None = None
+import redis.asyncio as aioredis
 
-def _get_client() -> redis.Redis:
-    """
-    Возвращает инициализированный Redis-клиент.
-    Синхронная функция-аксессор, сам клиент — asyncio-совместимый.
-    """
-    if _client is None:
-        raise RuntimeError("Redis not initialized")
-    return _client
+_logger = logging.getLogger(__name__)
+_client: aioredis.Redis | None = None
 
-async def init_redis_pool(host: str, port: int, db: int) -> None:
+def _int(v: Any, d: int) -> int:
+    try:
+        return int(v)
+    except Exception:
+        return d
+
+async def init_redis_pool(
+    host: str,
+    port: int | str,
+    db: int | str,
+    *,
+    retries: int = 20,
+    base_delay: float = 0.5,
+) -> None:
     """
-    Инициализирует Redis-клиент для хранения промежуточных данных.
+    Инициализирует соединение с Redis с экспоненциальными ретраями.
+    Не падаем сразу при старте, если Redis ещё не поднялся или перезапускается.
     """
     global _client
-    try:
-        _client = redis.Redis(
-            host=host,
-            port=port,
-            db=db,
-            decode_responses=True,
-            encoding="utf-8",
-        )
-        await _client.ping()
-        print(f"✅ Redis подключен: {host}:{port}/{db}")
-    except Exception as e:
-        print(f"🔴 Ошибка подключения к Redis {host}:{port}/{db}: {e}")
-        raise
+    port = _int(port, 6379)
+    db = _int(db, 1)
 
-# ========= Задания =========
+    _client = aioredis.Redis(
+        host=host,
+        port=port,
+        db=db,
+        decode_responses=True,          # храним строки, JSON без b'...'
+        socket_keepalive=True,
+        socket_timeout=5,
+        socket_connect_timeout=3,
+        health_check_interval=30,
+    )
 
-async def save_raw_tasks(user_id: int, student_id: int, raw: str) -> None:
-    key = f"raw_tasks:{user_id}:{student_id}"
-    await _get_client().set(key, raw, ex=3600)
+    delay = base_delay
+    last_err: Optional[Exception] = None
+    for attempt in range(1, retries + 1):
+        try:
+            await _client.ping()
+            _logger.info("✅ Redis подключен: %s:%s/%s", host, port, db)
+            return
+        except Exception as e:
+            last_err = e
+            _logger.error("🔴 Ошибка подключения к Redis %s:%s/%s: %s (attempt %d/%d)",
+                          host, port, db, e, attempt, retries)
+            await asyncio.sleep(min(delay, 10.0))
+            delay *= 1.6
 
-async def get_raw_tasks(user_id: int, student_id: int) -> str | None:
-    key = f"raw_tasks:{user_id}:{student_id}"
-    return await _get_client().get(key)
+    # все попытки исчерпаны
+    raise RuntimeError(f"Не удалось подключиться к Redis {host}:{port}/{db}: {last_err}")
 
-# ========= Контексты задач =========
+def _get_client() -> aioredis.Redis:
+    if _client is None:
+        raise RuntimeError("Redis client is not initialized. Call init_redis_pool(...) first.")
+    return _client
 
-async def save_context(task_id: str, context: dict):
-    key = f"task_context:{task_id}"
-    try:
-        await _get_client().set(key, json.dumps(context), ex=3600)
-        print(f"🔧 Контекст сохранен: {key}")
-    except Exception as e:
-        print(f"🔴 Ошибка сохранения контекста {key}: {e}")
-        raise
+def get_client() -> aioredis.Redis:
+    return _get_client()
 
-async def get_context_by_task_id(task_id: str) -> dict | None:
-    key = f"task_context:{task_id}"
-    try:
-        data = await _get_client().get(key)
-        if data:
-            print(f"🔧 Контекст найден: {key}")
-            return json.loads(data)
-        else:
-            print(f"🔴 Контекст не найден: {key}")
-            return None
-    except Exception as e:
-        print(f"🔴 Ошибка получения контекста {key}: {e}")
-        return None
+# ===== КОНТЕКСТ ЗАДАЧ =====
 
-async def delete_context_by_task_id(task_id: str) -> None:
-    key = f"task_context:{task_id}"
-    await _get_client().delete(key)
+async def set_task_context(task_id: str, ctx: Dict[str, Any], ttl_sec: int = 3600) -> None:
+    c = _get_client()
+    await c.set(f"task_context:{task_id}", json.dumps(ctx, ensure_ascii=False), ex=ttl_sec)
 
-async def cleanup_task_context(task_id: str) -> None:
-    await delete_context_by_task_id(task_id)
+async def get_context_by_task_id(task_id: str) -> Dict[str, Any]:
+    c = _get_client()
+    # совместимость c возможным старым ключом "context:"
+    for key in (f"task_context:{task_id}", f"context:{task_id}"):
+        raw = await c.get(key)
+        if raw:
+            try:
+                return json.loads(raw)
+            except Exception:
+                _logger.exception("Ошибка парсинга JSON контекста (%s)", key)
+                return {}
+    return {}
 
-# ========= Диалоги =========
+# ===== ИСТОРИЯ ЧАТА =====
 
-async def save_conversation(user_id: int, student_id: int, history_json: str) -> None:
-    key = f"conversation:{user_id}:{student_id}"
-    await _get_client().set(key, history_json, ex=3600)
+def _chat_key(user_id: int, student_id: int) -> str:
+    return f"chat:{user_id}:{student_id}"
 
-async def get_conversation(user_id: int, student_id: int) -> str | None:
-    key = f"conversation:{user_id}:{student_id}"
-    return await _get_client().get(key)
+async def get_conversation(user_id: int, student_id: int) -> Optional[str]:
+    c = _get_client()
+    return await c.get(_chat_key(user_id, student_id))
+
+async def save_conversation(user_id: int, student_id: int, history_json: str, ttl_sec: int = 7 * 24 * 3600) -> None:
+    c = _get_client()
+    await c.set(_chat_key(user_id, student_id), history_json, ex=ttl_sec)
 
 async def clear_conversation(user_id: int, student_id: int) -> None:
-    key = f"conversation:{user_id}:{student_id}"
-    await _get_client().delete(key)
-
-# ========= Solutions PDF =========
-
-async def save_last_solutions_file(user_id: int, file_b64: str) -> None:
-    key = f"solutions:{user_id}"
-    await _get_client().set(key, file_b64, ex=3600)
-
-async def get_last_solutions_file(user_id: int) -> str | None:
-    key = f"solutions:{user_id}"
-    return await _get_client().get(key)
+    c = _get_client()
+    await c.delete(_chat_key(user_id, student_id))
