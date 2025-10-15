@@ -8,29 +8,24 @@ import random
 from typing import Any, Dict, List, Optional
 
 from openai import AsyncOpenAI
+
 from worker import config
 
 logger = logging.getLogger(__name__)
 
-# Приоритет моделей для генерации школьных заданий (без gpt-3.5)
+# Доступные/проверенные цепочки без gpt-5-turbo (по логам у тебя 404)
 PREFERRED_MODELS: List[str] = [
-    "gpt-5-turbo",   # быстрый и сильный (если доступен)
-    "gpt-4-turbo",   # быстрый 4-й
-    "gpt-5",         # fallback: требует max_completion_tokens/temperature=1.0
-    "gpt-5-mini",    # ещё один fallback
-    "gpt-4o",        # универсальный vision/текст
+    "gpt-5",        # основной (учитываем особые параметры)
+    "gpt-4-turbo",  # быстрый и стабильный
+    "gpt-5-mini",   # удешевлённый/быстрый фолбэк
+    "gpt-4o",       # универсал
 ]
 
 def _collect_keys() -> List[str]:
-    """
-    Сбор API-ключей из:
-      - config.OPENAI_API_KEYS (list/iterable)
-      - config.OPENAI_API_KEY
-      - переменных окружения OPENAI_API_KEYS / OPENAI_API_KEY
-    """
     keys: List[str] = []
 
-    if hasattr(config, "OPENAI_API_KEYS") and config.OPENAI_API_KEYS:
+    # из конфига
+    if getattr(config, "OPENAI_API_KEYS", None):
         try:
             for k in list(config.OPENAI_API_KEYS):
                 k = (k or "").strip()
@@ -38,12 +33,12 @@ def _collect_keys() -> List[str]:
                     keys.append(k)
         except Exception:
             pass
-
-    if hasattr(config, "OPENAI_API_KEY") and config.OPENAI_API_KEY:
+    if getattr(config, "OPENAI_API_KEY", None):
         k = (config.OPENAI_API_KEY or "").strip()
         if k:
             keys.append(k)
 
+    # из окружения (на всякий)
     env_multi = os.getenv("OPENAI_API_KEYS", "")
     if env_multi:
         keys += [x.strip() for x in env_multi.replace("\n", ",").split(",") if x.strip()]
@@ -52,9 +47,9 @@ def _collect_keys() -> List[str]:
     if env_one:
         keys.append(env_one.strip())
 
-    # фильтруем мусор
     keys = [k for k in keys if k and len(k) > 20]
-    return list(dict.fromkeys(keys))  # de-dup, preserve order
+    # удалим повторы, сохраним порядок
+    return list(dict.fromkeys(keys))
 
 def _pick_key() -> str:
     keys = _collect_keys()
@@ -119,7 +114,7 @@ async def chat_with_gpt(
     if not messages:
         raise ValueError("messages пуст")
 
-    # формируем цепочку моделей (приоритет — явный model, затем любимые)
+    # Цепочка моделей: явный приоритет → наши фавориты
     models_chain: List[str] = []
     if model:
         models_chain.append(model)
@@ -150,9 +145,14 @@ async def chat_with_gpt(
                 return result
 
             except Exception as e:
+                # если модель отсутствует — выкидываем её из цепочки сразу
+                emsg = str(e)
+                if "model" in emsg and "not exist" in emsg or "model_not_found" in emsg:
+                    logger.warning("⛔ Модель недоступна: %s — пропускаю", mdl)
+                    break
                 last_exc = e
                 delay = min(2 ** (attempt - 1), 8) + random.uniform(0, 0.4)
-                logger.warning("⚠️ GPT error (model=%s, attempt=%d): %s; retry in %.1fs", mdl, attempt, str(e), delay)
+                logger.warning("⚠️ GPT error (model=%s, attempt=%d): %s; retry in %.1fs", mdl, attempt, emsg, delay)
                 await asyncio.sleep(delay)
 
         logger.warning("↪️ Перехожу на следующую модель после неудач: %s", mdl)

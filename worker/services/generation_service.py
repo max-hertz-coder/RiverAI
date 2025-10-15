@@ -2,120 +2,99 @@
 from __future__ import annotations
 
 import logging
-import re
-from typing import Tuple
+from typing import Dict
 
 from worker.services.gpt_service import chat_with_gpt
 
 logger = logging.getLogger(__name__)
 
-# ======= Системные промпты (школьная программа, информативно и красиво) =======
+# ====================== Промпт для ТОЛЬКО ЗАДАНИЙ ======================
 
-_SYSTEM_COMBINED = (
-    "Вы — опытный методист по школьной математике. "
-    "Сгенерируйте набор задач и подробные решения к ним по запросу пользователя. "
-    "Требования к задачам:\n"
-    "• соответствуют школьной программе РФ; часть — базовый уровень, часть — средний, 1–2 — повышенный/олимпиадный;\n"
-    "• формулировки краткие, без лишнего текста; \n"
-    "• оформляйте математические выражения в LaTeX: $...$ или \\[ ... \\].\n\n"
-    "ФОРМАТ ВЫВОДА СТРОГО такой (без лишних комментариев и преамбул):\n"
+_SYSTEM_TASKS_ONLY = (
+    "Вы — опытный методист по школьной математике РФ. "
+    "Сформулируйте ТОЛЬКО условия задач без решений. "
+    "Требования:\n"
+    "• соответствие школьной программе (5–11 классы, если не указано иное);\n"
+    "• разнообразие типов: вычислительные, текстовые, на доказательство/свойства;\n"
+    "• сочетание уровней: базовые, средние и 1–2 повышенные;\n"
+    "• краткие формулировки, понятные ученику; математические выражения в LaTeX ($...$ или \\[...\\]).\n\n"
+    "ФОРМАТ ВЫВОДА СТРОГО:\n"
     "Задачи:\n"
     "1. ...\n"
     "2. ...\n"
     "...\n"
-    "\n"
-    "Решения:\n"
-    "1. Краткое, но понятное решение с опорой на ключевые шаги. Итог оформляйте как \\(\\boxed{\\text{ответ}}\\).\n"
-    "2. ...\n"
-    "...\n"
+    "Не добавляйте раздел «Решения», комментарии, предисловия и послесловия."
 )
 
-# ======= Вспомогательные функции =======
+# ====================== Промпт для РЕШЕНИЙ К УЖЕ СУЩЕСТВУЮЩИМ ЗАДАНИЯМ ======================
 
-def _strip_code_fences(text: str) -> str:
-    t = (text or "").strip()
-    if t.startswith("```"):
-        # уберём возможный язык после ```
-        t = re.sub(r"^```[a-zA-Z0-9_+-]*\s*", "", t)
-        if t.endswith("```"):
-            t = t[:-3]
-    return t.strip()
+_SYSTEM_SOLUTIONS = (
+    "Вы — опытный преподаватель математики. "
+    "Даны задачи, оформленные нумерованным списком. "
+    "Напишите чёткие решения КАЖДОЙ из них, шаг за шагом, компактно, без воды. "
+    "Формулы в LaTeX. Финальный ответ каждой задачи выделяйте как \\(\\boxed{\\text{...}}\\). "
+    "ФОРМАТ ВЫВОДА СТРОГО:\n"
+    "Решения:\n"
+    "1. ...\n"
+    "2. ...\n"
+    "...\n"
+    "Не повторяйте сами условия задач; выводите только решения."
+)
 
-def _split_tasks_solutions(text: str) -> Tuple[str, str]:
+def _cap(n: int, lo: int = 1, hi: int = 15) -> int:
+    try:
+        n = int(n)
+    except Exception:
+        n = lo
+    return max(lo, min(hi, n))
+
+# ====================== Публичные функции ======================
+
+async def generate_tasks_only(prompt: str, *, count: int = 10) -> Dict[str, str]:
     """
-    Разбиваем по заголовкам "Задачи:" / "Решения:".
-    Если модель вернёт в другом регистре — учитываем.
+    Генерирует ТОЛЬКО условия задач (без решений).
     """
-    t = _strip_code_fences(text)
-    # нормализуем
-    t = t.replace("\r", "")
-    # ищем секции
-    m = re.split(r"\n\s*Решения\s*:\s*\n", t, flags=re.IGNORECASE)
-    if len(m) == 2:
-        left = re.sub(r"^\s*Задачи\s*:\s*\n", "", m[0], flags=re.IGNORECASE).strip()
-        right = m[1].strip()
-        return left, right
-
-    # fallback: попробуем по ключевым словам
-    idx = t.lower().find("решения")
-    if idx != -1:
-        left = t[:idx].replace("Задачи:", "").strip()
-        right = t[idx:].replace("Решения:", "").strip()
-        return left, right
-
-    # если не нашли — считаем всё задачами
-    return t, ""
-
-# ======= Основные функции =======
-
-async def generate_tasks_and_solutions(prompt: str, *, count: int = 10, language: str = "ru") -> dict:
-    """
-    Генерация задач и решений ОДНИМ вызовом (ускоряет отклик).
-    count ограничиваем до 15.
-    """
-    count = max(1, min(15, int(count or 10)))
+    cnt = _cap(count)
     user_prompt = (
-        f"Нужно сгенерировать {count} задач(и) по запросу:\n{prompt.strip()}\n\n"
-        "Не добавляйте оглавления и лишние разделы — строго следуйте формату."
+        f"Нужно получить {cnt} задач(и) по запросу/теме:\n{prompt.strip()}\n\n"
+        "Строго следуйте требуемому формату."
     )
-
-    # стараемся использовать turbo; fallback на общую цепочку в gpt_service
     resp = await chat_with_gpt(
         messages=[
-            {"role": "system", "content": _SYSTEM_COMBINED},
+            {"role": "system", "content": _SYSTEM_TASKS_ONLY},
             {"role": "user", "content": user_prompt},
         ],
         temperature=0.7,
-        max_tokens=3500,   # хватает для 10–15 задач с краткими решениями
-        model="gpt-5-turbo",
+        max_tokens=1600,
+        model="gpt-4-turbo",  # быстрый по умолчанию; фолбэки в gpt_service
     )
     text = (resp.get("text") or "").strip()
-    if not text:
-        return {"text": "", "solutions": ""}
-
-    tasks_text, solutions_text = _split_tasks_solutions(text)
     return {
-        "text": tasks_text,
-        "solutions": solutions_text,
+        "tasks_text": text,
         "prompt_tokens": int(resp.get("prompt_tokens", 0)),
         "completion_tokens": int(resp.get("completion_tokens", 0)),
     }
 
-async def generate_only_tasks(prompt: str, *, count: int = 10) -> dict:
+async def generate_solutions_for_tasks(tasks_text: str) -> Dict[str, str]:
     """
-    Если нужно только условия (без решений).
+    Принимает уже готовые задачи (нумерованный список) и генерирует ТОЛЬКО раздел «Решения: ...».
     """
-    cnt = max(1, min(15, int(count or 10)))
-    sys = (
-        "Вы — методист. Сформулируйте ТОЛЬКО условия задач (без решений), "
-        "соответствующие школьной программе; смесь базовых/средних и 1–2 повышенных. "
-        "Кратко, по делу, LaTeX для формул. Формат: нумерованный список."
-    )
-    user = f"Нужно получить {cnt} задач(и) по теме/запросу:\n{prompt.strip()}"
+    if not (tasks_text or "").strip():
+        return {"solutions_text": ""}
+
+    user_prompt = "Вот список задач. Напишите решения по указанным правилам.\n\n" + tasks_text.strip()
     resp = await chat_with_gpt(
-        messages=[{"role": "system", "content": sys}, {"role": "user", "content": user}],
+        messages=[
+            {"role": "system", "content": _SYSTEM_SOLUTIONS},
+            {"role": "user", "content": user_prompt},
+        ],
         temperature=0.7,
-        max_tokens=1600,
-        model="gpt-5-turbo",
+        max_tokens=3000,  # решения объёмнее условий
+        model="gpt-5",    # по умолчанию умный; фолбэк — в gpt_service
     )
-    return {"text": (resp.get("text") or "").strip()}
+    text = (resp.get("text") or "").strip()
+    return {
+        "solutions_text": text,
+        "prompt_tokens": int(resp.get("prompt_tokens", 0)),
+        "completion_tokens": int(resp.get("completion_tokens", 0)),
+    }
