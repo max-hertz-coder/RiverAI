@@ -1,84 +1,90 @@
 # worker/task_consumer.py
 import logging
+from typing import Optional
 
 from worker.services.ocr_service import handle_ocr, handle_ocr_and_generate
 from worker.services.plan_service import handle_plan
 from worker.services.tasks_service import handle_tasks
-from worker.tasks.check_homework import handle_check_homework
 from worker.services.chat_service import handle_chat
 from worker.services.homework_check_service import handle_homework_check
-from common.redis_utils import clear_conversation
+from common.redis_utils import clear_conversation, get_context_by_task_id
 
-logging.info(f"handle_chat импортирован: {handle_chat}")
-logging.info(f"Тип handle_chat: {type(handle_chat)}")
+logger = logging.getLogger(__name__)
 
-async def process_task_message(task: dict) -> dict | None:
+
+async def process_task_message(task: dict) -> Optional[dict]:
+    """
+    Единая точка маршрутизации входящих задач из очереди.
+    Возвращаем словарь результата или None (если задача некорректна).
+    """
     task_id = task.get("task_id")
-    task_type = task.get("type")
+    task_type = (task.get("type") or "").strip()
 
-    logging.info(f"🔧 Начинаем обработку задачи: task_id={task_id}, type={task_type}")
-    logging.info(f"🔧 Полная задача: {task}")
+    logger.info("🔧 Начинаем обработку задачи: task_id=%s, type=%s", task_id, task_type)
+    logger.debug("🔧 Полная задача: %r", task)
 
     if not task_id:
-        logging.error("🔴 Task missing task_id")
-        return None
+        logger.error("🔴 Task missing task_id")
+        return {"type": "error", "message": "Отсутствует task_id."}
 
     try:
-        if task_type == "ocr_and_generate":
-            return await handle_ocr_and_generate(task)
-
+        # === OCR ===
         if task_type == "ocr":
             return await handle_ocr(task)
 
+        # === OCR + Генерация ===
+        if task_type == "ocr_and_generate":
+            return await handle_ocr_and_generate(task)
+
+        # === OCR + Проверка ДЗ ===
         if task_type == "ocr_and_check":
-            logging.info(f"🔧 OCR для проверки ДЗ: task_id={task_id}")
+            logger.info("🔧 OCR для проверки ДЗ: task_id=%s", task_id)
             ocr_result = await handle_ocr(task)
-            logging.info(f"🔧 OCR результат: {ocr_result}")
 
             if ocr_result.get("type") == "error":
-                logging.error(f"🔴 OCR ошибка: {ocr_result}")
+                logger.error("🔴 OCR ошибка: %r", ocr_result)
                 return ocr_result
 
             check_task = {"task_id": task_id, "text": ocr_result.get("text", "")}
-            logging.info(f"🔧 Отправляем на проверку ДЗ (len={len(check_task['text'])})")
+            logger.info("🔧 Отправляем на проверку ДЗ (len=%d)", len(check_task["text"]))
             return await handle_homework_check(check_task)
 
+        # === Генерация плана (если используется) ===
         if task_type == "generate_plan":
             return await handle_plan(task)
 
+        # === Генерация заданий/решений (батчем — для скорости) ===
         if task_type in {"generate_tasks", "generate_solutions"}:
-            logging.info(f"🔧 Вызываем handle_tasks для task_id={task_id}")
+            logger.info("🔧 handle_tasks: task_id=%s", task_id)
             result = await handle_tasks(task)
-            logging.info(f"🔧 handle_tasks вернул: {type(result)} - {result}")
             return result
 
+        # === Проверка ДЗ по тексту ===
         if task_type == "check_homework":
             return await handle_homework_check(task)
 
+        # === Чат ===
         if task_type == "chat":
-            logging.info(f"Обрабатываем чат: task_id={task_id}")
             try:
-                result = await handle_chat(task)
-                logging.info(f"Результат чата: {result.get('type')}")
-                return result
+                return await handle_chat(task)
             except Exception as e:
-                logging.exception(f"Ошибка в чате: {e}")
-                return {"type": "error", "message": f"Ошибка в чате: {str(e)}"}
+                logger.exception("Ошибка в чате: %s", e)
+                return {"type": "error", "task_id": task_id, "message": f"Ошибка в чате: {e}"}
 
+        # === Завершение чата ===
         if task_type == "end_chat":
-            from common.redis_utils import get_context_by_task_id
-            context = await get_context_by_task_id(task_id)
-            if context:
-                user_id = context.get("user_id")
-                student_id = context.get("student_id")
-                if user_id and student_id:
+            ctx = await get_context_by_task_id(task_id)
+            if ctx:
+                user_id = ctx.get("user_id")
+                student_id = ctx.get("student_id")
+                if user_id is not None and student_id is not None:
                     await clear_conversation(user_id, student_id)
-                    return {"type": "chat", "answer": "🗑️ Диалог очищен."}
-            return {"type": "chat", "answer": "🗑️ Диалог очищен."}
+            return {"type": "chat", "task_id": task_id, "answer": "🗑️ Диалог очищен."}
 
-        logging.warning("Unknown task type: %s", task_type)
-        return {"type": "error", "message": f"Неизвестный тип задачи: {task_type}"}
+        # === Неизвестный тип ===
+        logger.warning("Unknown task type: %s", task_type)
+        return {"type": "error", "task_id": task_id, "message": f"Неизвестный тип задачи: {task_type}"}
 
     except Exception as e:
-        logging.exception(f"🔴 Error processing task {task_type} with task_id={task_id}: {e}")
-        return {"type": "error", "message": "Внутренняя ошибка обработки задачи."}
+        logger.exception("🔴 Error processing task type=%s task_id=%s: %s", task_type, task_id, e)
+        return {"type": "error", "task_id": task_id, "message": "Внутренняя ошибка обработки задачи."}

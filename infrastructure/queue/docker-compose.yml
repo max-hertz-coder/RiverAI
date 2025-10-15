@@ -1,84 +1,75 @@
-services:
-  redis:
-    image: redis:7-alpine
-    container_name: queue-redis
-    restart: unless-stopped
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis-data:/data
-    healthcheck:
-      test: ["CMD-SHELL", "redis-cli ping || exit 1"]
-      interval: 10s
-      timeout: 3s
-      retries: 10
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "5"
-    networks:
-      - riverai-network
+version: "3.8"
 
+networks:
+  riverai-network:
+    name: riverai-network
+    driver: bridge
+
+volumes:
+  rabbitmq_data:
+  redis_data:
+
+services:
   rabbitmq:
     image: rabbitmq:3-management
     container_name: queue-rabbitmq
     restart: unless-stopped
-    environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS}
     ports:
       - "5672:5672"
       - "15672:15672"
-    volumes:
-      - rabbitmq-data:/var/lib/rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-rabbit_user}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-change_me}
+      # При желании можно задать имя ноды — удобнее в логах
+      RABBITMQ_NODENAME: rabbit@queue-rabbitmq
     healthcheck:
-      test: ["CMD-SHELL", "rabbitmq-diagnostics -q ping || exit 1"]
-      interval: 10s
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - riverai-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: queue-redis
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 20s
       timeout: 5s
-      retries: 10
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "5"
+      retries: 5
+    volumes:
+      - redis_data:/data
     networks:
       - riverai-network
 
   queue-server:
-    build:
-      context: ../..
-      dockerfile: queue_server/Dockerfile
+    # твой образ/сборка сервиса очереди; если это просто «прокладка» — оставь как есть
+    image: queue-queue-server
     container_name: queue-server
-    restart: unless-stopped
     depends_on:
-      redis:
-        condition: service_healthy
       rabbitmq:
         condition: service_healthy
-    env_file:
-      - .env
+      redis:
+        condition: service_started
     environment:
-      TELEGRAM_ID_SALT: ${TELEGRAM_ID_SALT}
-      WORKER_ENCRYPTION_SECRET: ${WORKER_ENCRYPTION_SECRET}
-      YDKEY_V1: ${YDKEY_V1}
-      YDKEY_VERSION: ${YDKEY_VERSION}
-      WORKER_POSTGRES_DSN: ${WORKER_POSTGRES_DSN}
-      # RABBITMQ_HOST здесь должен ссылаться на IP/домен ЭТОГО сервера (или имя контейнера 'rabbitmq' внутри этой машины)
       RABBITMQ_HOST: ${RABBITMQ_HOST:-rabbitmq}
       RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "5"
+      RABBITMQ_USER: ${RABBITMQ_USER:-rabbit_user}
+      RABBITMQ_PASS: ${RABBITMQ_PASS:-change_me}
+      RABBITMQ_TASK_QUEUE: ${RABBITMQ_TASK_QUEUE:-task_queue}
+      RABBITMQ_RESULT_QUEUE: ${RABBITMQ_RESULT_QUEUE:-result_queue}
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_DB_CACHE: ${REDIS_DB_CACHE:-1}
+      # TTL задач по умолчанию (мс)
+      RABBITMQ_TASK_TTL_MS: ${RABBITMQ_TASK_TTL_MS:-900000}
+    restart: unless-stopped
     networks:
       - riverai-network
-
-volumes:
-  redis-data:
-  rabbitmq-data:
-
-networks:
-  riverai-network:
-    external: true

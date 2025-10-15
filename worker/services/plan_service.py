@@ -1,4 +1,3 @@
-# worker/services/plan_service.py
 import logging
 from worker.services.gpt_service import chat_with_gpt
 
@@ -11,7 +10,6 @@ _SYSTEM_PROMPT = (
     "Дайте 3–7 пунктов со сжатыми пояснениями, без формальностей."
 )
 
-
 async def handle_plan(task: dict) -> dict:
     task_id = task.get("task_id")
     description = (task.get("description") or task.get("prompt") or "").strip()
@@ -22,22 +20,25 @@ async def handle_plan(task: dict) -> dict:
         return {"type": "error", "message": "Описание плана не указано."}
 
     try:
+        # Для генерации плана используем быструю модель (gpt-3.5-turbo) для ускорения ответа
         resp = await chat_with_gpt(
-            messages=[{"role": "system", "content": _SYSTEM_PROMPT},
-                      {"role": "user", "content": description}],
+            messages=[
+                {"role": "system", "content": _SYSTEM_PROMPT},
+                {"role": "user", "content": description}
+            ],
             temperature=0.3,
             max_tokens=800,
+            model="gpt-3.5-turbo"
         )
-        text = resp.get("text", "").strip()
+        text = (resp.get("text") or "").strip()
         if text.startswith("```") and text.endswith("```"):
             text = text.strip("`\n")
-
         return {
             "type": "plan",
             "task_id": task_id,
             "plan_text": text,
             "prompt_tokens": int(resp.get("prompt_tokens", 0)),
-            "completion_tokens": int(resp.get("completion_tokens", 0)),
+            "completion_tokens": int(resp.get("completion_tokens", 0))
         }
     except Exception as e:
         logger.exception("Ошибка при генерации плана")

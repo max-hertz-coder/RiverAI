@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import asyncio
 import logging
 import json
@@ -10,13 +9,11 @@ from worker import config, db
 from common.redis_utils import init_redis_pool
 from worker.consumers import task_consumer
 
-
 def _int(v, d):
     try:
         return int(v)
     except Exception:
         return d
-
 
 def _get_db_dsn() -> str:
     """
@@ -34,7 +31,6 @@ def _get_db_dsn() -> str:
     pwd = getattr(config, "DB_PASSWORD", getattr(config, "POSTGRES_PASSWORD", os.getenv("POSTGRES_PASSWORD", "")))
 
     return f"postgresql://{user}:{pwd}@{host}:{port}/{name}"
-
 
 async def handle_message(message: aio_pika.IncomingMessage) -> None:
     async with message.process():
@@ -75,7 +71,6 @@ async def handle_message(message: aio_pika.IncomingMessage) -> None:
         except Exception as e:
             logging.exception(f"🔴 Error saving result to Redis: {e}")
 
-
 async def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s | %(message)s")
 
@@ -100,8 +95,13 @@ async def main() -> None:
     task_queue = getattr(config, "TASK_QUEUE", getattr(config, "RABBITMQ_TASK_QUEUE", os.getenv("RABBITMQ_TASK_QUEUE", "task_queue")))
     logging.info(f"🔧 Подключение к RabbitMQ: {mq_host}:{mq_port}")
 
+    # Устанавливаем увеличенный интервал heartbeat, чтобы соединение не рвалось во время долгих задач
     connection = await aio_pika.connect_robust(
-        host=mq_host, port=mq_port, login=mq_user, password=mq_pass
+        host=mq_host,
+        port=mq_port,
+        login=mq_user,
+        password=mq_pass,
+        heartbeat=120  # Увеличенный heartbeat (120 сек) для предотвращения разрыва соединения
     )
     channel = await connection.channel()
     await channel.set_qos(prefetch_count=1)
@@ -121,7 +121,6 @@ async def main() -> None:
 
     # 4) держим процесс живым
     await asyncio.Future()
-
 
 if __name__ == "__main__":
     asyncio.run(main())

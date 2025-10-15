@@ -11,13 +11,14 @@ logger = logging.getLogger(__name__)
 
 # Порядок предпочтения моделей (сверху — приоритетнее)
 PREFERRED_MODELS: List[str] = [
+    "gpt-5-turbo",    # Более быстрая версия, если доступна
+    "gpt-4-turbo",    # Более быстрая версия GPT-4, если доступна
     "gpt-5-mini",
     "gpt-5",
     "gpt-4o",
     "gpt-4o-mini",
     "gpt-3.5-turbo",
 ]
-
 
 def _pick_key() -> str:
     """Берём случайный ключ из списка, иначе основной из env."""
@@ -35,7 +36,6 @@ def _pick_key() -> str:
     key = random.choice(keys)
     logger.info("🔧 Выбран OpenAI ключ: ****%s (всего доступно: %d)", key[-4:], len(keys))
     return key
-
 
 async def _call_chat_completion(
     client: AsyncOpenAI,
@@ -80,7 +80,6 @@ async def _call_chat_completion(
         "total_tokens": int(getattr(usage, "total_tokens", 0) or 0),
         "raw": resp,  # оставим на случай отладки
     }
-
 
 async def chat_with_gpt(
     messages: List[Dict[str, str]],

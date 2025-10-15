@@ -22,57 +22,52 @@ _NUDGE = (
     "Только условия, без решений и ответов."
 )
 
-
-async def _call_llm(messages, *, max_tokens=1500):
+async def _safe_llm(system_prompt: str, user_prompt: str, *, nudge: bool = False, model: str = None, max_tokens: int = 1800) -> str:
     """
-    Вызываем chat_with_gpt без фиксации конкретной модели — даём шанс фолбэкам.
+    Помощник для вызова chat_with_gpt с заданными системным и пользовательским промптом.
+    Если nudge=True, добавляет в конец пользовательского промпта пример структуры (_NUDGE).
     """
-    return await chat_with_gpt(messages, temperature=1.0, max_tokens=max_tokens, model=None, max_retries=3)
-
-
-async def _safe_llm(system_prompt: str, user_prompt: str, *, nudge: bool = False) -> str:
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt if not nudge else (user_prompt + _NUDGE)},
     ]
-    resp = await _call_llm(messages, max_tokens=1800)
+    resp = await chat_with_gpt(messages, temperature=1.0, max_tokens=max_tokens, model=model or None)
     text = (resp.get("text") or "").strip()
-
-    # снимем обёртку из код-блоков
+    # снимем обёртку из тройных кавычек (если модель вернула в формате кода)
     if text.startswith("```") and text.endswith("```"):
         inner = text.strip("`\n")
         nl = inner.find("\n")
         text = inner[nl + 1 :] if nl != -1 else inner
-
     return text
-
 
 async def generate_raw_tasks(prompt: str) -> dict:
     """
-    Генерация только условий задач.
+    Генерация только условий задач (без решений).
     """
     try:
-        text = await _safe_llm(_SYSTEM_TASKS, prompt, nudge=False)
+        # Используем быструю модель (gpt-3.5-turbo) для генерации условий задач
+        text = await _safe_llm(_SYSTEM_TASKS, prompt.strip(), model="gpt-3.5-turbo", max_tokens=1800)
     except Exception:
-        logger.warning("⚠️ Первая попытка генерации задач не удалась — пробую с NUDGE.")
-        text = await _safe_llm(_SYSTEM_TASKS, prompt, nudge=True)
-
+        logger.warning("⚠️ Первая попытка генерации задач не удалась — пробую с подсказкой структуры (NUDGE).")
+        text = await _safe_llm(_SYSTEM_TASKS, prompt.strip(), nudge=True, model="gpt-3.5-turbo", max_tokens=1800)
     return {"text": text or ""}
-
 
 async def generate_raw_solutions(tasks: str) -> dict:
     """
-    Генерация решений к условиям.
+    Генерация решений к заданным условиям задач.
     """
     try:
-        text = await _safe_llm(_SYSTEM_SOLUTIONS, tasks, nudge=False)
+        # Используем быструю модель для генерации решений; увеличиваем лимит токенов для вместимости всех решений
+        text = await _safe_llm(_SYSTEM_SOLUTIONS, tasks.strip(), model="gpt-3.5-turbo", max_tokens=3000)
     except Exception:
-        logger.warning("⚠️ Первая попытка генерации решений не удалась — пробую с NUDGE.")
-        text = await _safe_llm(_SYSTEM_SOLUTIONS, tasks, nudge=True)
-
+        logger.warning("⚠️ Первая попытка генерации решений не удалась — пробую с подсказкой (NUDGE).")
+        text = await _safe_llm(_SYSTEM_SOLUTIONS, tasks.strip(), nudge=True, model="gpt-3.5-turbo", max_tokens=3000)
     return {"text": text or ""}
 
-
 async def generate_solutions_continuation(original_sols: str, prompt: str) -> dict:
-    full = (original_sols or "").strip() + "\n\n" + (prompt or "").strip()
-    return await generate_raw_solutions(full)
+    """
+    Догенерация решений по продолжению (объединяет уже полученные решения с новым запросом).
+    """
+    full_prompt = (original_sols or "").strip() + "\n\n" + (prompt or "").strip()
+    # Продолжаем генерацию решений (использует ту же функцию generate_raw_solutions)
+    return await generate_raw_solutions(full_prompt)

@@ -17,9 +17,7 @@ from worker.services.pdf_utils import (
 
 logger = logging.getLogger(__name__)
 
-# XeLaTeX-дружественный шаблон.
-# КЛЮЧЕВОЕ: внутри блока с текстом меняем категории символов,
-# чтобы '^' и '_' считались обычными знаками, а не триггерили матрежим.
+# XeLaTeX-дружественный шаблон с безопасными catcodes в теле
 HOMEWORK_CHECK_TEMPLATE = r"""
 \documentclass[12pt]{article}
 \usepackage[margin=1in]{geometry}
@@ -37,7 +35,7 @@ HOMEWORK_CHECK_TEMPLATE = r"""
 \end{center}
 \vspace{0.5cm}
 
-% На этот участок действуют безопасные catcode:
+% Безопасные catcodes для спецсимволов в тексте:
 {\catcode`\^=12\relax \catcode`\_=12\relax
 {{ body | safe }}
 }
@@ -48,55 +46,41 @@ template_homework_check = Template(HOMEWORK_CHECK_TEMPLATE)
 
 
 def clean_latex_for_check(text: str) -> str:
-    # Лёгкая подчистка (при желании можно расширить)
+    """Лёгкая подчистка системного мусора от моделей."""
     return (text or "").replace("`", "")
 
 
 async def check_homework(homework_text: str) -> Dict[str, Any]:
-    # ВАЖНО: system_prompt не менять.
-    system_prompt = """Вы — опытный преподаватель математики. Проверьте домашнюю работу ниже, найдите ошибки и дайте комментарии.
-
-        Оформите ответ в ПРОСТОМ LaTeX формате, используя ТОЛЬКО следующие команды:
-        - \\section*{название} - для разделов
-        - \\begin{enumerate} ... \\end{enumerate} - для списков
-        - \\item - для элементов списка
-
-        ВАЖНЫЕ ПРАВИЛА:
-        1. Каждый \\item должен быть на отдельной строке
-        2. Не оставляйте пустые enumerate блоки
-        3. Используйте простые названия разделов на русском языке
-        4. НЕ используйте \\textbf, \\textit или другие команды форматирования
-        5. НЕ используйте Unicode символы вообще
-        6. НЕ используйте математические символы в тексте
-        7. Пишите простым текстом без специальных символов
-        8. НЕ используйте звездочки (*) в названиях разделов
-        9. Используйте только кириллицу в названиях разделов
-        10. НЕ используйте фигурные скобки в тексте, только в командах
-        11. Избегайте сложных конструкций
-
-        Структура ответа:
-        \\section*{Общая оценка}
-        [Краткая общая оценка работы]
-
-        \\section*{Найденные ошибки}
-        \\begin{enumerate}
-        \\item [Описание ошибки 1]
-        \\item [Описание ошибки 2]
-        \\end{enumerate}
-
-        \\section*{Рекомендации}
-        \\begin{enumerate}
-        \\item [Рекомендация 1]
-        \\item [Рекомендация 2]
-        \\end{enumerate}"""
+    """
+    Основной вызов GPT для проверки ДЗ.
+    Для скорости и качества используем gpt-4-turbo (как ты просил для «простых задач»).
+    """
+    system_prompt = (
+        "Вы — опытный преподаватель математики. Проверьте домашнюю работу ниже, найдите ошибки и дайте комментарии.\n\n"
+        "Оформите ответ в ПРОСТОМ LaTeX формате, используя ТОЛЬКО следующие команды:\n"
+        "- \\section*{название}\n- \\begin{enumerate} ... \\end{enumerate}\n- \\item\n\n"
+        "Важные правила:\n"
+        "1) Каждый \\item с новой строки\n"
+        "2) Без пустых enumerate\n"
+        "3) Простые названия разделов по-русски\n"
+        "4) Без \\textbf, \\textit и прочих оформлений\n"
+        "5) Избегайте специальных Unicode-символов — используйте обычный текст\n"
+        "6) Не используйте звёздочки (*) в названиях\n"
+        "7) В тексте не используйте фигурные скобки кроме обязательных в командах\n"
+        "Структура:\n"
+        "\\section*{Общая оценка}\n...\n\n"
+        "\\section*{Найденные ошибки}\n\\begin{enumerate}\n\\item ...\n\\end{enumerate}\n\n"
+        "\\section*{Рекомендации}\n\\begin{enumerate}\n\\item ...\n\\end{enumerate}"
+    )
 
     return await chat_with_gpt(
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": f"Проверьте эту домашнюю работу:\n\n{homework_text}"},
         ],
-        temperature=0.0,
+        temperature=0.2,
         max_tokens=4000,
+        model="gpt-4-turbo",
     )
 
 
@@ -117,7 +101,7 @@ async def handle_homework_check(task: Dict[str, Any]) -> Dict[str, Any]:
         check_raw = (resp.get("text") or resp.get("content") or "").strip()
         logger.info("🔧 check_homework: длина ответа = %d", len(check_raw))
 
-        # Нормализуем LaTeX-тело (без преамбулы), лёгкая подчистка
+        # Нормализуем LaTeX-тело (без преамбулы) + лёгкая подчистка
         body = normalize_gpt_latex(check_raw)
         body = clean_latex_for_check(body)
 
@@ -143,7 +127,7 @@ async def handle_homework_check(task: Dict[str, Any]) -> Dict[str, Any]:
         return {"type": "error", "task_id": task_id, "message": f"Ошибка при проверке ДЗ: {e}"}
 
 
-# === Доп. путь: сборка отчёта из структурированных полей ===
+# === Опционально: сборка отчёта из структурированных полей ===
 
 def _render_report(overview: str, errors: List[str], recs: List[str]) -> str:
     parts: List[str] = []
